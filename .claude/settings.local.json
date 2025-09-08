@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(mv:*)",
-      "Bash(git init:*)"
+      "Bash(git init:*)",
+      "Bash(npm run build:*)",
+      "Bash(git add:*)"
     ],
     "deny": [],
     "ask": []

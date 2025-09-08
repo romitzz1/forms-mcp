@@ -49,7 +49,10 @@ class GravityFormsMCPServer {
       };
     }
     // OAuth implementation would go here
-    throw new Error('OAuth authentication not implemented yet');
+    throw new McpError(
+      ErrorCode.InvalidParams,
+      'OAuth authentication not implemented yet'
+    );
   }
 
   private async makeRequest(endpoint: string, method: string = 'GET', body?: any): Promise<any> {
@@ -144,13 +147,11 @@ class GravityFormsMCPServer {
               properties: {
                 form_id: {
                   type: "string",
-                  description: "Form ID to submit to",
-                  required: true
+                  description: "Form ID to submit to"
                 },
                 field_values: {
                   type: "object",
-                  description: "Field values as key-value pairs (e.g., 'input_1': 'value')",
-                  required: true
+                  description: "Field values as key-value pairs (e.g., 'input_1': 'value')"
                 },
                 source_page: {
                   type: "number",
@@ -174,13 +175,11 @@ class GravityFormsMCPServer {
               properties: {
                 form_id: {
                   type: "string",
-                  description: "Form ID to create entry for",
-                  required: true
+                  description: "Form ID to create entry for"
                 },
                 field_values: {
                   type: "object",
-                  description: "Field values as key-value pairs",
-                  required: true
+                  description: "Field values as key-value pairs"
                 },
                 entry_meta: {
                   type: "object",
@@ -198,13 +197,11 @@ class GravityFormsMCPServer {
               properties: {
                 entry_id: {
                   type: "string",
-                  description: "Entry ID to update",
-                  required: true
+                  description: "Entry ID to update"
                 },
                 field_values: {
                   type: "object",
-                  description: "Field values to update",
-                  required: true
+                  description: "Field values to update"
                 }
               },
               required: ["entry_id", "field_values"]
@@ -218,8 +215,7 @@ class GravityFormsMCPServer {
               properties: {
                 entry_id: {
                   type: "string",
-                  description: "Entry ID to delete",
-                  required: true
+                  description: "Entry ID to delete"
                 },
                 force: {
                   type: "boolean",
@@ -238,8 +234,7 @@ class GravityFormsMCPServer {
               properties: {
                 title: {
                   type: "string",
-                  description: "Form title",
-                  required: true
+                  description: "Form title"
                 },
                 description: {
                   type: "string",
@@ -265,13 +260,11 @@ class GravityFormsMCPServer {
               properties: {
                 form_id: {
                   type: "string",
-                  description: "Form ID to validate against",
-                  required: true
+                  description: "Form ID to validate against"
                 },
                 field_values: {
                   type: "object",
-                  description: "Field values to validate",
-                  required: true
+                  description: "Field values to validate"
                 }
               },
               required: ["form_id", "field_values"]
@@ -345,7 +338,7 @@ class GravityFormsMCPServer {
         ]
       };
     } else {
-      const endpoint = include_fields ? '/forms?include[]=' : '/forms';
+      const endpoint = include_fields ? '/forms?include[]=form_fields' : '/forms';
       const forms = await this.makeRequest(endpoint);
       return {
         content: [

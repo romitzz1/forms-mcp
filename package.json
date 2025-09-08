@@ -18,7 +18,7 @@
     "rest-api",
     "model-context-protocol"
   ],
-  "author": "Your Name",
+  "author": "",
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^0.4.0"
