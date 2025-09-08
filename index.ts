@@ -26,11 +26,6 @@ class GravityFormsMCPServer {
       {
         name: "gravity-forms-mcp",
         version: "1.0.0",
-      },
-      {
-        capabilities: {
-          tools: {},
-        },
       }
     );
 
