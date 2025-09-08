@@ -2,7 +2,7 @@
   "mcpServers": {
     "gravity-forms": {
       "command": "node",
-      "args": ["/path/to/gravity-forms-mcp-server/dist/index.js"],
+      "args": ["/Users/zachromitz/Documents/git/forms-mcp/dist/index.js"],
       "env": {
         "GRAVITY_FORMS_BASE_URL": "https://yoursite.com",
         "GRAVITY_FORMS_CONSUMER_KEY": "ck_your_consumer_key_here",
