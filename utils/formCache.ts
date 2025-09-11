@@ -262,8 +262,8 @@ export class FormCache {
    * Validate form ID parameter
    */
   private validateFormId(id: number): void {
-    if (!Number.isInteger(id) || id <= 0) {
-      throw new Error('Form ID must be a positive integer');
+    if (!Number.isInteger(id) || id < 0) {
+      throw new Error('Form ID must be a non-negative integer');
     }
   }
 
@@ -290,7 +290,7 @@ export class FormCache {
     }
 
     // Validate required fields
-    if (!form.id || !form.title) {
+    if (form.id == null || !form.title) {
       throw new Error('Form ID and title are required');
     }
 
@@ -315,6 +315,12 @@ export class FormCache {
       if (error.code === 'SQLITE_CONSTRAINT_PRIMARYKEY') {
         throw new Error(`Form with ID ${form.id} already exists`);
       }
+      if (error.code === 'SQLITE_CONSTRAINT_NOTNULL') {
+        throw new Error(`Required field missing: ${error.message}`);
+      }
+      if (error.code?.startsWith('SQLITE_CONSTRAINT')) {
+        throw new Error(`Database constraint violation: ${error.message}`);
+      }
       throw new Error(`Failed to insert form: ${error.message}`);
     }
   }
@@ -331,12 +337,6 @@ export class FormCache {
 
     if (Object.keys(updates).length === 0) {
       throw new Error('No updates provided');
-    }
-
-    // Check if form exists
-    const existingForm = await this.getForm(id);
-    if (!existingForm) {
-      throw new Error(`Form with ID ${id} not found`);
     }
 
     const db = this.getDatabase();
@@ -371,7 +371,12 @@ export class FormCache {
       WHERE id = ?
     `);
 
-    stmt.run(...values);
+    const result = stmt.run(...values);
+    
+    // Check if any rows were affected (form exists)
+    if (result.changes === 0) {
+      throw new Error(`Form with ID ${id} not found`);
+    }
   }
 
   /**
@@ -429,15 +434,14 @@ export class FormCache {
 
     this.validateFormId(id);
 
-    // Check if form exists
-    const existingForm = await this.getForm(id);
-    if (!existingForm) {
-      throw new Error(`Form with ID ${id} not found`);
-    }
-
     const db = this.getDatabase();
     const stmt = db.prepare(`DELETE FROM forms WHERE id = ?`);
-    stmt.run(id);
+    const result = stmt.run(id);
+    
+    // Check if any rows were affected (form exists)
+    if (result.changes === 0) {
+      throw new Error(`Form with ID ${id} not found`);
+    }
   }
 
   /**

@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+Claude's name in this project is "TurboMan", and likes to talk about itself in the third person.
+
 ## Project Overview
 
 This is an **Enhanced** Model Context Protocol (MCP) server that provides comprehensive tools for interacting with Gravity Forms through its REST API v2. The server enables AI assistants and MCP clients to manage WordPress Gravity Forms with advanced capabilities including bulk operations, template management, data export, and form import/export functionality.
@@ -52,7 +54,7 @@ npm run test:watch
 ### Core Tools (Original 8)
 
 1. `get_forms` - Retrieve form definitions and metadata
-2. `get_entries` - Query form entries with filtering/pagination  
+2. `get_entries` - Query form entries with filtering/pagination
 3. `submit_form` - Submit forms with full processing (validation, notifications)
 4. `create_entry` - Create entries directly (bypasses form processing)
 5. `update_entry` - Update existing entries

@@ -317,7 +317,8 @@ describe('FormCache', () => {
 
       it('should validate ID parameter', async () => {
         await expect(formCache.getForm(-1)).rejects.toThrow();
-        await expect(formCache.getForm(0)).rejects.toThrow();
+        // Form ID 0 is now valid
+        await expect(formCache.getForm(0)).resolves.toBeNull();
       });
     });
 
@@ -403,7 +404,8 @@ describe('FormCache', () => {
       it('should validate ID parameter', async () => {
         const updates: FormCacheUpdate = { title: 'Valid Update' };
         await expect(formCache.updateForm(-1, updates)).rejects.toThrow();
-        await expect(formCache.updateForm(0, updates)).rejects.toThrow();
+        // Form ID 0 is now valid, but will fail because form doesn't exist
+        await expect(formCache.updateForm(0, updates)).rejects.toThrow('Form with ID 0 not found');
       });
     });
 
@@ -430,7 +432,8 @@ describe('FormCache', () => {
 
       it('should validate ID parameter', async () => {
         await expect(formCache.deleteForm(-1)).rejects.toThrow();
-        await expect(formCache.deleteForm(0)).rejects.toThrow();
+        // Form ID 0 is now valid, but will fail because form doesn't exist
+        await expect(formCache.deleteForm(0)).rejects.toThrow('Form with ID 0 not found');
       });
     });
 
@@ -531,6 +534,33 @@ describe('FormCache', () => {
         await formCache.insertForm(largeForm);
         const retrieved = await formCache.getForm(101);
         expect(retrieved!.form_data).toBe(largeData);
+      });
+
+      it('should allow form ID 0 as a valid ID', async () => {
+        const zeroForm: FormCacheInsert = {
+          id: 0,
+          title: 'Zero Form',
+          entry_count: 1,
+          is_active: true,
+          form_data: JSON.stringify({ fields: [] })
+        };
+
+        await formCache.insertForm(zeroForm);
+        const retrieved = await formCache.getForm(0);
+        
+        expect(retrieved).toBeDefined();
+        expect(retrieved!.id).toBe(0);
+        expect(retrieved!.title).toBe('Zero Form');
+        
+        // Test update with ID 0
+        await formCache.updateForm(0, { title: 'Updated Zero Form' });
+        const updated = await formCache.getForm(0);
+        expect(updated!.title).toBe('Updated Zero Form');
+        
+        // Test delete with ID 0
+        await formCache.deleteForm(0);
+        const deleted = await formCache.getForm(0);
+        expect(deleted).toBeNull();
       });
     });
   });
