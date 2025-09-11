@@ -6,6 +6,167 @@ import Database from 'better-sqlite3';
 
 const CURRENT_SCHEMA_VERSION = 1;
 
+// =====================================
+// Step 14: Error Classification System
+// =====================================
+
+/**
+ * Base error class for all cache-related errors
+ */
+export class CacheError extends Error {
+  public readonly errorCode: string;
+  public readonly context?: Record<string, any>;
+  public readonly timestamp: Date;
+
+  constructor(message: string, errorCode: string = 'CACHE_ERROR', context?: Record<string, any>) {
+    super(message);
+    this.name = 'CacheError';
+    this.errorCode = errorCode;
+    this.context = context;
+    this.timestamp = new Date();
+  }
+}
+
+/**
+ * Database-specific errors (connection, corruption, constraints)
+ */
+export class DatabaseError extends CacheError {
+  constructor(message: string, context?: Record<string, any>) {
+    super(message, 'DATABASE_ERROR', context);
+    this.name = 'DatabaseError';
+  }
+}
+
+/**
+ * API-related errors (network, authentication, rate limiting)
+ */
+export class ApiError extends CacheError {
+  public readonly httpStatus?: number;
+  public readonly retryable: boolean;
+
+  constructor(message: string, httpStatus?: number, retryable: boolean = false, context?: Record<string, any>) {
+    super(message, 'API_ERROR', context);
+    this.name = 'ApiError';
+    this.httpStatus = httpStatus;
+    this.retryable = retryable;
+  }
+}
+
+/**
+ * Sync workflow errors (data integrity, partial failures)
+ */
+export class SyncError extends CacheError {
+  constructor(message: string, context?: Record<string, any>) {
+    super(message, 'SYNC_ERROR', context);
+    this.name = 'SyncError';
+  }
+}
+
+/**
+ * Configuration and setup errors
+ */
+export class ConfigurationError extends CacheError {
+  constructor(message: string, context?: Record<string, any>) {
+    super(message, 'CONFIGURATION_ERROR', context);
+    this.name = 'ConfigurationError';
+  }
+}
+
+// =====================================
+// Step 14: Logging Framework
+// =====================================
+
+export interface LogContext {
+  operation?: string;
+  form_id?: number;
+  endpoint?: string;
+  duration?: number;
+  error_code?: string;
+  [key: string]: any;
+}
+
+export enum LogLevel {
+  ERROR = 'ERROR',
+  WARN = 'WARN', 
+  INFO = 'INFO',
+  DEBUG = 'DEBUG'
+}
+
+/**
+ * Simple structured logger for FormCache operations
+ */
+export class FormCacheLogger {
+  private static instance: FormCacheLogger;
+  private logLevel: LogLevel = LogLevel.INFO;
+
+  static getInstance(): FormCacheLogger {
+    if (!FormCacheLogger.instance) {
+      FormCacheLogger.instance = new FormCacheLogger();
+    }
+    return FormCacheLogger.instance;
+  }
+
+  setLogLevel(level: LogLevel): void {
+    this.logLevel = level;
+  }
+
+  private shouldLog(level: LogLevel): boolean {
+    const levels = [LogLevel.ERROR, LogLevel.WARN, LogLevel.INFO, LogLevel.DEBUG];
+    const currentIndex = levels.indexOf(this.logLevel);
+    const messageIndex = levels.indexOf(level);
+    return messageIndex <= currentIndex;
+  }
+
+  private formatMessage(level: LogLevel, message: string, context?: LogContext): string {
+    const timestamp = new Date().toISOString();
+    const contextStr = context ? ` | ${JSON.stringify(this.sanitizeContext(context))}` : '';
+    return `[${timestamp}] [FormCache] [${level}] ${message}${contextStr}`;
+  }
+
+  private sanitizeContext(context: LogContext): LogContext {
+    const sanitized = { ...context };
+    
+    // Remove sensitive data
+    const sensitiveKeys = ['api_key', 'secret', 'password', 'token', 'auth'];
+    for (const key of sensitiveKeys) {
+      if (key in sanitized) {
+        sanitized[key] = '[REDACTED]';
+      }
+    }
+    
+    // Truncate large form_data
+    if (sanitized.form_data && typeof sanitized.form_data === 'string' && sanitized.form_data.length > 200) {
+      sanitized.form_data = sanitized.form_data.substring(0, 200) + '... [TRUNCATED]';
+    }
+    
+    return sanitized;
+  }
+
+  error(message: string, context?: LogContext): void {
+    if (this.shouldLog(LogLevel.ERROR)) {
+      console.error(this.formatMessage(LogLevel.ERROR, message, context));
+    }
+  }
+
+  warn(message: string, context?: LogContext): void {
+    if (this.shouldLog(LogLevel.WARN)) {
+      console.warn(this.formatMessage(LogLevel.WARN, message, context));
+    }
+  }
+
+  info(message: string, context?: LogContext): void {
+    if (this.shouldLog(LogLevel.INFO)) {
+      console.log(this.formatMessage(LogLevel.INFO, message, context));
+    }
+  }
+
+  debug(message: string, context?: LogContext): void {
+    if (this.shouldLog(LogLevel.DEBUG)) {
+      console.log(this.formatMessage(LogLevel.DEBUG, message, context));
+    }
+  }
+}
+
 // Type for API call function
 export type ApiCallFunction = (endpoint: string) => Promise<any>;
 
@@ -142,16 +303,34 @@ export interface TableColumn {
 
 export class FormCache {
   private dbManager: DatabaseManager;
+  private logger: FormCacheLogger;
 
   constructor(dbPath?: string) {
     this.dbManager = new DatabaseManager(dbPath);
+    this.logger = FormCacheLogger.getInstance();
   }
 
   /**
    * Initialize the cache with database schema
    */
   async init(): Promise<void> {
+    const startTime = Date.now();
+    
     try {
+      this.logger.info('Initializing FormCache', { 
+        operation: 'init',
+        db_path: this.dbManager.getPath()
+      });
+
+      // Validate database path configuration
+      const dbPath = this.dbManager.getPath();
+      if (!dbPath || dbPath.trim() === '' || dbPath === '' || dbPath === '.') {
+        throw new ConfigurationError('Database path is empty or invalid', {
+          operation: 'init',
+          db_path: dbPath
+        });
+      }
+
       // Initialize database connection
       this.dbManager.init();
       
@@ -160,9 +339,61 @@ export class FormCache {
       
       // Handle schema migrations
       await this.handleSchemaMigration();
+
+      const duration = Date.now() - startTime;
+      this.logger.info('FormCache initialized successfully', {
+        operation: 'init',
+        duration,
+        db_path: dbPath
+      });
       
     } catch (error) {
-      throw new Error(`Failed to initialize FormCache: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      const duration = Date.now() - startTime;
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      
+      this.logger.error('Failed to initialize FormCache', {
+        operation: 'init',
+        duration,
+        error: message,
+        db_path: this.dbManager.getPath()
+      });
+
+      // Classify errors appropriately
+      if (error instanceof ConfigurationError) {
+        throw error;
+      }
+      
+      if (message.includes('SQLITE_CANTOPEN') || 
+          message.includes('permission denied') || 
+          message.includes('disk I/O error') ||
+          message.includes('database is locked') ||
+          message.includes('unable to open database file')) {
+        throw new DatabaseError(`Database initialization failed: ${message}`, {
+          operation: 'init',
+          db_path: this.dbManager.getPath()
+        });
+      }
+      
+      if (message.includes('not a database') || 
+          message.includes('file is not a database') || 
+          message.includes('database disk image is malformed') ||
+          message.includes('SQLITE_CORRUPT')) {
+        this.logger.error('Database corruption detected', {
+          operation: 'init',
+          db_path: this.dbManager.getPath(),
+          corruption: true
+        });
+        throw new DatabaseError(`Database corruption detected: ${message}`, {
+          operation: 'init',
+          db_path: this.dbManager.getPath(),
+          corruption: true
+        });
+      }
+
+      throw new CacheError(`Failed to initialize FormCache: ${message}`, 'INIT_FAILED', {
+        operation: 'init',
+        original_error: message
+      });
     }
   }
 
@@ -192,16 +423,32 @@ export class FormCache {
    */
   async tableExists(tableName: string): Promise<boolean> {
     if (!this.isReady()) {
-      throw new Error('FormCache not initialized');
+      throw new CacheError('FormCache not initialized', 'NOT_INITIALIZED', {
+        operation: 'tableExists',
+        table_name: tableName
+      });
     }
 
-    const db = this.getDatabase();
-    const result = db.prepare(`
-      SELECT name FROM sqlite_master 
-      WHERE type='table' AND name=?
-    `).get(tableName);
-    
-    return result !== undefined;
+    try {
+      const db = this.getDatabase();
+      const result = db.prepare(`
+        SELECT name FROM sqlite_master 
+        WHERE type='table' AND name=?
+      `).get(tableName);
+      
+      return result !== undefined;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error('Failed to check table existence', {
+        operation: 'tableExists',
+        table_name: tableName,
+        error: message
+      });
+      throw new DatabaseError(`Failed to check table existence: ${message}`, {
+        operation: 'tableExists',
+        table_name: tableName
+      });
+    }
   }
 
   /**
@@ -410,12 +657,19 @@ export class FormCache {
    */
   async insertForm(form: FormCacheInsert): Promise<void> {
     if (!this.isReady()) {
-      throw new Error('FormCache not initialized');
+      throw new CacheError('FormCache not initialized', 'NOT_INITIALIZED', {
+        operation: 'insertForm',
+        form_id: form.id
+      });
     }
 
     // Validate required fields
     if (form.id == null || !form.title) {
-      throw new Error('Form ID and title are required');
+      throw new DatabaseError('Form ID and title are required', {
+        operation: 'insertForm',
+        form_id: form.id,
+        has_title: !!form.title
+      });
     }
 
     this.validateFormId(form.id);
@@ -428,6 +682,13 @@ export class FormCache {
     `);
 
     try {
+      this.logger.debug('Inserting form into cache', {
+        operation: 'insertForm',
+        form_id: form.id,
+        title: form.title,
+        is_active: form.is_active
+      });
+
       stmt.run(
         form.id,
         form.title,
@@ -435,17 +696,33 @@ export class FormCache {
         (form.is_active ?? true) ? 1 : 0,
         form.form_data ?? ''
       );
+
+      this.logger.info('Form inserted successfully', {
+        operation: 'insertForm',
+        form_id: form.id
+      });
+
     } catch (error: any) {
+      const context = {
+        operation: 'insertForm',
+        form_id: form.id,
+        error_code: error.code,
+        sqlite_error: error.message
+      };
+
+      this.logger.error('Failed to insert form', context);
+
       if (error.code === 'SQLITE_CONSTRAINT_PRIMARYKEY') {
-        throw new Error(`Form with ID ${form.id} already exists`);
+        throw new DatabaseError(`Form with ID ${form.id} already exists`, context);
       }
       if (error.code === 'SQLITE_CONSTRAINT_NOTNULL') {
-        throw new Error(`Required field missing: ${error.message}`);
+        throw new DatabaseError(`Required field missing: ${error.message}`, context);
       }
       if (error.code?.startsWith('SQLITE_CONSTRAINT')) {
-        throw new Error(`Database constraint violation: ${error.message}`);
+        throw new DatabaseError(`Database constraint violation: ${error.message}`, context);
       }
-      throw new Error(`Failed to insert form: ${error.message}`);
+      
+      throw new DatabaseError(`Failed to insert form: ${error.message}`, context);
     }
   }
 
@@ -508,19 +785,35 @@ export class FormCache {
    */
   async getForm(id: number): Promise<FormCacheRecord | null> {
     if (!this.isReady()) {
-      throw new Error('FormCache not initialized');
+      throw new CacheError('FormCache not initialized', 'NOT_INITIALIZED', {
+        operation: 'getForm',
+        form_id: id
+      });
     }
 
     this.validateFormId(id);
 
-    const db = this.getDatabase();
-    const stmt = db.prepare(`
-      SELECT id, title, entry_count, is_active, last_synced, form_data
-      FROM forms WHERE id = ?
-    `);
+    try {
+      const db = this.getDatabase();
+      const stmt = db.prepare(`
+        SELECT id, title, entry_count, is_active, last_synced, form_data
+        FROM forms WHERE id = ?
+      `);
 
-    const result = stmt.get(id);
-    return result ? this.transformDbResult(result) : null;
+      const result = stmt.get(id);
+      return result ? this.transformDbResult(result) : null;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error('Failed to get form', {
+        operation: 'getForm',
+        form_id: id,
+        error: message
+      });
+      throw new DatabaseError(`Failed to get form: ${message}`, {
+        operation: 'getForm',
+        form_id: id
+      });
+    }
   }
 
   /**
@@ -596,28 +889,100 @@ export class FormCache {
    * Fetch all active forms from the API and transform them to cache format
    */
   async fetchActiveForms(apiCall: ApiCallFunction): Promise<FormCacheRecord[]> {
+    const startTime = Date.now();
+    
     try {
+      this.logger.info('Fetching active forms from API', {
+        operation: 'fetchActiveForms',
+        endpoint: '/forms'
+      });
+
       const response = await apiCall('/forms');
       
       // Validate response format
       if (!this.validateApiResponse(response)) {
-        throw new Error('Invalid API response format');
+        throw new ApiError('Invalid API response format', undefined, false, {
+          operation: 'fetchActiveForms',
+          endpoint: '/forms',
+          response_type: typeof response,
+          is_array: Array.isArray(response)
+        });
       }
 
       // Transform each API form to cache format
       const cacheRecords: FormCacheRecord[] = [];
+      let hasTransformErrors = false;
+      let lastTransformError: string | undefined;
       
       for (const apiForm of response) {
-        // Individual form validation (null IDs will be caught in extractFormMetadata)
-        const cacheRecord = this.transformApiForm(apiForm);
-        cacheRecords.push(cacheRecord);
+        try {
+          // Individual form validation (null IDs will be caught in extractFormMetadata)
+          const cacheRecord = this.transformApiForm(apiForm);
+          cacheRecords.push(cacheRecord);
+        } catch (transformError) {
+          const message = transformError instanceof Error ? transformError.message : 'Unknown error';
+          this.logger.warn('Skipping malformed form in API response', {
+            operation: 'fetchActiveForms',
+            form_data: JSON.stringify(apiForm).substring(0, 200),
+            error: message
+          });
+          hasTransformErrors = true;
+          lastTransformError = message;
+          // Continue processing other forms instead of failing completely
+        }
       }
+      
+      // If all forms failed to transform, throw error
+      if (cacheRecords.length === 0 && hasTransformErrors) {
+        throw new ApiError(`Failed to transform any forms: ${lastTransformError}`, undefined, false, {
+          operation: 'fetchActiveForms',
+          endpoint: '/forms'
+        });
+      }
+
+      const duration = Date.now() - startTime;
+      this.logger.info('Successfully fetched active forms', {
+        operation: 'fetchActiveForms',
+        count: cacheRecords.length,
+        duration
+      });
 
       return cacheRecords;
       
     } catch (error) {
+      const duration = Date.now() - startTime;
       const message = error instanceof Error ? error.message : 'Unknown error';
-      throw new Error(`Failed to fetch active forms: ${message}`);
+      
+      this.logger.error('Failed to fetch active forms', {
+        operation: 'fetchActiveForms',
+        endpoint: '/forms',
+        duration,
+        error: message
+      });
+
+      // Classify API errors appropriately
+      if (error instanceof ApiError) {
+        throw error;
+      }
+
+      // Determine if error is retryable
+      const retryable = this.isRetryableError(message);
+      let httpStatus: number | undefined;
+      
+      if (message.includes('401')) httpStatus = 401;
+      else if (message.includes('403')) httpStatus = 403;
+      else if (message.includes('404')) httpStatus = 404;
+      else if (message.includes('429')) httpStatus = 429;
+      else if (message.includes('500')) httpStatus = 500;
+      else if (message.includes('502')) httpStatus = 502;
+      else if (message.includes('503')) httpStatus = 503;
+      else if (message.includes('504')) httpStatus = 504;
+
+      throw new ApiError(`Failed to fetch active forms: ${message}`, httpStatus, retryable, {
+        operation: 'fetchActiveForms',
+        endpoint: '/forms',
+        duration
+      });
     }
   }
 
@@ -799,7 +1164,7 @@ export class FormCache {
   /**
    * Probe a single form by ID via API
    */
-  async probeFormById(id: number, apiCall: ApiCallFunction): Promise<FormProbeResult> {
+  async probeFormById(id: number, apiCall: ApiCallFunction, updateStats: boolean = true): Promise<FormProbeResult> {
     // Validate form ID
     if (!Number.isInteger(id) || id <= 0) {
       throw new Error('Invalid form ID: must be positive integer');
@@ -824,29 +1189,52 @@ export class FormCache {
         await this.insertFormFromApi(response);
       }
 
-      return {
+      const result = {
         id,
         found: true,
         form
       };
 
+      // Update individual probe stats if requested
+      if (updateStats) {
+        this.lastProbeStats.attempted++;
+        this.lastProbeStats.found++;
+        this.consecutiveFailures = 0;
+      }
+
+      return result;
+
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       
+      let result: FormProbeResult;
+      
       // Handle malformed response as an error case
       if (errorMessage.includes('Invalid form ID')) {
-        return {
+        result = {
           id,
           found: false,
           error: 'Invalid form data in API response'
         };
+      } else {
+        result = {
+          id,
+          found: false,
+          error: errorMessage
+        };
       }
 
-      return {
-        id,
-        found: false,
-        error: errorMessage
-      };
+      // Update individual probe stats if requested
+      if (updateStats) {
+        this.lastProbeStats.attempted++;
+        this.lastProbeStats.failed++;
+        if (result.error) {
+          this.lastProbeStats.errors.push(result.error);
+        }
+        this.consecutiveFailures++;
+      }
+
+      return result;
     }
   }
 
@@ -888,8 +1276,8 @@ export class FormCache {
         break;
       }
 
-      // Probe individual form
-      const result = await this.probeFormById(id, apiCall);
+      // Probe individual form (don't update stats here, we handle them in the batch)
+      const result = await this.probeFormById(id, apiCall, false);
       results.push(result);
 
       // Update statistics
@@ -930,7 +1318,7 @@ export class FormCache {
     
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        const result = await this.probeFormById(id, apiCall);
+        const result = await this.probeFormById(id, apiCall, false);
         
         // Don't retry on 404 - form definitely doesn't exist
         if (!result.found && result.error?.includes('404')) {
@@ -1048,8 +1436,8 @@ export class FormCache {
     reportProgress('beyond-max-probing');
 
     while (results.length < maxProbeLimit && localConsecutiveFailures < consecutiveFailureThreshold) {
-      // Probe current ID
-      const result = await this.probeFormById(currentId, apiCall);
+      // Probe current ID (don't update global stats, this is beyond-max specific)
+      const result = await this.probeFormById(currentId, apiCall, false);
       results.push(result);
 
       if (result.found) {
@@ -1143,7 +1531,9 @@ export class FormCache {
    */
   async syncAllForms(apiCall: ApiCallFunction, options: SyncOptions = {}): Promise<SyncResult> {
     if (!this.isReady()) {
-      throw new Error('FormCache not initialized');
+      throw new CacheError('FormCache not initialized', 'NOT_INITIALIZED', {
+        operation: 'syncAllForms'
+      });
     }
 
     const startTime = Date.now();
@@ -1184,11 +1574,40 @@ export class FormCache {
     };
 
     try {
+      this.logger.info('Starting sync workflow', {
+        operation: 'syncAllForms',
+        forceFullSync,
+        maxProbeFailures
+      });
+
       // Phase 1: Fetch active forms from /forms endpoint
       reportProgress('fetching-active-forms', 0, 0);
       
-      const activeForms = await this.fetchActiveForms(apiCall);
-      const activeFormIds = activeForms.map(f => f.id);
+      let activeForms: FormCacheRecord[];
+      let activeFormIds: number[];
+      
+      try {
+        activeForms = await this.fetchActiveForms(apiCall);
+        activeFormIds = activeForms.map(f => f.id);
+        
+        this.logger.debug('Fetched active forms', {
+          operation: 'syncAllForms',
+          phase: 'fetch-active',
+          count: activeForms.length,
+          active_ids: activeFormIds.slice(0, 10) // Log first 10 IDs
+        });
+      } catch (error) {
+        // For malformed responses or complete API failures that prevent any sync
+        if (error instanceof ApiError && error.message.includes('Invalid API response format')) {
+          throw new SyncError(`Sync failed during active forms fetch: ${error.message}`, {
+            operation: 'syncAllForms',
+            phase: 'fetch-active',
+            original_error: error.message
+          });
+        }
+        // For other errors, let them propagate normally (will be handled by outer catch)
+        throw error;
+      }
       
       // Cache active forms and track statistics
       for (const form of activeForms) {
@@ -1294,15 +1713,46 @@ export class FormCache {
       };
 
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      errors.push(`Sync workflow failed: ${message}`);
-      
       const endTime = Date.now();
+      const duration = endTime - startTime;
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      
+      this.logger.error('Sync workflow failed', {
+        operation: 'syncAllForms',
+        duration,
+        discovered,
+        updated,
+        error: message,
+        error_type: error instanceof Error ? error.constructor.name : 'Unknown'
+      });
+
+      // If it's already a SyncError, re-throw it
+      if (error instanceof SyncError) {
+        throw error;
+      }
+      
+      // If it's another CacheError, add to errors and return partial results  
+      if (error instanceof CacheError) {
+        errors.push(`Sync workflow failed: ${message}`);
+      } else {
+        // Classify unknown errors as sync errors
+        errors.push(`Sync workflow failed: ${message}`);
+        
+        // Only throw SyncError for critical failures, return partial results for recoverable issues
+        if (discovered === 0 && updated === 0) {
+          throw new SyncError(`Complete sync failure: ${message}`, {
+            operation: 'syncAllForms',
+            duration,
+            original_error: message
+          });
+        }
+      }
+      
       return {
         discovered,
         updated,
         errors,
-        duration: endTime - startTime,
+        duration,
         lastSyncTime: new Date(endTime)
       };
     }

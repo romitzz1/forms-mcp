@@ -737,7 +737,13 @@ describe('FormCache', () => {
 
         const mockApiCall = jest.fn().mockResolvedValue(mockApiResponse);
         
-        await expect(formCache.fetchActiveForms(mockApiCall)).rejects.toThrow('Failed to fetch active forms: Invalid form ID: null');
+        // Enhanced error handling should skip invalid forms and continue with valid ones
+        const result = await formCache.fetchActiveForms(mockApiCall);
+        
+        // Should return only the valid form
+        expect(result).toHaveLength(1);
+        expect(result[0].id).toBe(2);
+        expect(result[0].title).toBe('Valid Form');
       });
     });
 

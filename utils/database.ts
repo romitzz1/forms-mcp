@@ -10,7 +10,12 @@ export class DatabaseManager {
   private dbPath: string;
 
   constructor(dbPath?: string) {
-    this.dbPath = dbPath || path.join(process.cwd(), 'data', 'forms-cache.db');
+    // Check for empty string explicitly to catch configuration errors
+    if (dbPath === '') {
+      this.dbPath = '';
+    } else {
+      this.dbPath = dbPath || path.join(process.cwd(), 'data', 'forms-cache.db');
+    }
   }
 
   /**

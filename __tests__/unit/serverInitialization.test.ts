@@ -58,6 +58,7 @@ jest.doMock('../../utils/formCache.js', () => ({
 }));
 
 import { GravityFormsMCPServer } from '../../index.js';
+import { FormCache } from '../../utils/formCache.js';
 
 describe('Server Initialization and Configuration', () => {
   let originalEnv: NodeJS.ProcessEnv;
@@ -333,17 +334,17 @@ describe('Server Initialization and Configuration', () => {
       process.env.GRAVITY_FORMS_CACHE_ENABLED = 'true';
       process.env.GRAVITY_FORMS_CACHE_DB_PATH = './test-cache.db';
       
-      const server = new GravityFormsMCPServer();
-      
-      // Create a new mock cache that fails init
+      // Create a failing mock for FormCache constructor
       const failingMockCache = {
         init: jest.fn().mockRejectedValue(new Error('Init failed')),
         close: jest.fn(),
         isReady: jest.fn().mockReturnValue(false)
       };
       
-      // Replace the cache instance with the failing mock
-      (server as any).formCache = failingMockCache;
+      // Mock the FormCache constructor to return the failing mock
+      jest.mocked(FormCache).mockImplementationOnce(() => failingMockCache as any);
+      
+      const server = new GravityFormsMCPServer();
       
       // Manually call initializeCache to trigger the failure
       await (server as any).initializeCache();
@@ -356,15 +357,25 @@ describe('Server Initialization and Configuration', () => {
       // Set environment to enable cache
       process.env.GRAVITY_FORMS_CACHE_ENABLED = 'true';
       
-      // Configure the mock to fail initialization
-      if (mockFormCacheInstance) {
-        mockFormCacheInstance.init = jest.fn().mockRejectedValue(new Error('Database locked'));
-      }
+      // Create a new failing mock that will be returned by constructor
+      const failingMock = {
+        init: jest.fn().mockRejectedValue(new Error('Database locked')),
+        close: jest.fn(),
+        isReady: jest.fn().mockReturnValue(false),
+        getCacheStats: jest.fn(),
+        getSyncStatus: jest.fn()
+      };
+      
+      // Mock the FormCache constructor to return the failing mock
+      (FormCache as jest.MockedClass<typeof FormCache>).mockImplementationOnce(() => failingMock as any);
       
       const server = new GravityFormsMCPServer();
       
-      // Wait for constructor initialization to complete
-      await new Promise(resolve => setTimeout(resolve, 10));
+      // Explicitly call startup to trigger cache initialization
+      await (server as any).startup();
+      
+      // Verify that cache is null after failed initialization
+      expect((server as any).formCache).toBeNull();
       
       const status = await (server as any).getCacheStatus();
       expect(status.enabled).toBe(false);
