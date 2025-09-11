@@ -85,10 +85,10 @@ describe('getEntries Response Size Management', () => {
       const server = createServer();
       
       // Test the token estimation utility directly
-      const testText = 'This is a test string with exactly 50 characters!';
+      const testText = 'This is a test string with exactly 49 characters!';
       const estimatedTokens = (server as any).estimateTokenCount(testText);
       
-      // 50 characters / 4 = 12.5 tokens, should round up to 13
+      // 49 characters / 4 = 12.25 tokens, should round up to 13
       expect(estimatedTokens).toBe(13);
     });
 
@@ -253,28 +253,28 @@ describe('getEntries Response Size Management', () => {
       expect(responseTokens).toBeLessThan(20000); // Should be under 20k tokens
     });
 
-    it('should reduce page size when individual entries are very large', async () => {
+    it('should handle very large individual entries with reasonable response size', async () => {
       const server = createServer();
-      const massiveEntries = Array.from({ length: 50 }, (_, i) => createLargeEntry(`${i + 1}`, 'huge'));
+      const massiveEntry = createLargeEntry('1', 'huge');
 
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve(massiveEntries.slice(0, 1)) // API would return fewer due to auto-sizing
+        json: () => Promise.resolve([massiveEntry])
       });
 
       const result = await (server as any).getEntries({
         form_id: '193',
-        paging: { page_size: 50 }, // Request large page size
         response_mode: 'auto'
       });
 
-      // Should have processed the request with reduced page size
+      // Should have processed the request successfully
       expect(mockFetch).toHaveBeenCalledTimes(1);
       
-      // Should still return useful results
+      // Should still return useful results (will be summarized due to size)
       expect(result.content[0].text).toContain('John Smith');
+      expect(result.content[0].text).toContain('Response summarized');
       
-      // Should indicate size management was applied
+      // Should maintain reasonable response size
       const responseTokens = Math.ceil(result.content[0].text.length / 4);
       expect(responseTokens).toBeLessThan(25000); // Should stay reasonable
     });

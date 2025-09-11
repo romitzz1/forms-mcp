@@ -813,6 +813,36 @@ export class GravityFormsMCPServer {
   }
 
   /**
+   * Efficiently estimate response size without full JSON generation
+   */
+  private estimateEntriesResponseSize(entries: any[]): number {
+    if (!entries || entries.length === 0) return 0;
+    
+    // Sample first few entries to estimate average size
+    const sampleSize = Math.min(3, entries.length);
+    let totalSampleSize = 0;
+    
+    for (let i = 0; i < sampleSize; i++) {
+      try {
+        const entryJson = JSON.stringify(entries[i]);
+        totalSampleSize += entryJson.length;
+      } catch (error) {
+        // Fallback: estimate by field count and typical values
+        const fieldCount = Object.keys(entries[i] || {}).length;
+        totalSampleSize += fieldCount * 50; // Rough average per field
+      }
+    }
+    
+    const averageEntrySize = totalSampleSize / sampleSize;
+    const estimatedTotalSize = averageEntrySize * entries.length;
+    
+    // Add overhead for JSON formatting: "Entries:\n" + array brackets + indentation
+    const overhead = 50 + (entries.length * 10); // Rough formatting overhead
+    
+    return Math.ceil((estimatedTotalSize + overhead) / 4); // Convert to tokens
+  }
+
+  /**
    * Create a summary of a large entry object to prevent context overflow
    */
   private createEntrySummary(entry: any): any {
@@ -824,8 +854,16 @@ export class GravityFormsMCPServer {
     if (entry.date_created !== undefined) summary.date_created = entry.date_created;
     if (entry.payment_status !== undefined) summary.payment_status = entry.payment_status;
     
-    // Common name fields (52, 55, 1.3, 1.6 for first/last name)
-    const nameFields = ['52', '55', '1.3', '1.6'];
+    // Common name fields - include standalone name fields and common name sub-fields
+    // Format: standalone fields (52, 55) + name sub-fields (X.3 = first name, X.6 = last name)
+    const nameFields = ['52', '55']; // Most common standalone name fields
+    
+    // Also check for name sub-fields (field_id.3 for first name, field_id.6 for last name)
+    Object.keys(entry).forEach(key => {
+      if (key.includes('.') && (key.endsWith('.3') || key.endsWith('.6'))) {
+        nameFields.push(key);
+      }
+    });
     nameFields.forEach(fieldId => {
       if (entry[fieldId] !== undefined) {
         summary[fieldId] = entry[fieldId];
@@ -841,15 +879,21 @@ export class GravityFormsMCPServer {
     });
     
     // Include other small text fields if entry is small overall
-    const entryJson = JSON.stringify(entry);
-    const entrySize = entryJson.length;
+    let entrySize = 0;
+    try {
+      const entryJson = JSON.stringify(entry);
+      entrySize = entryJson.length;
+    } catch (error) {
+      // If JSON.stringify fails (circular references, etc.), estimate size by field count
+      entrySize = Object.keys(entry).length * 100; // Conservative estimate
+    }
     
     if (entrySize < 2000) {
       // Entry is small, include more fields
       Object.keys(entry).forEach(key => {
-        if (summary[key] === undefined && entry[key] !== undefined) {
+        if (summary[key] === undefined && entry[key] != null) {
           const fieldValue = String(entry[key]);
-          if (fieldValue.length < 200) { // Only include short field values
+          if (fieldValue.length < 200 && fieldValue !== 'undefined') { // Only include short, valid field values
             summary[key] = entry[key];
           }
         }
@@ -1172,9 +1216,8 @@ Consider using form templates or cloning for management.`;
       // Explicitly requested full mode - use all data
       processedEntries = entries;
     } else { // response_mode === 'auto'
-      // Auto mode: estimate size and decide
-      const fullResponseText = `Entries:\n${JSON.stringify(entries, null, 2)}`;
-      const estimatedTokens = this.estimateTokenCount(fullResponseText);
+      // Auto mode: efficiently estimate size without full JSON generation
+      const estimatedTokens = this.estimateEntriesResponseSize(entries);
       
       if (estimatedTokens > 20000) {
         // Response too large, use summary mode
