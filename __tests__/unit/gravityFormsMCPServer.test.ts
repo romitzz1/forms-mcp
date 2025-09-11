@@ -55,13 +55,13 @@ describe('GravityFormsMCPServer', () => {
 
   describe('Server Instantiation', () => {
     test('should create server instance with correct configuration', () => {
-      const { GravityFormsMCPServer } = require('../../dist/index.js');
+      const { GravityFormsMCPServer } = require('../../index');
       
       expect(() => new GravityFormsMCPServer()).not.toThrow();
     });
 
     test('should load configuration from environment variables', () => {
-      const { GravityFormsMCPServer } = require('../../dist/index.js');
+      const { GravityFormsMCPServer } = require('../../index');
       const server = new GravityFormsMCPServer();
       
       // Access private config through reflection for testing
@@ -82,7 +82,7 @@ describe('GravityFormsMCPServer', () => {
 
       // Clear module cache to force reload
       delete require.cache[require.resolve('../../dist/index.js')];
-      const { GravityFormsMCPServer } = require('../../dist/index.js');
+      const { GravityFormsMCPServer } = require('../../index');
       const server = new GravityFormsMCPServer();
       
       const config = (server as any).config;
@@ -96,7 +96,7 @@ describe('GravityFormsMCPServer', () => {
 
   describe('Authentication', () => {
     test('should generate correct basic auth headers', () => {
-      const { GravityFormsMCPServer } = require('../../dist/index.js');
+      const { GravityFormsMCPServer } = require('../../index');
       const server = new GravityFormsMCPServer();
       
       const headers = (server as any).getAuthHeaders();
@@ -113,12 +113,10 @@ describe('GravityFormsMCPServer', () => {
     test('should throw error for unsupported auth method', () => {
       process.env.GRAVITY_FORMS_AUTH_METHOD = 'oauth';
       
-      // Clear module cache to force reload
-      delete require.cache[require.resolve('../../dist/index.js')];
-      const { GravityFormsMCPServer } = require('../../dist/index.js');
-      const server = new GravityFormsMCPServer();
+      const { GravityFormsMCPServer } = require('../../index');
       
-      expect(() => (server as any).getAuthHeaders()).toThrow('OAuth authentication not implemented yet');
+      // Should fail during construction when trying to initialize BulkOperationsManager
+      expect(() => new GravityFormsMCPServer()).toThrow('OAuth authentication not implemented yet');
     });
   });
 
@@ -130,7 +128,7 @@ describe('GravityFormsMCPServer', () => {
       ]));
       global.fetch = mockFetch;
 
-      const { GravityFormsMCPServer } = require('../../dist/index.js');
+      const { GravityFormsMCPServer } = require('../../index');
       const server = new GravityFormsMCPServer();
       
       const result = await (server as any).makeRequest('/forms');
@@ -156,7 +154,7 @@ describe('GravityFormsMCPServer', () => {
       ]));
       global.fetch = mockFetch;
 
-      const { GravityFormsMCPServer } = require('../../dist/index.js');
+      const { GravityFormsMCPServer } = require('../../index');
       const server = new GravityFormsMCPServer();
       
       const result = await (server as any).makeRequest('/forms', 'POST', requestBody);
@@ -183,7 +181,7 @@ describe('GravityFormsMCPServer', () => {
       });
       global.fetch = mockFetch;
 
-      const { GravityFormsMCPServer } = require('../../dist/index.js');
+      const { GravityFormsMCPServer } = require('../../index');
       const server = new GravityFormsMCPServer();
       
       await expect((server as any).makeRequest('/invalid-endpoint'))
@@ -195,7 +193,7 @@ describe('GravityFormsMCPServer', () => {
       const mockFetch = jest.fn().mockRejectedValue(new Error('Network error'));
       global.fetch = mockFetch;
 
-      const { GravityFormsMCPServer } = require('../../dist/index.js');
+      const { GravityFormsMCPServer } = require('../../index');
       const server = new GravityFormsMCPServer();
       
       await expect((server as any).makeRequest('/forms'))
@@ -206,7 +204,7 @@ describe('GravityFormsMCPServer', () => {
 
   describe('Server Lifecycle', () => {
     test('should run without errors', async () => {
-      const { GravityFormsMCPServer } = require('../../dist/index.js');
+      const { GravityFormsMCPServer } = require('../../index');
       const server = new GravityFormsMCPServer();
       
       // Mock the run method dependencies

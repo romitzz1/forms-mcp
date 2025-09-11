@@ -13,6 +13,7 @@ module.exports = {
   coverageReporters: ['text', 'lcov', 'html'],
   setupFilesAfterEnv: ['<rootDir>/__tests__/setup.ts'],
   moduleNameMapper: {
-    '^@/(.*)$': '<rootDir>/$1'
+    '^@/(.*)$': '<rootDir>/$1',
+    '^(\\.{1,2}/.*)\\.js$': '$1'
   }
 };

@@ -10,6 +10,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { DataExporter } from "./utils/dataExporter.js";
 import { ValidationHelper } from "./utils/validation.js";
+import { BulkOperationsManager } from "./utils/bulkOperations.js";
 
 // Configuration interface
 interface GravityFormsConfig {
@@ -24,6 +25,7 @@ export class GravityFormsMCPServer {
   private config: GravityFormsConfig;
   private dataExporter: DataExporter;
   private validator: ValidationHelper;
+  private bulkOperationsManager: BulkOperationsManager;
 
   constructor() {
     this.server = new Server(
@@ -44,6 +46,10 @@ export class GravityFormsMCPServer {
     // Initialize utility classes
     this.dataExporter = new DataExporter();
     this.validator = new ValidationHelper();
+    this.bulkOperationsManager = new BulkOperationsManager(
+      `${this.config.baseUrl}/wp-json/gf/v2`,
+      this.getAuthHeaders()
+    );
 
     this.setupToolHandlers();
   }
@@ -313,6 +319,43 @@ export class GravityFormsMCPServer {
               },
               required: ["form_id", "format"]
             }
+          },
+          {
+            name: "process_entries_bulk",
+            description: "⚠️  WARNING: DESTRUCTIVE OPERATION ⚠️\n\nPerform bulk operations on multiple entries (delete, update status, update fields). This operation can permanently modify or delete large numbers of entries. ALWAYS confirm operations with 'confirm: true' parameter. Supports up to 100 entries per operation for safety.\n\nOperations:\n- delete: Permanently delete entries (CANNOT be undone)\n- update_status: Change entry status (active, spam, trash)\n- update_fields: Update specific field values\n\nSafety features: confirmation required, operation limits, rollback data for updates, audit trails.",
+            inputSchema: {
+              type: "object",
+              properties: {
+                entry_ids: {
+                  type: "array",
+                  items: { type: "string" },
+                  description: "Array of entry IDs to process (max 100)",
+                  maxItems: 100
+                },
+                operation_type: {
+                  type: "string",
+                  enum: ["delete", "update_status", "update_fields"],
+                  description: "Type of bulk operation to perform"
+                },
+                confirm: {
+                  type: "boolean",
+                  description: "REQUIRED: Must be true to execute destructive operations"
+                },
+                data: {
+                  type: "object",
+                  description: "Data for update operations (required for update_status and update_fields)",
+                  properties: {
+                    status: {
+                      type: "string",
+                      enum: ["active", "spam", "trash"],
+                      description: "New status for update_status operations"
+                    }
+                  },
+                  additionalProperties: true
+                }
+              },
+              required: ["entry_ids", "operation_type", "confirm"]
+            }
           }
         ]
       };
@@ -350,6 +393,9 @@ export class GravityFormsMCPServer {
           
           case "export_entries_formatted":
             return await this.exportEntriesFormatted(args);
+          
+          case "process_entries_bulk":
+            return await this.processEntriesBulk(args);
           
           default:
             throw new McpError(
@@ -661,6 +707,91 @@ ${exportResult.base64Data}`
       throw new McpError(
         ErrorCode.InternalError,
         `Export failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
+  }
+
+  private async processEntriesBulk(args: any) {
+    try {
+      // Extract and validate parameters
+      const { entry_ids, operation_type, confirm, data } = args;
+
+      // Validate using BulkOperationsManager
+      const validation = this.bulkOperationsManager.validateOperation({
+        entry_ids,
+        operation_type,
+        confirm,
+        data
+      });
+
+      if (!validation.isValid) {
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          `Validation failed: ${validation.errors.join(', ')}`
+        );
+      }
+
+      // Execute the bulk operation
+      const result = await this.bulkOperationsManager.executeOperation({
+        entry_ids,
+        operation_type,
+        confirm,
+        data
+      });
+
+      // Format the response
+      let responseText = `Bulk operation completed successfully!\n\n`;
+      responseText += `Operation: ${result.operation_type.toUpperCase()}\n`;
+      responseText += `Total requested: ${result.total_requested}\n`;
+      responseText += `Successful: ${result.successful}\n`;
+      responseText += `Failed: ${result.failed}\n`;
+
+      if (result.successful > 0) {
+        responseText += `\nSuccessful entries: ${result.success_ids.join(', ')}\n`;
+      }
+
+      if (result.failed_entries.length > 0) {
+        responseText += `\nFailed entries:\n`;
+        result.failed_entries.forEach(failure => {
+          responseText += `- ${failure.entry_id}: ${failure.error}`;
+          if (failure.error_code) {
+            responseText += ` (${failure.error_code})`;
+          }
+          responseText += `\n`;
+        });
+      }
+
+      if (result.can_rollback && result.rollback_data) {
+        responseText += `\n🔄 Rollback available: ${result.rollback_data.original_values.length} entries can be restored using the original data.\n`;
+        responseText += `Rollback instructions: ${result.rollback_data.rollback_instructions}\n`;
+      }
+
+      if (result.audit_trail) {
+        responseText += `\n📋 Audit Trail:\n`;
+        responseText += `- Operation ID: ${result.audit_trail.operation_id}\n`;
+        responseText += `- Timestamp: ${result.audit_trail.timestamp}\n`;
+        responseText += `- Duration: ${result.audit_trail.duration_ms}ms\n`;
+        responseText += `- User confirmation: ${result.audit_trail.user_confirmation}\n`;
+      }
+
+      responseText += `\n${result.operation_summary}`;
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: responseText
+          }
+        ]
+      };
+
+    } catch (error) {
+      if (error instanceof McpError) {
+        throw error;
+      }
+      throw new McpError(
+        ErrorCode.InternalError,
+        `Bulk operation failed: ${error instanceof Error ? error.message : 'Unknown error'}`
       );
     }
   }
