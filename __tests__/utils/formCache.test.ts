@@ -104,6 +104,18 @@ describe('FormCache', () => {
         ])
       );
     });
+
+    it('should reject invalid table names for columns', async () => {
+      await expect(formCache.getTableColumns('invalid-name')).rejects.toThrow('Invalid table name format');
+      await expect(formCache.getTableColumns('123invalid')).rejects.toThrow('Invalid table name format');
+      await expect(formCache.getTableColumns('table;DROP TABLE forms;')).rejects.toThrow('Invalid table name format');
+    });
+
+    it('should reject invalid table names for indexes', async () => {
+      await expect(formCache.getTableIndexes('invalid-name')).rejects.toThrow('Invalid table name format');
+      await expect(formCache.getTableIndexes('123invalid')).rejects.toThrow('Invalid table name format');
+      await expect(formCache.getTableIndexes('table;DROP TABLE forms;')).rejects.toThrow('Invalid table name format');
+    });
   });
 
   describe('database lifecycle', () => {

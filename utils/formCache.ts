@@ -95,6 +95,11 @@ export class FormCache {
       throw new Error('FormCache not initialized');
     }
 
+    // Validate table name to prevent SQL injection
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(tableName)) {
+      throw new Error('Invalid table name format');
+    }
+
     const db = this.getDatabase();
     const columns = db.prepare(`PRAGMA table_info(${tableName})`).all();
     
@@ -113,6 +118,11 @@ export class FormCache {
   async getTableIndexes(tableName: string): Promise<string[]> {
     if (!this.isReady()) {
       throw new Error('FormCache not initialized');
+    }
+
+    // Validate table name to prevent SQL injection
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(tableName)) {
+      throw new Error('Invalid table name format');
     }
 
     const db = this.getDatabase();
