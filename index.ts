@@ -295,24 +295,20 @@ export class GravityFormsMCPServer {
                 },
                 search: {
                   type: "object",
-                  description: "Search criteria for filtering entries",
-                  optional: true
+                  description: "Search criteria for filtering entries"
                 },
                 date_format: {
                   type: "string",
-                  description: "Date format for exported dates",
-                  optional: true
+                  description: "Date format for exported dates"
                 },
                 filename: {
                   type: "string", 
-                  description: "Custom filename for export",
-                  optional: true
+                  description: "Custom filename for export"
                 },
                 include_headers: {
                   type: "boolean",
                   description: "Include headers in CSV export",
-                  default: true,
-                  optional: true
+                  default: true
                 }
               },
               required: ["form_id", "format"]
@@ -584,8 +580,12 @@ export class GravityFormsMCPServer {
         if (search.field_filters && Array.isArray(search.field_filters)) {
           search.field_filters.forEach((filter: any, index: number) => {
             if (filter.key && filter.value) {
-              params.append(`search[field_filters][${index}][key]`, filter.key);
-              params.append(`search[field_filters][${index}][value]`, filter.value);
+              // Sanitize filter values before URL encoding
+              const sanitizedKey = String(filter.key).trim();
+              const sanitizedValue = String(filter.value).trim();
+              
+              params.append(`search[field_filters][${index}][key]`, sanitizedKey);
+              params.append(`search[field_filters][${index}][value]`, sanitizedValue);
             }
           });
         }
@@ -627,14 +627,22 @@ export class GravityFormsMCPServer {
         filename: filename
       };
 
-      const exportResult = await this.dataExporter.export(entries, format, exportOptions);
+      let exportResult;
+      try {
+        exportResult = await this.dataExporter.export(entries, format, exportOptions);
+      } catch (exportError) {
+        throw new McpError(
+          ErrorCode.InternalError,
+          `Data export failed: ${exportError instanceof Error ? exportError.message : 'Unknown export error'}`
+        );
+      }
 
       return {
         content: [
           {
             type: "text",
             text: `Export completed successfully!
-            
+
 Format: ${exportResult.format.toUpperCase()}
 Filename: ${exportResult.filename}
 Records: ${entries.length}
