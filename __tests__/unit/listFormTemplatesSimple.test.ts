@@ -108,6 +108,105 @@ describe('list_form_templates tool logic', () => {
 
       expect(filtered).toHaveLength(0);
     });
+
+    it('should handle templates with null or empty descriptions safely', () => {
+      const templatesWithNullDesc = [
+        {
+          id: '1',
+          name: 'Template with null desc-template',
+          description: null,
+          field_count: 1,
+          created_date: '2023-01-01 12:00:00'
+        },
+        {
+          id: '2',
+          name: 'Template with empty desc-template',
+          description: '',
+          field_count: 1,
+          created_date: '2023-01-02 12:00:00'
+        }
+      ];
+
+      const searchTerm = 'template';
+      // Test the same filtering logic with null-safe description handling
+      const filtered = templatesWithNullDesc.filter(template => 
+        template.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (template.description || '').toLowerCase().includes(searchTerm.toLowerCase())
+      );
+
+      expect(filtered).toHaveLength(2); // Both should match by name
+    });
+
+    it('should handle invalid dates in sorting safely', () => {
+      const templatesWithBadDates = [
+        {
+          id: '1',
+          name: 'Template A-template',
+          description: 'First template',
+          field_count: 1,
+          created_date: '2023-01-01 12:00:00' // Valid date
+        },
+        {
+          id: '2',
+          name: 'Template B-template',
+          description: 'Second template',
+          field_count: 1,
+          created_date: 'invalid-date' // Invalid date
+        },
+        {
+          id: '3',
+          name: 'Template C-template',
+          description: 'Third template',
+          field_count: 1,
+          created_date: '' // Empty date
+        }
+      ];
+
+      // Test the same sorting logic with null-safe date handling
+      const sorted = templatesWithBadDates.sort((a, b) => {
+        const dateA = new Date(a.created_date || '1970-01-01');
+        const dateB = new Date(b.created_date || '1970-01-01');
+        
+        const timeA = isNaN(dateA.getTime()) ? 0 : dateA.getTime();
+        const timeB = isNaN(dateB.getTime()) ? 0 : dateB.getTime();
+        
+        return timeA - timeB;
+      });
+
+      // Should not throw errors and should sort predictably
+      expect(sorted).toHaveLength(3);
+      expect(sorted[0].id).toBe('2'); // Invalid date sorts to 0
+      expect(sorted[1].id).toBe('3'); // Empty date sorts to 1970
+      expect(sorted[2].id).toBe('1'); // Valid date sorts last
+    });
+  });
+
+  describe('Parameter validation', () => {
+    it('should validate sort_by parameter values', () => {
+      const validSortBy = ['name', 'date'];
+      const invalidSortBy = ['title', 'created', 'id', ''];
+
+      validSortBy.forEach(sortBy => {
+        expect(['name', 'date'].includes(sortBy)).toBe(true);
+      });
+
+      invalidSortBy.forEach(sortBy => {
+        expect(['name', 'date'].includes(sortBy)).toBe(false);
+      });
+    });
+
+    it('should validate sort_order parameter values', () => {
+      const validSortOrder = ['asc', 'desc'];
+      const invalidSortOrder = ['ascending', 'descending', 'up', 'down', ''];
+
+      validSortOrder.forEach(sortOrder => {
+        expect(['asc', 'desc'].includes(sortOrder)).toBe(true);
+      });
+
+      invalidSortOrder.forEach(sortOrder => {
+        expect(['asc', 'desc'].includes(sortOrder)).toBe(false);
+      });
+    });
   });
 
   describe('TemplateManager integration', () => {

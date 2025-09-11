@@ -848,13 +848,22 @@ ${exportResult.base64Data}`
       // Extract parameters with defaults
       const { search_term, sort_by = 'name', sort_order = 'asc' } = args;
 
+      // Validate parameters
+      if (sort_by && !['name', 'date'].includes(sort_by)) {
+        throw new McpError(ErrorCode.InvalidParams, `Invalid sort_by value: ${sort_by}. Must be 'name' or 'date'.`);
+      }
+
+      if (sort_order && !['asc', 'desc'].includes(sort_order)) {
+        throw new McpError(ErrorCode.InvalidParams, `Invalid sort_order value: ${sort_order}. Must be 'asc' or 'desc'.`);
+      }
+
       // Filter templates by search term if provided
       let filteredTemplates = allTemplates;
       if (search_term && search_term.trim() !== '') {
         const searchLower = search_term.trim().toLowerCase();
         filteredTemplates = allTemplates.filter(template => 
           template.name.toLowerCase().includes(searchLower) ||
-          template.description.toLowerCase().includes(searchLower)
+          (template.description || '').toLowerCase().includes(searchLower)
         );
       }
 
@@ -865,10 +874,15 @@ ${exportResult.base64Data}`
         if (sort_by === 'name') {
           comparison = a.name.localeCompare(b.name);
         } else if (sort_by === 'date') {
-          // Convert date strings to Date objects for comparison
-          const dateA = new Date(a.created_date);
-          const dateB = new Date(b.created_date);
-          comparison = dateA.getTime() - dateB.getTime();
+          // Convert date strings to Date objects for comparison with safety checks
+          const dateA = new Date(a.created_date || '1970-01-01');
+          const dateB = new Date(b.created_date || '1970-01-01');
+          
+          // Handle invalid dates
+          const timeA = isNaN(dateA.getTime()) ? 0 : dateA.getTime();
+          const timeB = isNaN(dateB.getTime()) ? 0 : dateB.getTime();
+          
+          comparison = timeA - timeB;
         }
 
         return sort_order === 'desc' ? -comparison : comparison;
