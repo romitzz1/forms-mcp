@@ -1,15 +1,31 @@
-# Gravity Forms MCP Server
+# 🚀 Enhanced Gravity Forms MCP Server
 
-A Model Context Protocol (MCP) server that provides tools for interacting with Gravity Forms through its REST API v2. This allows AI assistants and other MCP clients to manage forms, entries, and submissions in WordPress sites running Gravity Forms.
+The ultimate Model Context Protocol (MCP) server that transforms your Gravity Forms into a powerhouse of automation! This isn't just another API wrapper - it's your AI assistant's best friend for managing WordPress forms with style and intelligence.
+
+*Built with the precision of a Swiss watch and the power of a monster truck!* 🏎️
 
 ## Features
 
+### Core Functionality
 - 🔧 **Complete CRUD Operations**: Create, read, update, and delete forms and entries
 - 📝 **Form Submissions**: Submit forms with full validation and processing
 - 🔍 **Advanced Querying**: Search and filter entries with sorting and pagination
 - 🛡️ **Secure Authentication**: Supports Basic Authentication (OAuth 1.0a coming soon)
 - ✅ **Form Validation**: Validate submissions without saving
-- 📊 **Comprehensive API Coverage**: Access all major Gravity Forms REST API v2 endpoints
+
+### Advanced Features
+- 📊 **Data Export**: Export entries to CSV/JSON with advanced formatting options
+- ⚡ **Bulk Operations**: Safely perform bulk delete, update, and status changes on entries
+- 🎨 **Template Management**: Create, manage, and clone form templates
+- 🔄 **Import/Export**: Export form definitions as JSON and import to create new forms
+- 📈 **Audit Trails**: Complete operation tracking for compliance and debugging
+- 🔒 **Safety Mechanisms**: Confirmation required for destructive operations, rollback support
+
+### Developer Experience (The Good Stuff!)
+- 📚 **Battle-Tested**: 281+ tests that would make a QA engineer weep tears of joy
+- 🚀 **TypeScript Supremacy**: Full type safety because nobody has time for runtime surprises
+- 🔧 **Modular Magic**: Clean utility classes that play together like a well-orchestrated symphony
+- 📖 **Documentation That Actually Helps**: Unlike those other projects... you know the ones 😉
 
 ## Prerequisites
 
@@ -177,6 +193,115 @@ Validate form submission without saving.
 **Parameters:**
 - `form_id`: Form ID to validate against
 - `field_values`: Values to validate
+
+### Advanced Tools
+
+#### `export_entries_formatted`
+Export entries from a form in CSV or JSON format with advanced formatting options.
+
+**Parameters:**
+- `form_id`: Form ID to export entries from
+- `format`: Export format ('csv' or 'json')
+- `search` (optional): Search criteria to filter entries
+- `date_format` (optional): Custom date formatting (default: 'YYYY-MM-DD HH:mm:ss')
+- `filename` (optional): Custom filename for export
+- `include_headers` (optional): Include headers in CSV export (default: true)
+
+**Example:**
+```javascript
+{
+  "form_id": "1",
+  "format": "csv",
+  "search": { "status": "active" },
+  "date_format": "MM/DD/YYYY",
+  "filename": "contact-entries-export"
+}
+```
+
+#### `process_entries_bulk`
+⚠️ **DESTRUCTIVE OPERATION** - The nuclear option for bulk operations! Handle with care, like a monster truck at a pottery convention.
+
+**Parameters:**
+- `entry_ids`: Array of entry IDs to process (max 100)
+- `operation_type`: Operation to perform ('delete', 'update_status', 'update_fields')
+- `confirm`: Must be `true` for safety confirmation
+- `data` (optional): Required for update operations
+
+**Examples:**
+```javascript
+// Bulk delete entries
+{
+  "entry_ids": ["101", "102", "103"],
+  "operation_type": "delete",
+  "confirm": true
+}
+
+// Bulk status update
+{
+  "entry_ids": ["104", "105"],
+  "operation_type": "update_status",
+  "confirm": true,
+  "data": { "status": "spam" }
+}
+```
+
+### Template Management Tools
+
+#### `list_form_templates`
+Browse available form templates (forms with '-template' suffix).
+
+**Parameters:**
+- `search_term` (optional): Filter templates by name
+- `sort_by` (optional): Sort by 'name' or 'date'
+- `sort_order` (optional): 'asc' or 'desc'
+
+#### `save_form_as_template`
+Save an existing form as a reusable template.
+
+**Parameters:**
+- `form_id`: Source form ID to save as template
+- `template_name` (optional): Custom template name (defaults to form title + '-template')
+
+#### `create_form_from_template`
+Create a new form from an existing template with customizations.
+
+**Parameters:**
+- `template_id`: Template form ID to clone from
+- `new_form_title`: Title for the new form
+- `field_renames` (optional): Array of field label renames
+
+**Example:**
+```javascript
+{
+  "template_id": "5",
+  "new_form_title": "Customer Contact Form",
+  "field_renames": [
+    { "original_label": "First Name", "new_label": "Customer Name" }
+  ]
+}
+```
+
+#### `clone_form_with_modifications`
+Clone an existing form with intelligent modifications.
+
+**Parameters:**
+- `source_form_id`: Form ID to clone
+- `modifications`: Object with title and field modifications
+
+### Import/Export Tools
+
+#### `export_form_json`
+Export form definition as JSON for backup or migration.
+
+**Parameters:**
+- `form_id`: Form ID to export
+
+#### `import_form_json`
+Import form from JSON with conflict handling.
+
+**Parameters:**
+- `form_json`: JSON string of form definition
+- `force_import` (optional): Overwrite existing forms with same ID
 
 ## Field Input Names
 

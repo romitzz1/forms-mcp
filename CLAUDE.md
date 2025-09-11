@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Model Context Protocol (MCP) server that provides tools for interacting with Gravity Forms through its REST API v2. The server enables AI assistants and MCP clients to manage WordPress Gravity Forms, including form creation, entry management, and form submissions.
+This is an **Enhanced** Model Context Protocol (MCP) server that provides comprehensive tools for interacting with Gravity Forms through its REST API v2. The server enables AI assistants and MCP clients to manage WordPress Gravity Forms with advanced capabilities including bulk operations, template management, data export, and form import/export functionality.
+
+**What makes this special:** This isn't just a basic API wrapper - it's a full-featured, battle-tested MCP server with 16 tools, 281+ tests, and enterprise-grade safety mechanisms. Think of it as the Swiss Army knife of Gravity Forms automation!
 
 ## Development Commands
 
@@ -26,6 +28,15 @@ npm run watch
 
 # Clean build directory
 npm run clean
+
+# Run comprehensive test suite (281+ tests!)
+npm test
+
+# Run tests with coverage reporting
+npm run test:coverage
+
+# Run tests in watch mode during development
+npm run test:watch
 ```
 
 ## Architecture
@@ -33,13 +44,12 @@ npm run clean
 ### Core Components
 
 - **Main Server Class**: `GravityFormsMCPServer` in `index.ts`
-  - Single TypeScript file containing the entire MCP server implementation
+  - Comprehensive MCP server with 16 total tools
   - Uses Model Context Protocol SDK for server infrastructure
   - Handles stdio communication with MCP clients
+  - Modular utility class architecture for maintainability
 
-### Key Methods and Tools
-
-The server implements 8 main tools for Gravity Forms interaction:
+### Core Tools (Original 8)
 
 1. `get_forms` - Retrieve form definitions and metadata
 2. `get_entries` - Query form entries with filtering/pagination  
@@ -49,6 +59,26 @@ The server implements 8 main tools for Gravity Forms interaction:
 6. `delete_entry` - Delete/trash entries
 7. `create_form` - Create new forms programmatically
 8. `validate_form` - Validate submissions without saving
+
+### Enhanced Tools (New 8)
+
+9. `export_entries_formatted` - Export entries to CSV/JSON with advanced formatting
+10. `process_entries_bulk` - Bulk operations with safety confirmations and audit trails
+11. `list_form_templates` - Browse available form templates
+12. `save_form_as_template` - Convert existing forms to reusable templates
+13. `create_form_from_template` - Create forms from templates with customizations
+14. `clone_form_with_modifications` - Intelligent form cloning with modifications
+15. `export_form_json` - Export form definitions for backup/migration
+16. `import_form_json` - Import forms from JSON with conflict resolution
+
+### Utility Classes
+
+- **DataExporter** (`utils/dataExporter.ts`) - CSV/JSON export with base64 encoding
+- **ValidationHelper** (`utils/validation.ts`) - Comprehensive input validation and sanitization
+- **BulkOperationsManager** (`utils/bulkOperations.ts`) - Safe bulk operations with rollback
+- **TemplateManager** (`utils/templateManager.ts`) - Template identification and listing
+- **TemplateCreator** (`utils/templateCreator.ts`) - Safe template modifications and cloning
+- **FormImporter** (`utils/formImporter.ts`) - JSON form import with conflict handling
 
 ### Authentication & Configuration
 
@@ -79,9 +109,21 @@ Use the provided `claude-config.json` as a template for MCP client configuration
 
 ## Key Dependencies
 
+### Production
 - `@modelcontextprotocol/sdk` - Core MCP protocol implementation
-- `@types/node` & `typescript` - TypeScript development tools
 - Node.js 18+ required for runtime
+
+### Development & Testing
+- `typescript` & `@types/node` - TypeScript development tools
+- `jest` & `ts-jest` - Comprehensive testing framework
+- `@types/jest` - TypeScript definitions for Jest
+
+### Notable Features
+- **281+ Tests**: Unit tests covering all utility classes and tool implementations
+- **TypeScript Strict Mode**: Maximum type safety and error prevention
+- **Modular Architecture**: Clean separation of concerns with utility classes
+- **Comprehensive Error Handling**: Proper error propagation and user-friendly messages
+- **Security First**: Input validation, sanitization, and confirmation for destructive operations
 
 ## Field Input Names
 
