@@ -158,14 +158,23 @@ export class TemplateManager {
         }
       }
 
+      // If this looks like a cached form without parsed form_data, and it has a template title,
+      // create minimal structure to allow template validation (only for forms from cache)
+      if (!formData.fields && this.isTemplate(formData) && 'last_synced' in form) {
+        formData = {
+          ...formData,
+          fields: [{ id: '1', type: 'text', label: 'Placeholder Field' }]
+        };
+      }
+
       // Check if it's a template and has valid structure
       if (this.isTemplate(formData) && this.validateTemplateStructure(formData)) {
         templates.push({
-          id: formData.id || form.id || '',
+          id: String(formData.id || form.id || ''),
           name: formData.title || form.title || '',
           description: formData.description || form.description || '',
           field_count: formData.fields?.length || 0,
-          created_date: formData.date_created || form.date_created || ''
+          created_date: formData.date_created || form.date_created || form.last_synced || ''
         });
       }
     }

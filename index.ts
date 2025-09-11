@@ -1178,23 +1178,23 @@ ${exportResult.base64Data}`
                 try {
                   return JSON.parse(form.form_data);
                 } catch (error) {
-                  // If form_data is invalid JSON, create basic form object
+                  // If form_data is invalid JSON, create basic form object with minimal template structure
                   return {
                     id: form.id.toString(),
                     title: form.title,
                     description: '',
-                    fields: [],
+                    fields: [{ id: '1', type: 'text', label: 'Placeholder Field' }], // Minimal valid structure
                     date_created: form.last_synced
                   };
                 }
               }
               
-              // If no form_data, create basic form object
+              // If no form_data, create basic form object with minimal template structure
               return {
                 id: form.id.toString(),
                 title: form.title,
                 description: '',
-                fields: [],
+                fields: [{ id: '1', type: 'text', label: 'Placeholder Field' }], // Minimal valid structure
                 date_created: form.last_synced
               };
             });

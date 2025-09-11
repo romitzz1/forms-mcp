@@ -259,6 +259,36 @@ describe('TemplateManager', () => {
 
       expect(templates).toHaveLength(0);
     });
+
+    it('should handle cached forms with missing form_data but valid template titles', async () => {
+      const cachedFormsWithMissingData = [
+        {
+          id: 1,
+          title: 'Missing Data Template-template',
+          // No form_data field - should still be recognized as template by title
+          last_synced: '2023-01-01T12:00:00Z'
+        },
+        {
+          id: 2,
+          title: 'Not A Template',
+          // No form_data and not a template title
+          last_synced: '2023-01-01T12:00:00Z'
+        }
+      ];
+
+      const templateManager = new TemplateManager();
+      const templates = await templateManager.listTemplates(cachedFormsWithMissingData);
+
+      // Should find 1 template (the one with -template suffix)
+      expect(templates).toHaveLength(1);
+      expect(templates[0]).toEqual({
+        id: '1',
+        name: 'Missing Data Template-template',
+        description: '',
+        field_count: 1, // Should have minimal field structure
+        created_date: '2023-01-01T12:00:00Z'
+      });
+    });
   });
 
   describe('Backward compatibility', () => {
