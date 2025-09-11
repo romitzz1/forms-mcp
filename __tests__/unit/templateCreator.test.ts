@@ -439,5 +439,54 @@ describe('TemplateCreator', () => {
       expect(result.errors).toHaveLength(0);
       expect(result.warnings).toHaveLength(0);
     });
+
+    it('should use field type for more accurate semantic categorization', () => {
+      const mockTemplate = {
+        id: '1',
+        title: 'Form-template',
+        fields: [
+          { id: '1', type: 'date', label: 'Name' }, // date field mislabeled as Name
+          { id: '2', type: 'email', label: 'Age' }   // email field mislabeled as Age
+        ]
+      };
+
+      const dangerousRenames = [
+        { original_label: 'Name', new_label: 'Phone Number' }, // date->contact (dangerous)
+        { original_label: 'Age', new_label: 'Comments' }       // email->text (dangerous)
+      ];
+
+      const result = templateCreator.validateFieldRenames(mockTemplate, dangerousRenames);
+
+      expect(result.success).toBe(false);
+      expect(result.errors.length).toBeGreaterThan(0);
+      expect(result.errors[0]).toContain('dangerous');
+    });
+
+    it('should handle Date objects in form cloning', async () => {
+      const mockTemplate = {
+        id: '1',
+        title: 'Form-template',
+        fields: [{ id: '1', type: 'text', label: 'Name' }],
+        date_created: new Date('2023-01-01'),
+        settings: {
+          save_enabled: true,
+          created_at: new Date('2023-01-01')
+        }
+      };
+
+      mockApiCall.mockResolvedValueOnce(mockTemplate);
+
+      const modifications = {
+        title: 'New Form',
+        field_renames: [],
+        preserve_logic: true
+      };
+
+      const result = await templateCreator.cloneFromTemplate('1', modifications);
+
+      // Should handle Date objects properly (not convert to strings)
+      expect(result.settings.created_at).toBeInstanceOf(Date);
+      expect(result.settings.created_at.getTime()).toBe(new Date('2023-01-01').getTime());
+    });
   });
 });

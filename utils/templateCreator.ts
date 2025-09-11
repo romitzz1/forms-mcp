@@ -29,7 +29,7 @@ export class TemplateCreator {
 
   // Field type semantic categories for validation
   private readonly semanticCategories = {
-    names: ['name', 'first', 'last', 'given', 'family', 'full', 'user', 'contact'],
+    names: ['name', 'first', 'last', 'given', 'family', 'full', 'user'],
     dates: ['date', 'birthday', 'birth', 'born', 'when', 'time', 'day', 'month', 'year'],
     contact: ['email', 'phone', 'mobile', 'telephone', 'contact', 'address', 'street', 'city', 'zip'],
     numbers: ['age', 'count', 'number', 'quantity', 'amount', 'price', 'cost', 'total', 'sum'],
@@ -126,8 +126,8 @@ export class TemplateCreator {
         }
       }
 
-      // Clone the template
-      let clonedForm = JSON.parse(JSON.stringify(template));
+      // Clone the template using a more efficient method
+      let clonedForm = this.deepClone(template);
 
       // Remove template-specific properties
       delete clonedForm.id;
@@ -163,7 +163,7 @@ export class TemplateCreator {
     }
 
     // Clone the form to avoid mutation
-    const clonedForm = JSON.parse(JSON.stringify(form));
+    const clonedForm = this.deepClone(form);
 
     // Apply renames to each field
     for (const field of clonedForm.fields) {
@@ -180,14 +180,13 @@ export class TemplateCreator {
    * Checks if a field rename is dangerous (semantic type mismatch)
    */
   private isDangerousRename(field: any, rename: FieldRename): boolean {
-    const originalCategory = this.getSemanticCategory(rename.original_label);
+    const originalCategory = this.getSemanticCategory(rename.original_label, field.type);
     const newCategory = this.getSemanticCategory(rename.new_label);
 
     // Dangerous combinations that should be prevented
     const dangerousCombos = [
       ['dates', 'contact'],
       ['dates', 'numbers'],
-      ['contact', 'dates'],
       ['contact', 'text'], // email -> comment is dangerous
     ];
 
@@ -205,7 +204,7 @@ export class TemplateCreator {
    * Checks if a field rename is risky but allowed
    */
   private isRiskyRename(field: any, rename: FieldRename): boolean {
-    const originalCategory = this.getSemanticCategory(rename.original_label);
+    const originalCategory = this.getSemanticCategory(rename.original_label, field.type);
     const newCategory = this.getSemanticCategory(rename.new_label);
 
     // Risky but allowed combinations
@@ -226,9 +225,35 @@ export class TemplateCreator {
   }
 
   /**
-   * Determines the semantic category of a field label
+   * Determines the semantic category of a field label, considering actual field type
    */
-  private getSemanticCategory(label: string): string {
+  private getSemanticCategory(label: string, fieldType?: string): string {
+    // First check actual field type for definitive categorization
+    if (fieldType) {
+      switch (fieldType) {
+        case 'date':
+        case 'time':
+          return 'dates';
+        case 'email':
+        case 'phone':
+        case 'address':
+          return 'contact';
+        case 'number':
+        case 'price':
+        case 'quantity':
+          return 'numbers';
+        case 'textarea':
+          return 'text';
+        case 'select':
+        case 'radio':
+        case 'checkbox':
+          return 'choices';
+        case 'name':
+          return 'names';
+      }
+    }
+
+    // Fall back to label-based categorization
     const lowerLabel = label.toLowerCase();
 
     for (const [category, keywords] of Object.entries(this.semanticCategories)) {
@@ -240,5 +265,31 @@ export class TemplateCreator {
     }
 
     return 'unknown';
+  }
+
+  /**
+   * Efficient deep cloning method that handles most use cases better than JSON methods
+   */
+  private deepClone(obj: any): any {
+    if (obj === null || typeof obj !== 'object') {
+      return obj;
+    }
+
+    if (obj instanceof Date) {
+      return new Date(obj.getTime());
+    }
+
+    if (Array.isArray(obj)) {
+      return obj.map(item => this.deepClone(item));
+    }
+
+    const cloned: any = {};
+    for (const key in obj) {
+      if (obj.hasOwnProperty(key)) {
+        cloned[key] = this.deepClone(obj[key]);
+      }
+    }
+
+    return cloned;
   }
 }
