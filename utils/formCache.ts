@@ -15,6 +15,21 @@ export interface FormCacheRecord {
   form_data: string;
 }
 
+export interface FormCacheInsert {
+  id: number;
+  title: string;
+  entry_count?: number;
+  is_active?: boolean;
+  form_data?: string;
+}
+
+export interface FormCacheUpdate {
+  title?: string;
+  entry_count?: number;
+  is_active?: boolean;
+  form_data?: string;
+}
+
 export interface TableColumn {
   name: string;
   type: string;
@@ -241,5 +256,207 @@ export class FormCache {
    */
   private getDatabase(): Database.Database {
     return this.dbManager.getDatabase();
+  }
+
+  /**
+   * Validate form ID parameter
+   */
+  private validateFormId(id: number): void {
+    if (!Number.isInteger(id) || id <= 0) {
+      throw new Error('Form ID must be a positive integer');
+    }
+  }
+
+  /**
+   * Transform raw database result to FormCacheRecord (convert SQLite integers back to booleans)
+   */
+  private transformDbResult(row: any): FormCacheRecord {
+    return {
+      id: row.id,
+      title: row.title,
+      entry_count: row.entry_count,
+      is_active: Boolean(row.is_active),
+      last_synced: row.last_synced,
+      form_data: row.form_data
+    };
+  }
+
+  /**
+   * Insert a new form record into the cache
+   */
+  async insertForm(form: FormCacheInsert): Promise<void> {
+    if (!this.isReady()) {
+      throw new Error('FormCache not initialized');
+    }
+
+    // Validate required fields
+    if (!form.id || !form.title) {
+      throw new Error('Form ID and title are required');
+    }
+
+    this.validateFormId(form.id);
+
+    const db = this.getDatabase();
+    
+    const stmt = db.prepare(`
+      INSERT INTO forms (id, title, entry_count, is_active, form_data, last_synced)
+      VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `);
+
+    try {
+      stmt.run(
+        form.id,
+        form.title,
+        form.entry_count ?? 0,
+        (form.is_active ?? true) ? 1 : 0,
+        form.form_data ?? ''
+      );
+    } catch (error: any) {
+      if (error.code === 'SQLITE_CONSTRAINT_PRIMARYKEY') {
+        throw new Error(`Form with ID ${form.id} already exists`);
+      }
+      throw new Error(`Failed to insert form: ${error.message}`);
+    }
+  }
+
+  /**
+   * Update an existing form record
+   */
+  async updateForm(id: number, updates: FormCacheUpdate): Promise<void> {
+    if (!this.isReady()) {
+      throw new Error('FormCache not initialized');
+    }
+
+    this.validateFormId(id);
+
+    if (Object.keys(updates).length === 0) {
+      throw new Error('No updates provided');
+    }
+
+    // Check if form exists
+    const existingForm = await this.getForm(id);
+    if (!existingForm) {
+      throw new Error(`Form with ID ${id} not found`);
+    }
+
+    const db = this.getDatabase();
+    
+    // Build dynamic update query
+    const updateFields: string[] = [];
+    const values: any[] = [];
+
+    if (updates.title !== undefined) {
+      updateFields.push('title = ?');
+      values.push(updates.title);
+    }
+    if (updates.entry_count !== undefined) {
+      updateFields.push('entry_count = ?');
+      values.push(updates.entry_count);
+    }
+    if (updates.is_active !== undefined) {
+      updateFields.push('is_active = ?');
+      values.push(updates.is_active ? 1 : 0);
+    }
+    if (updates.form_data !== undefined) {
+      updateFields.push('form_data = ?');
+      values.push(updates.form_data);
+    }
+
+    // Always update last_synced
+    updateFields.push('last_synced = CURRENT_TIMESTAMP');
+    values.push(id); // for WHERE clause
+
+    const stmt = db.prepare(`
+      UPDATE forms SET ${updateFields.join(', ')}
+      WHERE id = ?
+    `);
+
+    stmt.run(...values);
+  }
+
+  /**
+   * Get a single form by ID
+   */
+  async getForm(id: number): Promise<FormCacheRecord | null> {
+    if (!this.isReady()) {
+      throw new Error('FormCache not initialized');
+    }
+
+    this.validateFormId(id);
+
+    const db = this.getDatabase();
+    const stmt = db.prepare(`
+      SELECT id, title, entry_count, is_active, last_synced, form_data
+      FROM forms WHERE id = ?
+    `);
+
+    const result = stmt.get(id);
+    return result ? this.transformDbResult(result) : null;
+  }
+
+  /**
+   * Get all forms with optional active-only filtering
+   */
+  async getAllForms(activeOnly?: boolean): Promise<FormCacheRecord[]> {
+    if (!this.isReady()) {
+      throw new Error('FormCache not initialized');
+    }
+
+    const db = this.getDatabase();
+    let query = `
+      SELECT id, title, entry_count, is_active, last_synced, form_data
+      FROM forms
+    `;
+
+    if (activeOnly === true) {
+      query += ` WHERE is_active = true`;
+    }
+
+    query += ` ORDER BY id`;
+
+    const stmt = db.prepare(query);
+    const results = stmt.all();
+    return results.map(row => this.transformDbResult(row));
+  }
+
+  /**
+   * Delete a form by ID
+   */
+  async deleteForm(id: number): Promise<void> {
+    if (!this.isReady()) {
+      throw new Error('FormCache not initialized');
+    }
+
+    this.validateFormId(id);
+
+    // Check if form exists
+    const existingForm = await this.getForm(id);
+    if (!existingForm) {
+      throw new Error(`Form with ID ${id} not found`);
+    }
+
+    const db = this.getDatabase();
+    const stmt = db.prepare(`DELETE FROM forms WHERE id = ?`);
+    stmt.run(id);
+  }
+
+  /**
+   * Get count of forms with optional active-only filtering
+   */
+  async getFormCount(activeOnly?: boolean): Promise<number> {
+    if (!this.isReady()) {
+      throw new Error('FormCache not initialized');
+    }
+
+    const db = this.getDatabase();
+    let query = `SELECT COUNT(*) as count FROM forms`;
+
+    if (activeOnly === true) {
+      query += ` WHERE is_active = true`;
+    }
+
+    const stmt = db.prepare(query);
+    const result = stmt.get() as { count: number };
+    return result.count;
   }
 }
