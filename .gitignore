@@ -52,4 +52,10 @@ pids
 ehthumbs.db
 Thumbs.db
 
+# Database files
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+*.db-journal
+
 local.claude-config.json
