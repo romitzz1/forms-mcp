@@ -303,15 +303,20 @@ describe('FormImporter FormCache Integration', () => {
       // Close the cache to force a failure condition
       await formCache.close();
       
+      // Mock API fallback
+      mockApiCall.mockResolvedValueOnce([]);
+      
       // Try to use the importer with the closed cache
       const importedForm = {
         title: 'Test Form',
         fields: []
       };
       
-      // Should throw error when cache operations fail with complete discovery
-      await expect(formImporter.detectConflicts(importedForm, true))
-        .rejects.toThrow('Failed to check for conflicts');
+      // Should fall back to API when cache operations fail with complete discovery
+      const conflictInfo = await formImporter.detectConflicts(importedForm, true);
+      
+      expect(conflictInfo.hasConflict).toBe(false);
+      expect(mockApiCall).toHaveBeenCalledWith('/forms');
     });
 
     it('should handle empty cache gracefully', async () => {

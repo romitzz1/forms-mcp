@@ -88,19 +88,20 @@ export class FormImporter {
           // Check if cache is stale and auto-sync if needed
           const isStale = await this.formCache.isStale();
           if (isStale) {
-            await this.formCache.refreshCache(this.apiCall);
+            await this.formCache.refreshCache((endpoint: string) => this.apiCall(endpoint));
           }
           
           // Get all forms from cache (including inactive)
           const cachedForms = await this.formCache.getAllForms();
           existingForms = cachedForms.map(cached => ({
-            id: cached.id.toString(),
-            title: cached.title,
+            id: (cached.id ?? 0).toString(),
+            title: cached.title || '',
             is_active: cached.is_active
           }));
         } catch (error) {
-          // If complete discovery is specifically requested but cache fails, throw the error
-          throw error;
+          // For consistency with resolveConflicts, fall back to API when cache fails
+          // This provides more robust behavior than throwing errors
+          existingForms = await this.apiCall('/forms');
         }
       } else if (useCompleteDiscovery && (!this.formCache || !this.formCache.isReady())) {
         // Fall back to API if complete discovery requested but cache unavailable
@@ -159,8 +160,8 @@ export class FormImporter {
           // Get all forms from cache for complete conflict resolution
           const cachedForms = await this.formCache.getAllForms();
           forms = cachedForms.map(cached => ({
-            id: cached.id.toString(),
-            title: cached.title,
+            id: (cached.id ?? 0).toString(),
+            title: cached.title || '',
             is_active: cached.is_active
           }));
         } catch (error) {

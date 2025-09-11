@@ -1590,7 +1590,7 @@ ${exportResult.base64Data}`
         );
       }
 
-      if (use_complete_discovery !== undefined && typeof use_complete_discovery !== 'boolean') {
+      if (typeof use_complete_discovery !== 'boolean') {
         throw new McpError(
           ErrorCode.InvalidParams,
           'use_complete_discovery must be a boolean value'
