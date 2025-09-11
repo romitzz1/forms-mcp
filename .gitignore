@@ -51,3 +51,5 @@ pids
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+local.claude-config.json

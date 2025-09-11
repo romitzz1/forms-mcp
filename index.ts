@@ -17,7 +17,7 @@ interface GravityFormsConfig {
   authMethod: 'basic' | 'oauth';
 }
 
-class GravityFormsMCPServer {
+export class GravityFormsMCPServer {
   private server: Server;
   private config: GravityFormsConfig;
 
