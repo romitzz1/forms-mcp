@@ -119,41 +119,57 @@ export class TemplateManager {
 
   /**
    * Lists all available form templates
-   * Filters forms to only include valid templates
+   * Can work with cached forms array or fetch from API
+   * @param forms - Optional cached forms array. If provided, uses cache instead of API
    */
-  async listTemplates(): Promise<TemplateInfo[]> {
-    if (!this.apiCall) {
-      throw new Error('API call function not provided to TemplateManager');
-    }
+  async listTemplates(forms?: any[] | null): Promise<TemplateInfo[]> {
+    let formsToProcess: any[];
 
-    try {
-      // Fetch all forms from the API
-      const forms = await this.apiCall('/forms');
-
-      if (!Array.isArray(forms)) {
-        return [];
+    if (forms !== undefined && forms !== null) {
+      // Use provided cached forms
+      formsToProcess = Array.isArray(forms) ? forms : [];
+    } else {
+      // Fetch from API (original behavior)
+      if (!this.apiCall) {
+        throw new Error('API call function not provided to TemplateManager');
       }
 
-      // Filter and validate templates
-      const templates: TemplateInfo[] = [];
+      try {
+        const apiResponse = await this.apiCall('/forms');
+        formsToProcess = Array.isArray(apiResponse) ? apiResponse : [];
+      } catch (error) {
+        // Re-throw the error to let the caller handle it
+        throw error;
+      }
+    }
 
-      for (const form of forms) {
-        // Check if it's a template and has valid structure
-        if (this.isTemplate(form) && this.validateTemplateStructure(form)) {
-          templates.push({
-            id: form.id,
-            name: form.title,
-            description: form.description || '',
-            field_count: form.fields.length,
-            created_date: form.date_created || ''
-          });
+    // Filter and validate templates
+    const templates: TemplateInfo[] = [];
+
+    for (const form of formsToProcess) {
+      // For cached forms, we may need to parse form_data if it exists
+      let formData = form;
+      if (form.form_data && typeof form.form_data === 'string') {
+        try {
+          formData = JSON.parse(form.form_data);
+        } catch (error) {
+          // Skip forms with invalid JSON in form_data
+          continue;
         }
       }
 
-      return templates;
-    } catch (error) {
-      // Re-throw the error to let the caller handle it
-      throw error;
+      // Check if it's a template and has valid structure
+      if (this.isTemplate(formData) && this.validateTemplateStructure(formData)) {
+        templates.push({
+          id: formData.id || form.id || '',
+          name: formData.title || form.title || '',
+          description: formData.description || form.description || '',
+          field_count: formData.fields?.length || 0,
+          created_date: formData.date_created || form.date_created || ''
+        });
+      }
     }
+
+    return templates;
   }
 }

@@ -390,6 +390,11 @@ export class GravityFormsMCPServer {
                   enum: ["asc", "desc"],
                   description: "Sort order: ascending or descending",
                   default: "asc"
+                },
+                include_all: {
+                  type: "boolean",
+                  description: "Include inactive/trashed templates by using local cache. When true, performs complete template discovery including inactive forms. When false (default), uses API-only discovery.",
+                  default: false
                 }
               }
             }
@@ -1124,14 +1129,8 @@ ${exportResult.base64Data}`
 
   private async listFormTemplates(args: any) {
     try {
-      // Get TemplateManager (lazy initialization)
-      const templateManager = this.getTemplateManager();
-
-      // Get all templates from TemplateManager
-      const allTemplates = await templateManager.listTemplates();
-
       // Extract parameters with defaults
-      const { search_term, sort_by = 'name', sort_order = 'asc' } = args;
+      const { search_term, sort_by = 'name', sort_order = 'asc', include_all = false } = args;
 
       // Validate parameters
       if (sort_by && !['name', 'date'].includes(sort_by)) {
@@ -1140,6 +1139,77 @@ ${exportResult.base64Data}`
 
       if (sort_order && !['asc', 'desc'].includes(sort_order)) {
         throw new McpError(ErrorCode.InvalidParams, `Invalid sort_order value: ${sort_order}. Must be 'asc' or 'desc'.`);
+      }
+
+      if (include_all !== undefined && typeof include_all !== 'boolean') {
+        throw new McpError(ErrorCode.InvalidParams, 'include_all must be a boolean');
+      }
+
+      // Get TemplateManager (lazy initialization)
+      const templateManager = this.getTemplateManager();
+
+      let allTemplates;
+
+      if (include_all === true) {
+        // Use cache for complete template discovery
+        try {
+          // Check if FormCache is available
+          if (!this.formCache) {
+            console.warn('FormCache not available, falling back to API-only template discovery');
+            allTemplates = await templateManager.listTemplates();
+          } else {
+            // Ensure cache is initialized
+            if (!this.formCache.isReady()) {
+              await this.formCache.init();
+            }
+
+            // Check if cache needs sync
+            if (await this.formCache.isStale()) {
+              await this.formCache.performIncrementalSync(this.makeRequest.bind(this));
+            }
+
+            // Get all cached forms
+            const cachedForms = await this.formCache.getAllForms();
+
+            // Convert FormCacheRecord[] to form objects for TemplateManager
+            const formsData = cachedForms.map(form => {
+              // Parse form_data if it's a JSON string
+              if (form.form_data && typeof form.form_data === 'string') {
+                try {
+                  return JSON.parse(form.form_data);
+                } catch (error) {
+                  // If form_data is invalid JSON, create basic form object
+                  return {
+                    id: form.id.toString(),
+                    title: form.title,
+                    description: '',
+                    fields: [],
+                    date_created: form.last_synced
+                  };
+                }
+              }
+              
+              // If no form_data, create basic form object
+              return {
+                id: form.id.toString(),
+                title: form.title,
+                description: '',
+                fields: [],
+                date_created: form.last_synced
+              };
+            });
+
+            // Use TemplateManager with cached forms
+            allTemplates = await templateManager.listTemplates(formsData);
+          }
+        } catch (error) {
+          // Fall back to API-only behavior if cache fails
+          console.warn('FormCache failed, falling back to API-only template discovery:', error);
+          allTemplates = await templateManager.listTemplates();
+        }
+      } else {
+        // Use API-only behavior (original behavior)
+        allTemplates = await templateManager.listTemplates();
       }
 
       // Filter templates by search term if provided
