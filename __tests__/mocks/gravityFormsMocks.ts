@@ -6,7 +6,7 @@ export interface MockForm {
   title: string;
   description: string;
   fields: MockField[];
-  is_active: boolean;
+  is_active: string;  // Gravity Forms API returns "1" or "0"
   date_created: string;
 }
 
@@ -63,7 +63,7 @@ export class GravityFormsMocks {
           isRequired: false
         }
       ],
-      is_active: true,
+      is_active: "1",
       date_created: '2024-01-01 12:00:00',
       ...overrides
     };

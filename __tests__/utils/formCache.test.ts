@@ -563,5 +563,98 @@ describe('FormCache', () => {
         expect(deleted).toBeNull();
       });
     });
+
+    describe('API data transformation', () => {
+      beforeEach(async () => {
+        formCache = new FormCache(testDbPath);
+        await formCache.init();
+      });
+
+      it('should convert API form data with string is_active to boolean', async () => {
+        const apiForm = {
+          id: '5',
+          title: 'API Form',
+          is_active: '1',  // API returns string
+          entries: []
+        };
+
+        await formCache.insertFormFromApi(apiForm);
+        const retrieved = await formCache.getForm(5);
+        
+        expect(retrieved).toBeDefined();
+        expect(retrieved!.id).toBe(5);
+        expect(retrieved!.title).toBe('API Form');
+        expect(retrieved!.is_active).toBe(true);  // Should be converted to boolean
+        expect(retrieved!.entry_count).toBe(0);
+      });
+
+      it('should handle inactive forms from API', async () => {
+        const apiForm = {
+          id: '6',
+          title: 'Inactive API Form',
+          is_active: '0',  // API returns "0" for inactive
+          entries: [{ id: '1' }, { id: '2' }]
+        };
+
+        await formCache.insertFormFromApi(apiForm);
+        const retrieved = await formCache.getForm(6);
+        
+        expect(retrieved).toBeDefined();
+        expect(retrieved!.is_active).toBe(false);  // Should be converted to boolean false
+        expect(retrieved!.entry_count).toBe(2);
+      });
+
+      it('should handle various API boolean formats', async () => {
+        const testCases = [
+          { is_active: '1', expected: true },
+          { is_active: '0', expected: false },
+          { is_active: 1, expected: true },    // numeric 1
+          { is_active: 0, expected: false },   // numeric 0
+          { is_active: true, expected: true }, // boolean true (edge case)
+          { is_active: false, expected: false } // boolean false (edge case)
+        ];
+
+        for (let i = 0; i < testCases.length; i++) {
+          const testCase = testCases[i];
+          const apiForm = {
+            id: (10 + i).toString(),
+            title: `Test Form ${i}`,
+            is_active: testCase.is_active,
+            entries: []
+          };
+
+          await formCache.insertFormFromApi(apiForm);
+          const retrieved = await formCache.getForm(10 + i);
+          
+          expect(retrieved!.is_active).toBe(testCase.expected);
+        }
+      });
+
+      it('should preserve form_data as JSON string', async () => {
+        const complexApiForm = {
+          id: '20',
+          title: 'Complex Form',
+          is_active: '1',
+          fields: [
+            { id: 1, type: 'text', label: 'Name' },
+            { id: 2, type: 'email', label: 'Email' }
+          ],
+          settings: {
+            requireLogin: false,
+            limitEntries: true
+          }
+        };
+
+        await formCache.insertFormFromApi(complexApiForm);
+        const retrieved = await formCache.getForm(20);
+        
+        expect(retrieved).toBeDefined();
+        expect(retrieved!.form_data).toBeDefined();
+        
+        const parsedData = JSON.parse(retrieved!.form_data);
+        expect(parsedData.fields).toHaveLength(2);
+        expect(parsedData.settings.requireLogin).toBe(false);
+      });
+    });
   });
 });

@@ -282,6 +282,28 @@ export class FormCache {
   }
 
   /**
+   * Transform API form data (strings) to FormCacheInsert (booleans)
+   * Gravity Forms API returns is_active as "1"/"0" strings
+   */
+  private transformApiFormToCache(apiForm: any): FormCacheInsert {
+    return {
+      id: parseInt(apiForm.id, 10),
+      title: apiForm.title || '',
+      entry_count: parseInt(apiForm.entries?.length || '0', 10),
+      is_active: apiForm.is_active === '1' || apiForm.is_active === 1 || apiForm.is_active === true,
+      form_data: JSON.stringify(apiForm)
+    };
+  }
+
+  /**
+   * Insert form from API data (handles string-to-boolean conversion)
+   */
+  async insertFormFromApi(apiForm: any): Promise<void> {
+    const cacheForm = this.transformApiFormToCache(apiForm);
+    await this.insertForm(cacheForm);
+  }
+
+  /**
    * Insert a new form record into the cache
    */
   async insertForm(form: FormCacheInsert): Promise<void> {

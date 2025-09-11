@@ -114,8 +114,8 @@ describe('export_form_json tool logic', () => {
       date_created: '2023-01-01 12:00:00',
       date_updated: '2023-01-02 14:30:00',
       entries_count: 42,
-      is_active: true,
-      is_trash: false
+      is_active: "1",  // Gravity Forms API returns strings
+      is_trash: "0"
     };
 
     // Helper function that simulates form export logic
