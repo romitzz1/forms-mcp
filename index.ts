@@ -8,6 +8,8 @@ import {
   ListToolsRequestSchema,
   McpError,
 } from "@modelcontextprotocol/sdk/types.js";
+import { DataExporter } from "./utils/dataExporter.js";
+import { ValidationHelper } from "./utils/validation.js";
 
 // Configuration interface
 interface GravityFormsConfig {
@@ -20,6 +22,8 @@ interface GravityFormsConfig {
 export class GravityFormsMCPServer {
   private server: Server;
   private config: GravityFormsConfig;
+  private dataExporter: DataExporter;
+  private validator: ValidationHelper;
 
   constructor() {
     this.server = new Server(
@@ -36,6 +40,10 @@ export class GravityFormsMCPServer {
       consumerSecret: process.env.GRAVITY_FORMS_CONSUMER_SECRET || '',
       authMethod: (process.env.GRAVITY_FORMS_AUTH_METHOD as 'basic' | 'oauth') || 'basic'
     };
+
+    // Initialize utility classes
+    this.dataExporter = new DataExporter();
+    this.validator = new ValidationHelper();
 
     this.setupToolHandlers();
   }
@@ -269,6 +277,46 @@ export class GravityFormsMCPServer {
               },
               required: ["form_id", "field_values"]
             }
+          },
+          {
+            name: "export_entries_formatted",
+            description: "Export entries from a form in CSV or JSON format with advanced formatting options",
+            inputSchema: {
+              type: "object",
+              properties: {
+                form_id: {
+                  type: "string",
+                  description: "Form ID to export entries from"
+                },
+                format: {
+                  type: "string",
+                  enum: ["csv", "json"],
+                  description: "Export format"
+                },
+                search: {
+                  type: "object",
+                  description: "Search criteria for filtering entries",
+                  optional: true
+                },
+                date_format: {
+                  type: "string",
+                  description: "Date format for exported dates",
+                  optional: true
+                },
+                filename: {
+                  type: "string", 
+                  description: "Custom filename for export",
+                  optional: true
+                },
+                include_headers: {
+                  type: "boolean",
+                  description: "Include headers in CSV export",
+                  default: true,
+                  optional: true
+                }
+              },
+              required: ["form_id", "format"]
+            }
           }
         ]
       };
@@ -303,6 +351,9 @@ export class GravityFormsMCPServer {
           
           case "validate_form":
             return await this.validateForm(args);
+          
+          case "export_entries_formatted":
+            return await this.exportEntriesFormatted(args);
           
           default:
             throw new McpError(
@@ -506,6 +557,104 @@ export class GravityFormsMCPServer {
         }
       ]
     };
+  }
+
+  private async exportEntriesFormatted(args: any) {
+    // Validate input parameters
+    const validationResult = this.validator.validateExportEntriesParams(args);
+    if (!validationResult.isValid) {
+      throw new McpError(
+        ErrorCode.InvalidParams,
+        validationResult.errors.join(', ')
+      );
+    }
+
+    const { form_id, format, search, date_format, filename, include_headers } = args;
+
+    try {
+      // Build API endpoint URL
+      let endpoint = `/forms/${form_id}/entries`;
+      const params = new URLSearchParams();
+
+      // Add search parameters if provided
+      if (search) {
+        if (search.status) {
+          params.append('search[status]', search.status);
+        }
+        if (search.field_filters && Array.isArray(search.field_filters)) {
+          search.field_filters.forEach((filter: any, index: number) => {
+            if (filter.key && filter.value) {
+              params.append(`search[field_filters][${index}][key]`, filter.key);
+              params.append(`search[field_filters][${index}][value]`, filter.value);
+            }
+          });
+        }
+        if (search.date_range) {
+          if (search.date_range.start) {
+            params.append('search[date_range][start]', search.date_range.start);
+          }
+          if (search.date_range.end) {
+            params.append('search[date_range][end]', search.date_range.end);
+          }
+        }
+      }
+
+      // Append query parameters if any
+      const queryString = params.toString();
+      if (queryString) {
+        endpoint += `?${queryString}`;
+      }
+
+      // Fetch entries from Gravity Forms API
+      const entries = await this.makeRequest(endpoint);
+
+      // Handle empty results
+      if (!Array.isArray(entries) || entries.length === 0) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: "No entries found for the specified criteria."
+            }
+          ]
+        };
+      }
+
+      // Export using DataExporter
+      const exportOptions = {
+        dateFormat: date_format,
+        includeHeaders: include_headers !== false, // Default to true
+        filename: filename
+      };
+
+      const exportResult = await this.dataExporter.export(entries, format, exportOptions);
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Export completed successfully!
+            
+Format: ${exportResult.format.toUpperCase()}
+Filename: ${exportResult.filename}
+Records: ${entries.length}
+File size: ${exportResult.data.length} characters
+
+Base64 encoded data for download:
+${exportResult.base64Data}`
+          }
+        ]
+      };
+
+    } catch (error) {
+      if (error instanceof McpError) {
+        throw error;
+      }
+      throw new McpError(
+        ErrorCode.InternalError,
+        `Export failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
   }
 
   async run() {
