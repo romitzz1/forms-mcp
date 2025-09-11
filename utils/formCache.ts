@@ -1133,6 +1133,7 @@ export class FormCache {
 
     // Set default options
     const maxProbeFailures = options.maxProbeFailures ?? 10;
+    const forceFullSync = options.forceFullSync ?? false;
     const onProgress = options.onProgress;
 
     // Helper to report progress
@@ -1140,6 +1141,25 @@ export class FormCache {
       if (onProgress) {
         onProgress({ phase, current, total, found: foundCount });
       }
+    };
+
+    // Helper to determine if form should be updated
+    const shouldUpdateForm = (existing: FormCacheRecord | null, apiForm: any): boolean => {
+      if (!existing) {
+        return false; // New form, will be inserted
+      }
+      
+      if (forceFullSync) {
+        return true; // Force update regardless of cache age
+      }
+      
+      // Check if cache is stale (more than 1 hour old)
+      const maxCacheAge = 60 * 60 * 1000; // 1 hour in milliseconds
+      const lastSync = new Date(existing.last_synced).getTime();
+      const now = Date.now();
+      const cacheAge = now - lastSync;
+      
+      return cacheAge > maxCacheAge;
     };
 
     try {
@@ -1152,7 +1172,7 @@ export class FormCache {
       // Cache active forms and track statistics
       for (const form of activeForms) {
         const existing = await this.getForm(form.id);
-        if (existing) {
+        if (shouldUpdateForm(existing, form)) {
           await this.updateForm(form.id, {
             title: form.title,
             entry_count: form.entry_count,
@@ -1160,7 +1180,7 @@ export class FormCache {
             form_data: form.form_data
           });
           updated++;
-        } else {
+        } else if (!existing) {
           await this.insertForm({
             id: form.id,
             title: form.title,

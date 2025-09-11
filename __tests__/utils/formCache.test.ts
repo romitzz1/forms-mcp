@@ -1831,7 +1831,7 @@ describe('FormCache', () => {
           throw new Error('404 Not Found');
         });
 
-        const result = await formCache.syncAllForms(mockApiCall);
+        const result = await formCache.syncAllForms(mockApiCall, { forceFullSync: true });
         
         // Verify existing form was updated
         const updatedForm = await formCache.getForm(1);
@@ -1848,7 +1848,7 @@ describe('FormCache', () => {
       });
 
       it('should support force full sync option', async () => {
-        // Pre-populate with recent data
+        // Pre-populate with recent data (fresh cache)
         await formCache.insertForm({ 
           id: 1, 
           title: 'Recent Form', 
@@ -1866,13 +1866,43 @@ describe('FormCache', () => {
           throw new Error('404 Not Found');
         });
 
-        // Force full sync regardless of cache age
+        // Force full sync should update even recent cache
         const result = await formCache.syncAllForms(mockApiCall, { forceFullSync: true });
         
         expect(result.discovered).toBe(1);
+        expect(result.updated).toBe(1); // Should update the existing form due to force flag
         
         const updatedForm = await formCache.getForm(1);
         expect(updatedForm!.title).toBe('Force Updated Form');
+      });
+
+      it('should skip updates for fresh cache when forceFullSync is false', async () => {
+        // Pre-populate with very recent data
+        await formCache.insertForm({ 
+          id: 1, 
+          title: 'Fresh Cache Form', 
+          is_active: true
+        });
+        
+        const activeFormsResponse = [
+          { id: '1', title: 'API Form Title', is_active: '1' }
+        ];
+        
+        const mockApiCall = jest.fn().mockImplementation(async (endpoint: string) => {
+          if (endpoint === '/forms') {
+            return activeFormsResponse;
+          }
+          throw new Error('404 Not Found');
+        });
+
+        // Normal sync should skip fresh cache entries
+        const result = await formCache.syncAllForms(mockApiCall, { forceFullSync: false });
+        
+        expect(result.discovered).toBe(1);
+        expect(result.updated).toBe(0); // Should NOT update fresh cache
+        
+        const cachedForm = await formCache.getForm(1);
+        expect(cachedForm!.title).toBe('Fresh Cache Form'); // Original title preserved
       });
 
       it('should handle configuration options correctly', async () => {
@@ -1952,13 +1982,17 @@ describe('FormCache', () => {
 
     describe('performIncrementalSync', () => {
       it('should find only new forms since last sync', async () => {
-        // Pre-populate cache with older data
-        const oldTimestamp = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(); // 24 hours ago
+        // Pre-populate cache with older data (2 hours ago to trigger update)
+        const oldTimestamp = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(); // 2 hours ago
         await formCache.insertForm({ 
           id: 1, 
           title: 'Existing Form 1', 
           is_active: true
         });
+        
+        // Make the form old by manually updating its timestamp
+        const db = (formCache as any).getDatabase();
+        db.prepare(`UPDATE forms SET last_synced = ? WHERE id = ?`).run(oldTimestamp, 1);
         
         const activeFormsResponse = [
           { id: '1', title: 'Existing Form 1', is_active: '1' }, // Unchanged
