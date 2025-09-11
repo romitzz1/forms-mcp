@@ -428,7 +428,28 @@ describe('Process Entries Bulk Tool', () => {
   });
 
   describe('Integration with BulkOperationsManager', () => {
-    test('should properly initialize BulkOperationsManager with correct parameters', () => {
+    test('should properly initialize BulkOperationsManager with correct parameters when first used', async () => {
+      const mockResult = {
+        operation_type: 'delete' as const,
+        total_requested: 1,
+        successful: 1,
+        failed: 0,
+        success_ids: ['123'],
+        failed_entries: [],
+        can_rollback: false,
+        operation_summary: 'DELETE operation completed: 1 successful, 0 failed'
+      };
+
+      mockBulkManager.validateOperation.mockReturnValue({ isValid: true, errors: [] });
+      mockBulkManager.executeOperation.mockResolvedValue(mockResult);
+
+      // Execute an operation to trigger lazy initialization
+      await (server as any).processEntriesBulk({
+        entry_ids: ['123'],
+        operation_type: 'delete',
+        confirm: true
+      });
+
       expect(MockBulkOperationsManager).toHaveBeenCalledWith(
         'https://test.com/wp-json/gf/v2',
         expect.objectContaining({

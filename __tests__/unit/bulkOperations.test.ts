@@ -543,9 +543,13 @@ describe('BulkOperationsManager', () => {
         confirm: true
       };
 
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ message: 'Success' })
+      mockFetch.mockImplementationOnce(async () => {
+        // Add small delay to ensure measurable timing
+        await new Promise(resolve => setTimeout(resolve, 1));
+        return {
+          ok: true,
+          json: async () => ({ message: 'Success' })
+        };
       });
 
       const result = await bulkManager.executeOperation(params);

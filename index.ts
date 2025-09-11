@@ -25,7 +25,7 @@ export class GravityFormsMCPServer {
   private config: GravityFormsConfig;
   private dataExporter: DataExporter;
   private validator: ValidationHelper;
-  private bulkOperationsManager: BulkOperationsManager;
+  private bulkOperationsManager?: BulkOperationsManager;
 
   constructor() {
     this.server = new Server(
@@ -46,10 +46,8 @@ export class GravityFormsMCPServer {
     // Initialize utility classes
     this.dataExporter = new DataExporter();
     this.validator = new ValidationHelper();
-    this.bulkOperationsManager = new BulkOperationsManager(
-      `${this.config.baseUrl}/wp-json/gf/v2`,
-      this.getAuthHeaders()
-    );
+    // Note: BulkOperationsManager will be initialized lazily when first needed
+    // to avoid auth errors during server startup
 
     this.setupToolHandlers();
   }
@@ -711,13 +709,26 @@ ${exportResult.base64Data}`
     }
   }
 
+  private getBulkOperationsManager(): BulkOperationsManager {
+    if (!this.bulkOperationsManager) {
+      this.bulkOperationsManager = new BulkOperationsManager(
+        `${this.config.baseUrl}/wp-json/gf/v2`,
+        this.getAuthHeaders()
+      );
+    }
+    return this.bulkOperationsManager;
+  }
+
   private async processEntriesBulk(args: any) {
     try {
       // Extract and validate parameters
       const { entry_ids, operation_type, confirm, data } = args;
 
+      // Get BulkOperationsManager (lazy initialization)
+      const bulkManager = this.getBulkOperationsManager();
+
       // Validate using BulkOperationsManager
-      const validation = this.bulkOperationsManager.validateOperation({
+      const validation = bulkManager.validateOperation({
         entry_ids,
         operation_type,
         confirm,
@@ -732,7 +743,7 @@ ${exportResult.base64Data}`
       }
 
       // Execute the bulk operation
-      const result = await this.bulkOperationsManager.executeOperation({
+      const result = await bulkManager.executeOperation({
         entry_ids,
         operation_type,
         confirm,

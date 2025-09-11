@@ -110,13 +110,18 @@ describe('GravityFormsMCPServer', () => {
       expect(decoded).toBe('test_key:test_secret');
     });
 
-    test('should throw error for unsupported auth method', () => {
+    test('should throw error for unsupported auth method', async () => {
       process.env.GRAVITY_FORMS_AUTH_METHOD = 'oauth';
       
       const { GravityFormsMCPServer } = require('../../index');
+      const server = new GravityFormsMCPServer();
       
-      // Should fail during construction when trying to initialize BulkOperationsManager
-      expect(() => new GravityFormsMCPServer()).toThrow('OAuth authentication not implemented yet');
+      // Should fail when trying to use bulk operations (lazy initialization)
+      await expect((server as any).processEntriesBulk({
+        entry_ids: ['123'],
+        operation_type: 'delete',
+        confirm: true
+      })).rejects.toThrow('OAuth authentication not implemented yet');
     });
   });
 

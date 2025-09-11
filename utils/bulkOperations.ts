@@ -172,9 +172,6 @@ export class BulkOperationsManager {
 
     const startTime = Date.now();
     const operationId = this.generateOperationId();
-    
-    // Small delay to ensure measurable timing in tests
-    await new Promise(resolve => setTimeout(resolve, 2));
     const successIds: string[] = [];
     const failedEntries: BulkOperationFailure[] = [];
     let rollbackData: BulkOperationRollbackData | undefined;
@@ -192,15 +189,6 @@ export class BulkOperationsManager {
     // Execute operation for each entry
     for (let i = 0; i < params.entry_ids.length; i++) {
       const entryId = params.entry_ids[i];
-      
-      // Report progress
-      if (progressCallback) {
-        progressCallback({
-          processed: i + 1,
-          total: params.entry_ids.length,
-          current_entry: entryId
-        });
-      }
 
       try {
         await this.executeOperationForEntry(entryId, params);
@@ -212,6 +200,15 @@ export class BulkOperationsManager {
           entry_id: entryId,
           error: errorMessage,
           error_code: errorCode
+        });
+      }
+
+      // Report progress AFTER processing each entry
+      if (progressCallback) {
+        progressCallback({
+          processed: i + 1,
+          total: params.entry_ids.length,
+          current_entry: entryId
         });
       }
     }
@@ -259,6 +256,7 @@ export class BulkOperationsManager {
       case 'update_status':
         url = `${this.baseUrl}/entries/${entryId}`;
         method = 'PUT';
+        // For update_status, only send the status field to avoid confusion
         body = { status: params.data?.status };
         break;
       
