@@ -17,6 +17,22 @@ export interface FormBasicInfo {
   entry_count: number;
 }
 
+// Interface for form probe results
+export interface FormProbeResult {
+  id: number;
+  found: boolean;
+  form?: FormCacheRecord;
+  error?: string;
+}
+
+// Interface for probe statistics tracking
+export interface ProbeStats {
+  attempted: number;
+  found: number;
+  failed: number;
+  errors: string[];
+}
+
 export interface FormCacheRecord {
   id: number;
   title: string;
@@ -691,5 +707,222 @@ export class FormCache {
 
     // Use findIdGaps to get missing IDs
     return this.findIdGaps(activeIds);
+  }
+
+  // =====================================
+  // Step 6: Individual Form Probing Methods
+  // =====================================
+
+  private lastProbeStats: ProbeStats = { attempted: 0, found: 0, failed: 0, errors: [] };
+  private consecutiveFailures = 0;
+  private circuitBreakerThreshold = 5;
+
+  /**
+   * Probe a single form by ID via API
+   */
+  async probeFormById(id: number, apiCall: ApiCallFunction): Promise<FormProbeResult> {
+    // Validate form ID
+    if (!Number.isInteger(id) || id <= 0) {
+      throw new Error('Invalid form ID: must be positive integer');
+    }
+
+    try {
+      const response = await apiCall(`/forms/${id}`);
+      
+      // Transform and validate response
+      const form = this.transformApiForm(response);
+      
+      // Cache the discovered form
+      const existingForm = await this.getForm(id);
+      if (existingForm) {
+        await this.updateForm(id, {
+          title: form.title,
+          entry_count: form.entry_count,
+          is_active: form.is_active,
+          form_data: form.form_data
+        });
+      } else {
+        await this.insertFormFromApi(response);
+      }
+
+      return {
+        id,
+        found: true,
+        form
+      };
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      
+      // Handle malformed response as an error case
+      if (errorMessage.includes('Invalid form ID')) {
+        return {
+          id,
+          found: false,
+          error: 'Invalid form data in API response'
+        };
+      }
+
+      return {
+        id,
+        found: false,
+        error: errorMessage
+      };
+    }
+  }
+
+  /**
+   * Probe multiple forms with rate limiting and statistics tracking
+   */
+  async probeBatch(ids: number[], apiCall: ApiCallFunction): Promise<FormProbeResult[]> {
+    // Validate all IDs upfront
+    for (const id of ids) {
+      if (!Number.isInteger(id) || id <= 0) {
+        throw new Error('Invalid form ID: must be positive integer');
+      }
+    }
+
+    // Handle empty input
+    if (ids.length === 0) {
+      return [];
+    }
+
+    // Reset stats for this batch
+    this.lastProbeStats = { attempted: 0, found: 0, failed: 0, errors: [] };
+    const results: FormProbeResult[] = [];
+
+    for (let i = 0; i < ids.length; i++) {
+      const id = ids[i];
+      
+      // Check circuit breaker
+      if (this.consecutiveFailures >= this.circuitBreakerThreshold) {
+        const remainingIds = ids.slice(i);
+        for (const remainingId of remainingIds) {
+          results.push({
+            id: remainingId,
+            found: false,
+            error: 'Circuit breaker open - too many consecutive failures'
+          });
+          this.lastProbeStats.attempted++;
+          this.lastProbeStats.failed++;
+        }
+        break;
+      }
+
+      // Probe individual form
+      const result = await this.probeFormById(id, apiCall);
+      results.push(result);
+
+      // Update statistics
+      this.lastProbeStats.attempted++;
+      if (result.found) {
+        this.lastProbeStats.found++;
+        this.consecutiveFailures = 0; // Reset circuit breaker
+      } else {
+        this.lastProbeStats.failed++;
+        if (result.error) {
+          this.lastProbeStats.errors.push(result.error);
+        }
+        this.consecutiveFailures++;
+      }
+
+      // Add delay between requests for rate limiting (except last request)
+      if (i < ids.length - 1) {
+        await this.sleep(100);
+      }
+    }
+
+    return results;
+  }
+
+  /**
+   * Probe with retry logic and exponential backoff
+   */
+  async probeWithRetry(id: number, apiCall: ApiCallFunction, maxRetries: number): Promise<FormProbeResult> {
+    // Validate parameters
+    if (maxRetries < 0) {
+      throw new Error('Invalid retry count: must be non-negative');
+    }
+    if (maxRetries > 5) {
+      throw new Error('Max retries too high: maximum is 5');
+    }
+
+    let lastError: string | undefined;
+    
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const result = await this.probeFormById(id, apiCall);
+        
+        // Don't retry on 404 - form definitely doesn't exist
+        if (!result.found && result.error?.includes('404')) {
+          return result;
+        }
+        
+        // Return successful results or non-retryable errors
+        if (result.found || !this.isRetryableError(result.error || '')) {
+          return result;
+        }
+        
+        lastError = result.error;
+        
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : 'Unknown error';
+      }
+
+      // Don't sleep after the last attempt
+      if (attempt < maxRetries && this.isRetryableError(lastError || '')) {
+        const delay = this.calculateBackoffDelay(attempt);
+        await this.sleep(delay);
+      }
+    }
+
+    // All retries exhausted
+    return {
+      id,
+      found: false,
+      error: lastError || 'Max retries exceeded'
+    };
+  }
+
+  /**
+   * Get statistics from the last probe operation
+   */
+  getLastProbeStats(): ProbeStats {
+    return { ...this.lastProbeStats };
+  }
+
+  /**
+   * Check if an error is retryable
+   */
+  private isRetryableError(error: string): boolean {
+    const retryableErrors = [
+      'ETIMEDOUT',
+      'ECONNREFUSED',
+      'ENOTFOUND',
+      'ECONNRESET',
+      '500',
+      '502',
+      '503',
+      '504'
+    ];
+
+    return retryableErrors.some(retryable => error.includes(retryable));
+  }
+
+  /**
+   * Calculate exponential backoff delay
+   */
+  private calculateBackoffDelay(attempt: number): number {
+    const baseDelay = 100; // 100ms base delay
+    const exponentialDelay = baseDelay * Math.pow(2, attempt);
+    const jitter = Math.random() * 50; // Add some jitter
+    return Math.min(exponentialDelay + jitter, 5000); // Cap at 5 seconds
+  }
+
+  /**
+   * Sleep for specified milliseconds
+   */
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 }

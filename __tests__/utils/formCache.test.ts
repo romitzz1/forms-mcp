@@ -1108,4 +1108,305 @@ describe('FormCache', () => {
       });
     });
   });
+
+  describe('Individual Form Probing (Step 6)', () => {
+    beforeEach(async () => {
+      formCache = new FormCache(testDbPath);
+      await formCache.init();
+    });
+
+    describe('probeFormById', () => {
+      it('should successfully probe and find an inactive form', async () => {
+        const mockApiResponse = {
+          id: '15',
+          title: 'Inactive Form',
+          is_active: '0',
+          entries: []
+        };
+
+        const mockApiCall = jest.fn().mockResolvedValue(mockApiResponse);
+        
+        const result = await formCache.probeFormById(15, mockApiCall);
+        
+        expect(mockApiCall).toHaveBeenCalledWith('/forms/15');
+        expect(result.found).toBe(true);
+        expect(result.id).toBe(15);
+        expect(result.form).toBeDefined();
+        expect(result.form!.title).toBe('Inactive Form');
+        expect(result.form!.is_active).toBe(false);
+        expect(result.error).toBeUndefined();
+      });
+
+      it('should handle 404 response (form not found)', async () => {
+        const mockApiCall = jest.fn().mockRejectedValue(new Error('404 Not Found'));
+        
+        const result = await formCache.probeFormById(99, mockApiCall);
+        
+        expect(result.found).toBe(false);
+        expect(result.id).toBe(99);
+        expect(result.form).toBeUndefined();
+        expect(result.error).toBe('404 Not Found');
+      });
+
+      it('should handle API errors (500, auth, timeout)', async () => {
+        const errorScenarios = [
+          { error: new Error('500 Internal Server Error'), expected: '500 Internal Server Error' },
+          { error: new Error('401 Unauthorized'), expected: '401 Unauthorized' },
+          { error: new Error('ETIMEDOUT'), expected: 'ETIMEDOUT' }
+        ];
+
+        for (const scenario of errorScenarios) {
+          const mockApiCall = jest.fn().mockRejectedValue(scenario.error);
+          
+          const result = await formCache.probeFormById(50, mockApiCall);
+          
+          expect(result.found).toBe(false);
+          expect(result.id).toBe(50);
+          expect(result.error).toBe(scenario.expected);
+        }
+      });
+
+      it('should validate form ID parameter', async () => {
+        const mockApiCall = jest.fn();
+
+        await expect(formCache.probeFormById(-1, mockApiCall)).rejects.toThrow('Invalid form ID');
+        await expect(formCache.probeFormById(0, mockApiCall)).rejects.toThrow('Invalid form ID');
+        await expect(formCache.probeFormById(1.5, mockApiCall)).rejects.toThrow('Invalid form ID');
+      });
+
+      it('should handle malformed API response', async () => {
+        const mockApiCall = jest.fn().mockResolvedValue('invalid response');
+        
+        const result = await formCache.probeFormById(20, mockApiCall);
+        
+        expect(result.found).toBe(false);
+        expect(result.error).toContain('Invalid form data');
+      });
+    });
+
+    describe('probeBatch', () => {
+      it('should probe multiple form IDs', async () => {
+        const mockResponses = new Map([
+          ['/forms/10', { id: '10', title: 'Form 10', is_active: '0' }],
+          ['/forms/11', null], // 404 case
+          ['/forms/12', { id: '12', title: 'Form 12', is_active: '1' }]
+        ]);
+
+        const mockApiCall = jest.fn().mockImplementation(async (endpoint) => {
+          const response = mockResponses.get(endpoint);
+          if (response === null) {
+            throw new Error('404 Not Found');
+          }
+          return response;
+        });
+
+        const results = await formCache.probeBatch([10, 11, 12], mockApiCall);
+        
+        expect(results).toHaveLength(3);
+        
+        // Form 10 - found inactive
+        expect(results[0].found).toBe(true);
+        expect(results[0].id).toBe(10);
+        expect(results[0].form!.is_active).toBe(false);
+        
+        // Form 11 - not found
+        expect(results[1].found).toBe(false);
+        expect(results[1].id).toBe(11);
+        expect(results[1].error).toBe('404 Not Found');
+        
+        // Form 12 - found active
+        expect(results[2].found).toBe(true);
+        expect(results[2].id).toBe(12);
+        expect(results[2].form!.is_active).toBe(true);
+      });
+
+      it('should handle empty ID list', async () => {
+        const mockApiCall = jest.fn();
+        
+        const results = await formCache.probeBatch([], mockApiCall);
+        
+        expect(results).toEqual([]);
+        expect(mockApiCall).not.toHaveBeenCalled();
+      });
+
+      it('should include delay between requests for rate limiting', async () => {
+        const mockApiCall = jest.fn().mockResolvedValue({ id: '1', title: 'Test' });
+        const startTime = Date.now();
+        
+        await formCache.probeBatch([1, 2], mockApiCall);
+        
+        const duration = Date.now() - startTime;
+        expect(duration).toBeGreaterThanOrEqual(90); // Should have at least ~100ms delay between requests
+      });
+
+      it('should validate all form IDs', async () => {
+        const mockApiCall = jest.fn();
+
+        await expect(formCache.probeBatch([-1, 2, 3], mockApiCall)).rejects.toThrow('Invalid form ID');
+        await expect(formCache.probeBatch([1, 0, 3], mockApiCall)).rejects.toThrow('Invalid form ID');
+      });
+    });
+
+    describe('probeWithRetry', () => {
+      it('should retry on transient failures and succeed', async () => {
+        let callCount = 0;
+        const mockApiCall = jest.fn().mockImplementation(async () => {
+          callCount++;
+          if (callCount < 3) {
+            throw new Error('ETIMEDOUT');
+          }
+          return { id: '25', title: 'Retry Success', is_active: '0' };
+        });
+
+        const result = await formCache.probeWithRetry(25, mockApiCall, 3);
+        
+        expect(callCount).toBe(3);
+        expect(result.found).toBe(true);
+        expect(result.form!.title).toBe('Retry Success');
+      });
+
+      it('should fail after max retries exhausted', async () => {
+        const mockApiCall = jest.fn().mockRejectedValue(new Error('ECONNREFUSED'));
+
+        const result = await formCache.probeWithRetry(30, mockApiCall, 2);
+        
+        expect(mockApiCall).toHaveBeenCalledTimes(3); // initial + 2 retries
+        expect(result.found).toBe(false);
+        expect(result.error).toBe('ECONNREFUSED');
+      });
+
+      it('should not retry on 404 errors (form definitely does not exist)', async () => {
+        const mockApiCall = jest.fn().mockRejectedValue(new Error('404 Not Found'));
+
+        const result = await formCache.probeWithRetry(35, mockApiCall, 3);
+        
+        expect(mockApiCall).toHaveBeenCalledTimes(1); // No retries for 404
+        expect(result.found).toBe(false);
+        expect(result.error).toBe('404 Not Found');
+      });
+
+      it('should implement exponential backoff', async () => {
+        let callCount = 0;
+        const callTimes: number[] = [];
+        
+        const mockApiCall = jest.fn().mockImplementation(async () => {
+          callTimes.push(Date.now());
+          callCount++;
+          if (callCount <= 2) {
+            throw new Error('ETIMEDOUT');
+          }
+          return { id: '40', title: 'Backoff Test' };
+        });
+
+        const startTime = Date.now();
+        await formCache.probeWithRetry(40, mockApiCall, 2);
+        
+        // Check exponential backoff timing
+        if (callTimes.length >= 2) {
+          const delay1 = callTimes[1] - callTimes[0];
+          const delay2 = callTimes[2] - callTimes[1];
+          
+          expect(delay1).toBeGreaterThanOrEqual(100); // First retry ~100ms
+          expect(delay2).toBeGreaterThanOrEqual(180); // Second retry ~200ms (exponential)
+        }
+      });
+
+      it('should validate retry parameters', async () => {
+        const mockApiCall = jest.fn();
+
+        await expect(formCache.probeWithRetry(5, mockApiCall, -1)).rejects.toThrow('Invalid retry count');
+        await expect(formCache.probeWithRetry(5, mockApiCall, 10)).rejects.toThrow('Max retries too high');
+      });
+    });
+
+    describe('probe statistics and rate limiting', () => {
+      it('should track probe statistics during batch operations', async () => {
+        const mockApiCall = jest.fn()
+          .mockResolvedValueOnce({ id: '1', title: 'Found' })
+          .mockRejectedValueOnce(new Error('404 Not Found'))
+          .mockRejectedValueOnce(new Error('500 Server Error'));
+
+        await formCache.probeBatch([1, 2, 3], mockApiCall);
+        
+        const stats = formCache.getLastProbeStats();
+        expect(stats.attempted).toBe(3);
+        expect(stats.found).toBe(1);
+        expect(stats.failed).toBe(2);
+        expect(stats.errors).toContain('404 Not Found');
+        expect(stats.errors).toContain('500 Server Error');
+      });
+
+      it('should implement circuit breaker for repeated failures', async () => {
+        const mockApiCall = jest.fn().mockRejectedValue(new Error('500 Server Error'));
+
+        // Simulate many failures to trigger circuit breaker
+        const results = await formCache.probeBatch([1, 2, 3, 4, 5, 6], mockApiCall);
+        
+        // Circuit breaker should kick in after several consecutive failures
+        const failedResults = results.filter(r => !r.found);
+        const circuitBreakerErrors = failedResults.filter(r => r.error?.includes('Circuit breaker'));
+        
+        expect(circuitBreakerErrors.length).toBeGreaterThan(0);
+      });
+
+      it('should reset circuit breaker after successful probe', async () => {
+        let callCount = 0;
+        const mockApiCall = jest.fn().mockImplementation(async () => {
+          callCount++;
+          if (callCount <= 3) {
+            throw new Error('500 Server Error');
+          }
+          return { id: callCount.toString(), title: 'Success' };
+        });
+
+        await formCache.probeBatch([1, 2, 3, 4, 5], mockApiCall);
+        
+        // Should reset circuit breaker after success and continue probing
+        expect(callCount).toBe(5);
+      });
+    });
+
+    describe('integration with existing cache', () => {
+      it('should automatically cache discovered forms', async () => {
+        const mockApiResponse = {
+          id: '50',
+          title: 'Auto Cached Form',
+          is_active: '0',
+          entries: []
+        };
+
+        const mockApiCall = jest.fn().mockResolvedValue(mockApiResponse);
+        
+        const result = await formCache.probeFormById(50, mockApiCall);
+        
+        expect(result.found).toBe(true);
+        
+        // Verify form was cached
+        const cachedForm = await formCache.getForm(50);
+        expect(cachedForm).toBeDefined();
+        expect(cachedForm!.title).toBe('Auto Cached Form');
+        expect(cachedForm!.is_active).toBe(false);
+      });
+
+      it('should handle probe results with existing cache entries', async () => {
+        // Pre-cache a form
+        await formCache.insertForm({ id: 60, title: 'Existing Form', is_active: true });
+
+        const mockApiCall = jest.fn().mockResolvedValue({
+          id: '60',
+          title: 'Updated Form',
+          is_active: '0'
+        });
+
+        const result = await formCache.probeFormById(60, mockApiCall);
+        
+        expect(result.found).toBe(true);
+        
+        // Should update the existing cache entry
+        const updatedForm = await formCache.getForm(60);
+        expect(updatedForm!.title).toBe('Updated Form');
+        expect(updatedForm!.is_active).toBe(false);
+      });
+    });
+  });
 });
