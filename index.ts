@@ -297,6 +297,11 @@ export class GravityFormsMCPServer {
                   type: "boolean",
                   description: "Include all forms (active and inactive) from local cache. If true, performs complete form discovery including hidden/inactive forms.",
                   default: false
+                },
+                summary_mode: {
+                  type: "boolean", 
+                  description: "Return only essential form info for large forms to prevent context overflow. Auto-enabled for forms >20k tokens.",
+                  default: false
                 }
               }
             }
@@ -794,19 +799,70 @@ export class GravityFormsMCPServer {
     });
   }
 
+  /**
+   * Estimate token count for a string (rough approximation: 1 token ≈ 4 characters)
+   */
+  private estimateTokenCount(text: string): number {
+    return Math.ceil(text.length / 4);
+  }
+
+  /**
+   * Create a summary of a large form object to prevent context overflow
+   */
+  private createFormSummary(form: any): string {
+    const summary = {
+      id: form.id,
+      title: form.title,
+      description: form.description,
+      is_active: form.is_active,
+      is_trash: form.is_trash,
+      date_created: form.date_created,
+      field_count: form.fields ? form.fields.length : 0,
+      entry_count: form.entries ? form.entries.length : 0,
+      has_conditional_logic: form.fields ? form.fields.some((f: any) => f.conditionalLogic) : false,
+      has_calculations: form.fields ? form.fields.some((f: any) => f.calculations) : false,
+      notification_count: form.notifications ? Object.keys(form.notifications).length : 0,
+      confirmation_count: form.confirmations ? Object.keys(form.confirmations).length : 0
+    };
+
+    return `LARGE FORM SUMMARY (${this.estimateTokenCount(JSON.stringify(form, null, 2))} estimated tokens):
+${JSON.stringify(summary, null, 2)}
+
+⚠️  This form is too large to display in full (>25k tokens). 
+Use specific tools like get_entries or export_form_json for detailed access.
+Consider using form templates or cloning for management.`;
+  }
+
   // Tool implementation methods
   private async getForms(args: any) {
-    const { form_id, include_fields, include_all } = args;
+    const { form_id, include_fields, include_all, summary_mode } = args;
     
     // When form_id is specified, always use API (ignore include_all)
     if (form_id) {
       const endpoint = `/forms/${form_id}`;
       const form = await this.makeRequest(endpoint);
+      
+      // Check if summary mode is requested or if form response would be too large
+      const fullResponse = JSON.stringify(form, null, 2);
+      const tokenEstimate = this.estimateTokenCount(fullResponse);
+      
+      if (summary_mode || tokenEstimate > 20000) {
+        // Return summary for large forms or when explicitly requested
+        return {
+          content: [
+            {
+              type: "text", 
+              text: this.createFormSummary(form)
+            }
+          ]
+        };
+      }
+      
       return {
         content: [
           {
             type: "text",
-            text: `Form Details:\n${JSON.stringify(form, null, 2)}`
+            text: `Form Details:\n${fullResponse}`
           }
         ]
       };
@@ -966,10 +1022,37 @@ export class GravityFormsMCPServer {
       endpoint = '/entries';
     }
 
-    // Add query parameters
+    // Add search parameters using the same format as exportEntriesFormatted
     if (search) {
+      if (search.status) {
+        params.append('search[status]', search.status);
+      }
+      if (search.field_filters && Array.isArray(search.field_filters)) {
+        search.field_filters.forEach((filter: any, index: number) => {
+          if (filter && filter.key && filter.value) {
+            // Sanitize filter values before URL encoding
+            const sanitizedKey = String(filter.key).trim();
+            const sanitizedValue = String(filter.value).trim();
+            
+            params.append(`search[field_filters][${index}][key]`, sanitizedKey);
+            params.append(`search[field_filters][${index}][value]`, sanitizedValue);
+          }
+        });
+      }
+      if (search.date_range) {
+        if (search.date_range.start) {
+          params.append('search[date_range][start]', search.date_range.start);
+        }
+        if (search.date_range.end) {
+          params.append('search[date_range][end]', search.date_range.end);
+        }
+      }
+      
+      // Handle other search parameters (backward compatibility)
       Object.entries(search).forEach(([key, value]) => {
-        params.append(`search[${key}]`, String(value));
+        if (key !== 'status' && key !== 'field_filters' && key !== 'date_range') {
+          params.append(`search[${key}]`, String(value));
+        }
       });
     }
 
@@ -1974,11 +2057,17 @@ ${exportResult.base64Data}`
     try {
       const status = await this.getCacheStatus();
       
+      // Ensure proper JSON serialization by converting dates to strings
+      const serializedStatus = {
+        ...status,
+        lastSync: status.lastSync ? status.lastSync.toISOString() : null
+      };
+      
       return {
         content: [
           {
             type: "text",
-            text: `FormCache Status Report:\n${JSON.stringify(status, null, 2)}`
+            text: `FormCache Status Report:\n${JSON.stringify(serializedStatus, null, 2)}`
           }
         ]
       };

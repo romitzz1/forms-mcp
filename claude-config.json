@@ -7,7 +7,10 @@
         "GRAVITY_FORMS_BASE_URL": "https://yoursite.com",
         "GRAVITY_FORMS_CONSUMER_KEY": "ck_your_consumer_key_here", 
         "GRAVITY_FORMS_CONSUMER_SECRET": "cs_your_consumer_secret_here",
-        "GRAVITY_FORMS_AUTH_METHOD": "basic"
+        "GRAVITY_FORMS_AUTH_METHOD": "basic",
+        "GRAVITY_FORMS_CACHE_ENABLED": "true",
+        "GRAVITY_FORMS_CACHE_DB_PATH": "./data/forms-cache.db",
+        "GRAVITY_FORMS_CACHE_MAX_AGE": "300000"
       }
     }
   }

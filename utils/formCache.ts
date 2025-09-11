@@ -164,13 +164,13 @@ export class FormCacheLogger {
 
   info(message: string, context?: LogContext): void {
     if (this.shouldLog(LogLevel.INFO)) {
-      console.log(this.formatMessage(LogLevel.INFO, message, context));
+      console.error(this.formatMessage(LogLevel.INFO, message, context));
     }
   }
 
   debug(message: string, context?: LogContext): void {
     if (this.shouldLog(LogLevel.DEBUG)) {
-      console.log(this.formatMessage(LogLevel.DEBUG, message, context));
+      console.error(this.formatMessage(LogLevel.DEBUG, message, context));
     }
   }
 }

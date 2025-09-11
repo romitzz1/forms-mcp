@@ -8,9 +8,15 @@
       "Bash(npm test)",
       "Bash(npm test:*)",
       "Bash(git commit:*)",
-      "WebFetch(domain:docs.gravityforms.com)"
+      "WebFetch(domain:docs.gravityforms.com)",
+      "Bash(node:*)",
+      "mcp__gravity-forms-enhanced__get_cache_status"
     ],
     "deny": [],
     "ask": []
-  }
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "gravity-forms-enhanced"
+  ]
 }
