@@ -126,30 +126,47 @@ describe('Export Entries Logic', () => {
       expect(`${baseUrl}/wp-json/gf/v2/forms/${formId}/entries`).toBe(expectedUrl);
     });
 
-    test('should construct URL with search parameters', () => {
+    test('should construct URL with JSON search parameters', () => {
       const baseUrl = 'https://test.example.com';
       const formId = '123';
       const params = new URLSearchParams();
       
-      params.append('search[status]', 'active');
-      params.append('search[field_filters][0][key]', '1');
-      params.append('search[field_filters][0][value]', 'John');
+      // New JSON format
+      const searchObject = {
+        status: 'active',
+        field_filters: [{ key: '1', value: 'John', operator: '=' }]
+      };
+      params.append('search', JSON.stringify(searchObject));
 
       const expectedUrl = `${baseUrl}/wp-json/gf/v2/forms/${formId}/entries?${params.toString()}`;
-      const actualUrl = `${baseUrl}/wp-json/gf/v2/forms/${formId}/entries?search%5Bstatus%5D=active&search%5Bfield_filters%5D%5B0%5D%5Bkey%5D=1&search%5Bfield_filters%5D%5B0%5D%5Bvalue%5D=John`;
-
-      expect(expectedUrl).toBe(actualUrl);
+      
+      expect(expectedUrl).toContain('/wp-json/gf/v2/forms/123/entries');
+      expect(expectedUrl).toContain('search=');
+      
+      // Verify JSON structure
+      const urlObj = new URL(expectedUrl);
+      const searchParam = urlObj.searchParams.get('search');
+      expect(searchParam).toBeTruthy();
+      const parsedSearch = JSON.parse(searchParam!);
+      expect(parsedSearch).toEqual(searchObject);
     });
 
-    test('should handle date range parameters', () => {
+    test('should handle date range parameters in JSON format', () => {
       const params = new URLSearchParams();
       
-      params.append('search[date_range][start]', '2024-01-01');
-      params.append('search[date_range][end]', '2024-12-31');
+      // New JSON format
+      const searchObject = {
+        date_range: { start: '2024-01-01', end: '2024-12-31' }
+      };
+      params.append('search', JSON.stringify(searchObject));
 
       const queryString = params.toString();
-      expect(queryString).toContain('search%5Bdate_range%5D%5Bstart%5D=2024-01-01');
-      expect(queryString).toContain('search%5Bdate_range%5D%5Bend%5D=2024-12-31');
+      expect(queryString).toContain('search=');
+      
+      // Verify JSON structure
+      const searchParam = decodeURIComponent(queryString.split('=')[1]);
+      const parsedSearch = JSON.parse(searchParam);
+      expect(parsedSearch.date_range).toEqual({ start: '2024-01-01', end: '2024-12-31' });
     });
   });
 

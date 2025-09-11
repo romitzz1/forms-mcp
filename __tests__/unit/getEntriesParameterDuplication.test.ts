@@ -57,6 +57,12 @@ describe('getEntries Parameter Duplication Prevention', () => {
     return new GravityFormsMCPServer();
   }
 
+  function createExpectedSearchUrl(baseUrl: string, formId: string, searchObject: any): string {
+    const params = new URLSearchParams();
+    params.append('search', JSON.stringify(searchObject));
+    return `${baseUrl}/wp-json/gf/v2/forms/${formId}/entries?${params.toString()}`;
+  }
+
   it('should not duplicate status parameter when using both specific and backward compatibility handling', async () => {
     // Arrange
     const server = createServer();
@@ -79,25 +85,29 @@ describe('getEntries Parameter Duplication Prevention', () => {
       }
     });
 
-    // Assert - check URL doesn't have duplicate status parameters
+    // Assert - verify JSON structure contains all parameters without duplication
     const [url] = mockFetch.mock.calls[0];
+    const expectedUrl = createExpectedSearchUrl('https://test.example.com', '193', {
+      status: 'active',
+      field_filters: [{ key: '52', value: 'John', operator: '=' }],
+      date_range: { start: '2024-01-01', end: '2024-12-31' },
+      created_by: '1',
+      payment_status: 'Paid'
+    });
+    expect(url).toBe(expectedUrl);
     
-    // Count occurrences of status parameter
-    const statusMatches = url.match(/search%5Bstatus%5D=/g);
-    expect(statusMatches).not.toBeNull();
-    expect(statusMatches?.length).toBe(1); // Should appear exactly once
-    
-    // Verify all parameters are present
-    expect(url).toContain('search%5Bstatus%5D=active');
-    expect(url).toContain('search%5Bfield_filters%5D%5B0%5D%5Bkey%5D=52');
-    expect(url).toContain('search%5Bdate_range%5D%5Bstart%5D=2024-01-01');
-    expect(url).toContain('search%5Bcreated_by%5D=1');
-    expect(url).toContain('search%5Bpayment_status%5D=Paid');
-    
-    // Count total search parameters to ensure no duplicates
-    const allSearchParams = url.match(/search%5B[^%]+%5D=/g) || [];
-    const uniqueSearchParams = [...new Set(allSearchParams)];
-    expect(allSearchParams.length).toBe(uniqueSearchParams.length);
+    // Additional check: parse the JSON to verify structure
+    const urlObj = new URL(url);
+    const searchParam = urlObj.searchParams.get('search');
+    expect(searchParam).toBeTruthy();
+    const searchObj = JSON.parse(searchParam!);
+    expect(searchObj).toEqual({
+      status: 'active',
+      field_filters: [{ key: '52', value: 'John', operator: '=' }],
+      date_range: { start: '2024-01-01', end: '2024-12-31' },
+      created_by: '1',
+      payment_status: 'Paid'
+    });
   });
 
   it('should not duplicate field_filters parameter', async () => {
@@ -119,14 +129,20 @@ describe('getEntries Parameter Duplication Prevention', () => {
       }
     });
 
-    // Assert - field_filters should only be handled by the specific section
+    // Assert - verify JSON structure contains proper field_filters
     const [url] = mockFetch.mock.calls[0];
+    const expectedUrl = createExpectedSearchUrl('https://test.example.com', '193', {
+      field_filters: [{ key: '52', value: 'John', operator: '=' }],
+      other_param: 'test'
+    });
+    expect(url).toBe(expectedUrl);
     
-    // Should have proper field_filters format
-    expect(url).toContain('search%5Bfield_filters%5D%5B0%5D%5Bkey%5D=52');
-    
-    // Should NOT have flat field_filters parameter from backward compatibility
-    expect(url).not.toContain('search%5Bfield_filters%5D=%5Bobject+Object%5D');
+    // Verify JSON structure
+    const urlObj = new URL(url);
+    const searchParam = urlObj.searchParams.get('search');
+    const searchObj = JSON.parse(searchParam!);
+    expect(searchObj.field_filters).toEqual([{ key: '52', value: 'John', operator: '=' }]);
+    expect(searchObj.other_param).toBe('test');
   });
 
   it('should not duplicate date_range parameter', async () => {
@@ -148,14 +164,19 @@ describe('getEntries Parameter Duplication Prevention', () => {
       }
     });
 
-    // Assert
+    // Assert - verify JSON structure contains proper date_range
     const [url] = mockFetch.mock.calls[0];
+    const expectedUrl = createExpectedSearchUrl('https://test.example.com', '193', {
+      date_range: { start: '2024-01-01', end: '2024-12-31' },
+      other_param: 'test'
+    });
+    expect(url).toBe(expectedUrl);
     
-    // Should have proper date_range format
-    expect(url).toContain('search%5Bdate_range%5D%5Bstart%5D=2024-01-01');
-    expect(url).toContain('search%5Bdate_range%5D%5Bend%5D=2024-12-31');
-    
-    // Should NOT have flat date_range parameter from backward compatibility
-    expect(url).not.toContain('search%5Bdate_range%5D=%5Bobject+Object%5D');
+    // Verify JSON structure
+    const urlObj = new URL(url);
+    const searchParam = urlObj.searchParams.get('search');
+    const searchObj = JSON.parse(searchParam!);
+    expect(searchObj.date_range).toEqual({ start: '2024-01-01', end: '2024-12-31' });
+    expect(searchObj.other_param).toBe('test');
   });
 });

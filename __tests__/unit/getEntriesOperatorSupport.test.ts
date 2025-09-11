@@ -1,5 +1,5 @@
-// ABOUTME: Unit tests for getEntries edge case handling
-// ABOUTME: Tests proper handling of empty strings, zeros, and false values in field filters
+// ABOUTME: Unit tests for getEntries operator support in field_filters
+// ABOUTME: Tests all Gravity Forms supported operators and parameter handling
 
 import { GravityFormsMocks } from '../mocks/gravityFormsMocks';
 
@@ -27,7 +27,7 @@ jest.doMock('@modelcontextprotocol/sdk/types.js', () => ({
   }
 }));
 
-describe('getEntries Edge Cases', () => {
+describe('getEntries Operator Support', () => {
   let originalEnv: NodeJS.ProcessEnv;
   let mockFetch: jest.Mock;
 
@@ -62,7 +62,7 @@ describe('getEntries Edge Cases', () => {
     return `${baseUrl}/wp-json/gf/v2/forms/${formId}/entries?${params.toString()}`;
   }
 
-  it('should handle empty string values in field filters', async () => {
+  it('should default to equals operator when no operator provided', async () => {
     // Arrange
     const server = createServer();
     const mockEntries = [GravityFormsMocks.getMockEntry({ id: '1' })];
@@ -72,25 +72,25 @@ describe('getEntries Edge Cases', () => {
       json: () => Promise.resolve(mockEntries)
     });
 
-    // Act - search for entries with empty field value
+    // Act
     await (server as any).getEntries({
       form_id: '193',
       search: {
         field_filters: [
-          { key: '52', value: '' } // Empty string should be allowed
+          { key: '52', value: 'John' } // No operator provided
         ]
       }
     });
 
-    // Assert - empty string search should work
+    // Assert - should default to '=' operator
     const [url] = mockFetch.mock.calls[0];
     const expectedUrl = createExpectedSearchUrl('https://test.example.com', '193', {
-      field_filters: [{ key: '52', value: '', operator: '=' }]
+      field_filters: [{ key: '52', value: 'John', operator: '=' }]
     });
     expect(url).toBe(expectedUrl);
   });
 
-  it('should handle zero values in field filters', async () => {
+  it('should handle contains operator', async () => {
     // Arrange
     const server = createServer();
     const mockEntries = [GravityFormsMocks.getMockEntry({ id: '1' })];
@@ -100,25 +100,63 @@ describe('getEntries Edge Cases', () => {
       json: () => Promise.resolve(mockEntries)
     });
 
-    // Act - search for entries with zero value
+    // Act
     await (server as any).getEntries({
       form_id: '193',
       search: {
         field_filters: [
-          { key: '52', value: 0 } // Zero should be allowed
+          { key: '52', value: 'John', operator: 'contains' }
         ]
       }
     });
 
-    // Assert - zero value search should work
+    // Assert
     const [url] = mockFetch.mock.calls[0];
     const expectedUrl = createExpectedSearchUrl('https://test.example.com', '193', {
-      field_filters: [{ key: '52', value: '0', operator: '=' }]
+      field_filters: [{ key: '52', value: 'John', operator: 'contains' }]
     });
     expect(url).toBe(expectedUrl);
   });
 
-  it('should handle false values in field filters', async () => {
+  it('should handle all supported operators', async () => {
+    // Arrange
+    const server = createServer();
+    const mockEntries = [GravityFormsMocks.getMockEntry({ id: '1' })];
+    const supportedOperators = ['=', 'IS', 'CONTAINS', 'IS NOT', 'ISNOT', '<>', 'LIKE', 'NOT IN', 'NOTIN', 'IN'];
+
+    // Mock each call
+    supportedOperators.forEach(() => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(mockEntries)
+      });
+    });
+
+    // Act - test each operator
+    for (const operator of supportedOperators) {
+      await (server as any).getEntries({
+        form_id: '193',
+        search: {
+          field_filters: [
+            { key: '52', value: 'test', operator: operator }
+          ]
+        }
+      });
+    }
+
+    // Assert - each call should include the correct operator
+    expect(mockFetch).toHaveBeenCalledTimes(supportedOperators.length);
+    
+    supportedOperators.forEach((operator, index) => {
+      const [url] = mockFetch.mock.calls[index];
+      const expectedUrl = createExpectedSearchUrl('https://test.example.com', '193', {
+        field_filters: [{ key: '52', value: 'test', operator: operator }]
+      });
+      expect(url).toBe(expectedUrl);
+    });
+  });
+
+  it('should handle multiple field filters with different operators', async () => {
     // Arrange
     const server = createServer();
     const mockEntries = [GravityFormsMocks.getMockEntry({ id: '1' })];
@@ -128,25 +166,31 @@ describe('getEntries Edge Cases', () => {
       json: () => Promise.resolve(mockEntries)
     });
 
-    // Act - search for entries with false value
+    // Act
     await (server as any).getEntries({
       form_id: '193',
       search: {
         field_filters: [
-          { key: '52', value: false } // False should be allowed
+          { key: '52', value: 'John', operator: 'contains' },
+          { key: '54', value: 'test@email.com', operator: '=' },
+          { key: '56', value: 'exclude', operator: 'IS NOT' }
         ]
       }
     });
 
-    // Assert - false value search should work
+    // Assert
     const [url] = mockFetch.mock.calls[0];
     const expectedUrl = createExpectedSearchUrl('https://test.example.com', '193', {
-      field_filters: [{ key: '52', value: 'false', operator: '=' }]
+      field_filters: [
+        { key: '52', value: 'John', operator: 'contains' },
+        { key: '54', value: 'test@email.com', operator: '=' },
+        { key: '56', value: 'exclude', operator: 'IS NOT' }
+      ]
     });
     expect(url).toBe(expectedUrl);
   });
 
-  it('should reject filters with missing key', async () => {
+  it('should trim operator values', async () => {
     // Arrange
     const server = createServer();
     const mockEntries = [GravityFormsMocks.getMockEntry({ id: '1' })];
@@ -156,26 +200,25 @@ describe('getEntries Edge Cases', () => {
       json: () => Promise.resolve(mockEntries)
     });
 
-    // Act - filter with missing key should be ignored
+    // Act
     await (server as any).getEntries({
       form_id: '193',
       search: {
         field_filters: [
-          { value: 'John' }, // Missing key - should be ignored
-          { key: '52', value: 'Valid' } // Valid filter - should be included
+          { key: '52', value: 'John', operator: '  contains  ' } // Whitespace around operator
         ]
       }
     });
 
-    // Assert - only valid filter should be in URL
+    // Assert - operator should be trimmed
     const [url] = mockFetch.mock.calls[0];
     const expectedUrl = createExpectedSearchUrl('https://test.example.com', '193', {
-      field_filters: [{ key: '52', value: 'Valid', operator: '=' }]
+      field_filters: [{ key: '52', value: 'John', operator: 'contains' }]
     });
     expect(url).toBe(expectedUrl);
   });
 
-  it('should reject filters with missing value', async () => {
+  it('should handle case sensitivity in operators', async () => {
     // Arrange
     const server = createServer();
     const mockEntries = [GravityFormsMocks.getMockEntry({ id: '1' })];
@@ -185,21 +228,52 @@ describe('getEntries Edge Cases', () => {
       json: () => Promise.resolve(mockEntries)
     });
 
-    // Act - filter with missing value should be ignored
+    // Act
     await (server as any).getEntries({
       form_id: '193',
       search: {
         field_filters: [
-          { key: '52' }, // Missing value - should be ignored
-          { key: '54', value: 'Valid' } // Valid filter - should be included
+          { key: '52', value: 'John', operator: 'Contains' } // Mixed case
         ]
       }
     });
 
-    // Assert - only valid filter should be in URL
+    // Assert - should preserve case as provided
     const [url] = mockFetch.mock.calls[0];
     const expectedUrl = createExpectedSearchUrl('https://test.example.com', '193', {
-      field_filters: [{ key: '54', value: 'Valid', operator: '=' }]
+      field_filters: [{ key: '52', value: 'John', operator: 'Contains' }]
+    });
+    expect(url).toBe(expectedUrl);
+  });
+
+  it('should handle numeric and boolean operators correctly', async () => {
+    // Arrange
+    const server = createServer();
+    const mockEntries = [GravityFormsMocks.getMockEntry({ id: '1' })];
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve(mockEntries)
+    });
+
+    // Act
+    await (server as any).getEntries({
+      form_id: '193',
+      search: {
+        field_filters: [
+          { key: '52', value: 100, operator: '>' },  // Numeric operator (even though not officially supported, should be converted to string)
+          { key: '54', value: true, operator: '=' }   // Boolean value
+        ]
+      }
+    });
+
+    // Assert
+    const [url] = mockFetch.mock.calls[0];
+    const expectedUrl = createExpectedSearchUrl('https://test.example.com', '193', {
+      field_filters: [
+        { key: '52', value: '100', operator: '>' },  // Values get converted to strings
+        { key: '54', value: 'true', operator: '=' }   // Boolean value converted to string
+      ]
     });
     expect(url).toBe(expectedUrl);
   });

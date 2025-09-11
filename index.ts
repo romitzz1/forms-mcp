@@ -339,6 +339,11 @@ export class GravityFormsMCPServer {
                     current_page: { type: "number" },
                     offset: { type: "number" }
                   }
+                },
+                response_mode: {
+                  type: "string",
+                  enum: ["full", "summary", "auto"],
+                  description: "Response format mode: 'full' for complete entries, 'summary' for essential fields only, 'auto' for intelligent size management (default: auto)"
                 }
               }
             }
@@ -802,8 +807,56 @@ export class GravityFormsMCPServer {
   /**
    * Estimate token count for a string (rough approximation: 1 token ≈ 4 characters)
    */
-  private estimateTokenCount(text: string): number {
+  private estimateTokenCount(text: string | null | undefined): number {
+    if (!text) return 0;
     return Math.ceil(text.length / 4);
+  }
+
+  /**
+   * Create a summary of a large entry object to prevent context overflow
+   */
+  private createEntrySummary(entry: any): any {
+    const summary: any = {};
+    
+    // Essential fields (always included)
+    if (entry.id !== undefined) summary.id = entry.id;
+    if (entry.form_id !== undefined) summary.form_id = entry.form_id;
+    if (entry.date_created !== undefined) summary.date_created = entry.date_created;
+    if (entry.payment_status !== undefined) summary.payment_status = entry.payment_status;
+    
+    // Common name fields (52, 55, 1.3, 1.6 for first/last name)
+    const nameFields = ['52', '55', '1.3', '1.6'];
+    nameFields.forEach(fieldId => {
+      if (entry[fieldId] !== undefined) {
+        summary[fieldId] = entry[fieldId];
+      }
+    });
+    
+    // Common email fields (50, 54)
+    const emailFields = ['50', '54'];
+    emailFields.forEach(fieldId => {
+      if (entry[fieldId] !== undefined) {
+        summary[fieldId] = entry[fieldId];
+      }
+    });
+    
+    // Include other small text fields if entry is small overall
+    const entryJson = JSON.stringify(entry);
+    const entrySize = entryJson.length;
+    
+    if (entrySize < 2000) {
+      // Entry is small, include more fields
+      Object.keys(entry).forEach(key => {
+        if (summary[key] === undefined && entry[key] !== undefined) {
+          const fieldValue = String(entry[key]);
+          if (fieldValue.length < 200) { // Only include short field values
+            summary[key] = entry[key];
+          }
+        }
+      });
+    }
+    
+    return summary;
   }
 
   /**
@@ -1009,7 +1062,7 @@ Consider using form templates or cloning for management.`;
   }
 
   private async getEntries(args: any) {
-    const { form_id, entry_id, search, sorting, paging } = args;
+    const { form_id, entry_id, search, sorting, paging, response_mode = 'auto' } = args;
     
     let endpoint = '';
     const params = new URLSearchParams();
@@ -1022,41 +1075,59 @@ Consider using form templates or cloning for management.`;
       endpoint = '/entries';
     }
 
-    // Add search parameters using the same format as exportEntriesFormatted
+    // Build search parameter as JSON object per Gravity Forms API documentation
     if (search) {
+      const searchObject: any = {};
+      
       if (search.status) {
-        params.append('search[status]', search.status);
+        searchObject.status = search.status;
       }
+      
       if (search.field_filters && Array.isArray(search.field_filters)) {
-        search.field_filters.forEach((filter: any, index: number) => {
-          if (filter && filter.key != null && filter.value != null) {
-            // Sanitize filter values before URL encoding
+        const validFilters = search.field_filters
+          .filter((filter: any) => filter && filter.key != null && filter.value != null)
+          .map((filter: any) => {
             const sanitizedKey = String(filter.key).trim();
             const sanitizedValue = String(filter.value).trim();
+            const sanitizedOperator = filter.operator ? String(filter.operator).trim() : '=';
             
-            // Only append if key is not empty after trimming (value can be empty)
-            if (sanitizedKey !== '') {
-              params.append(`search[field_filters][${index}][key]`, sanitizedKey);
-              params.append(`search[field_filters][${index}][value]`, sanitizedValue);
-            }
-          }
-        });
+            return sanitizedKey !== '' ? {
+              key: sanitizedKey,
+              value: sanitizedValue,
+              operator: sanitizedOperator
+            } : null;
+          })
+          .filter(Boolean);
+        
+        if (validFilters.length > 0) {
+          searchObject.field_filters = validFilters;
+        }
       }
+      
       if (search.date_range) {
+        const dateRange: any = {};
         if (search.date_range.start) {
-          params.append('search[date_range][start]', search.date_range.start);
+          dateRange.start = search.date_range.start;
         }
         if (search.date_range.end) {
-          params.append('search[date_range][end]', search.date_range.end);
+          dateRange.end = search.date_range.end;
+        }
+        if (Object.keys(dateRange).length > 0) {
+          searchObject.date_range = dateRange;
         }
       }
       
       // Handle other search parameters (backward compatibility)
       Object.entries(search).forEach(([key, value]) => {
         if (key !== 'status' && key !== 'field_filters' && key !== 'date_range') {
-          params.append(`search[${key}]`, String(value));
+          searchObject[key] = String(value);
         }
       });
+      
+      // Only add search parameter if we have something to search for
+      if (Object.keys(searchObject).length > 0) {
+        params.append('search', JSON.stringify(searchObject));
+      }
     }
 
     if (sorting) {
@@ -1075,11 +1146,60 @@ Consider using form templates or cloning for management.`;
     const fullEndpoint = queryString ? `${endpoint}?${queryString}` : endpoint;
     
     const entries = await this.makeRequest(fullEndpoint);
+    
+    // Handle empty results
+    if (!entries || entries.length === 0) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: "No entries found for the specified criteria."
+          }
+        ]
+      };
+    }
+
+    // Determine how to format response based on size and mode
+    let processedEntries = entries;
+    let responseText = '';
+    let wasSummarized = false;
+
+    if (response_mode === 'summary') {
+      // Explicitly requested summary mode
+      processedEntries = entries.map((entry: any) => this.createEntrySummary(entry));
+      wasSummarized = true;
+    } else if (response_mode === 'full') {
+      // Explicitly requested full mode - use all data
+      processedEntries = entries;
+    } else { // response_mode === 'auto'
+      // Auto mode: estimate size and decide
+      const fullResponseText = `Entries:\n${JSON.stringify(entries, null, 2)}`;
+      const estimatedTokens = this.estimateTokenCount(fullResponseText);
+      
+      if (estimatedTokens > 20000) {
+        // Response too large, use summary mode
+        processedEntries = entries.map((entry: any) => this.createEntrySummary(entry));
+        wasSummarized = true;
+      } else {
+        // Response size OK, use full mode
+        processedEntries = entries;
+      }
+    }
+
+    // Build final response text
+    if (wasSummarized) {
+      responseText = `Response summarized to prevent context overflow.\n\n`;
+      responseText += `Found ${entries.length} ${entries.length === 1 ? 'entry' : 'entries'}:\n\n`;
+      responseText += JSON.stringify(processedEntries, null, 2);
+    } else {
+      responseText = `Entries:\n${JSON.stringify(processedEntries, null, 2)}`;
+    }
+
     return {
       content: [
         {
           type: "text",
-          text: `Entries:\n${JSON.stringify(entries, null, 2)}`
+          text: responseText
         }
       ]
     };
@@ -1212,30 +1332,51 @@ Consider using form templates or cloning for management.`;
       let endpoint = `/forms/${form_id}/entries`;
       const params = new URLSearchParams();
 
-      // Add search parameters if provided
+      // Build search parameter as JSON object per Gravity Forms API documentation
       if (search) {
+        const searchObject: any = {};
+        
         if (search.status) {
-          params.append('search[status]', search.status);
+          searchObject.status = search.status;
         }
+        
         if (search.field_filters && Array.isArray(search.field_filters)) {
-          search.field_filters.forEach((filter: any, index: number) => {
-            if (filter.key && filter.value) {
-              // Sanitize filter values before URL encoding
+          const validFilters = search.field_filters
+            .filter((filter: any) => filter && filter.key != null && filter.value != null)
+            .map((filter: any) => {
               const sanitizedKey = String(filter.key).trim();
               const sanitizedValue = String(filter.value).trim();
+              const sanitizedOperator = filter.operator ? String(filter.operator).trim() : '=';
               
-              params.append(`search[field_filters][${index}][key]`, sanitizedKey);
-              params.append(`search[field_filters][${index}][value]`, sanitizedValue);
-            }
-          });
+              return sanitizedKey !== '' ? {
+                key: sanitizedKey,
+                value: sanitizedValue,
+                operator: sanitizedOperator
+              } : null;
+            })
+            .filter(Boolean);
+          
+          if (validFilters.length > 0) {
+            searchObject.field_filters = validFilters;
+          }
         }
+        
         if (search.date_range) {
+          const dateRange: any = {};
           if (search.date_range.start) {
-            params.append('search[date_range][start]', search.date_range.start);
+            dateRange.start = search.date_range.start;
           }
           if (search.date_range.end) {
-            params.append('search[date_range][end]', search.date_range.end);
+            dateRange.end = search.date_range.end;
           }
+          if (Object.keys(dateRange).length > 0) {
+            searchObject.date_range = dateRange;
+          }
+        }
+        
+        // Only add search parameter if we have something to search for
+        if (Object.keys(searchObject).length > 0) {
+          params.append('search', JSON.stringify(searchObject));
         }
       }
 

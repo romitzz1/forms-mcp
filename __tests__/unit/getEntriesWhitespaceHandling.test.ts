@@ -56,6 +56,12 @@ describe('getEntries Whitespace Handling', () => {
     return new GravityFormsMCPServer();
   }
 
+  function createExpectedSearchUrl(baseUrl: string, formId: string, searchObject: any): string {
+    const params = new URLSearchParams();
+    params.append('search', JSON.stringify(searchObject));
+    return `${baseUrl}/wp-json/gf/v2/forms/${formId}/entries?${params.toString()}`;
+  }
+
   it('should trim whitespace from keys and values', async () => {
     // Arrange
     const server = createServer();
@@ -78,8 +84,10 @@ describe('getEntries Whitespace Handling', () => {
 
     // Assert - whitespace should be trimmed
     const [url] = mockFetch.mock.calls[0];
-    expect(url).toContain('search%5Bfield_filters%5D%5B0%5D%5Bkey%5D=52'); // trimmed
-    expect(url).toContain('search%5Bfield_filters%5D%5B0%5D%5Bvalue%5D=John+Smith'); // trimmed
+    const expectedUrl = createExpectedSearchUrl('https://test.example.com', '193', {
+      field_filters: [{ key: '52', value: 'John Smith', operator: '=' }]
+    });
+    expect(url).toBe(expectedUrl);
   });
 
   it('should reject filters with empty keys after trimming but allow empty values', async () => {
@@ -104,19 +112,15 @@ describe('getEntries Whitespace Handling', () => {
       }
     });
 
-    // Assert
+    // Assert - only valid filters after trimming should be included
     const [url] = mockFetch.mock.calls[0];
-    
-    // Should not contain filter with empty key after trimming
-    expect(url).not.toContain('search%5Bfield_filters%5D%5B0%5D');
-    
-    // Should contain filter with empty value (searching for empty field values)
-    expect(url).toContain('search%5Bfield_filters%5D%5B1%5D%5Bkey%5D=52');
-    expect(url).toContain('search%5Bfield_filters%5D%5B1%5D%5Bvalue%5D='); // empty value allowed
-    
-    // Should contain the normal valid filter
-    expect(url).toContain('search%5Bfield_filters%5D%5B2%5D%5Bkey%5D=54');
-    expect(url).toContain('search%5Bfield_filters%5D%5B2%5D%5Bvalue%5D=Valid');
+    const expectedUrl = createExpectedSearchUrl('https://test.example.com', '193', {
+      field_filters: [
+        { key: '52', value: '', operator: '=' }, // empty value after trimming is allowed
+        { key: '54', value: 'Valid', operator: '=' } // normal valid filter
+      ]
+    });
+    expect(url).toBe(expectedUrl);
   });
 
   it('should handle mixed whitespace scenarios', async () => {
@@ -143,15 +147,15 @@ describe('getEntries Whitespace Handling', () => {
       }
     });
 
-    // Assert
+    // Assert - only valid filters after filtering and trimming should be included
     const [url] = mockFetch.mock.calls[0];
-    
-    // Should contain valid filters (indices 2, 3, 4 but renumbered in URL)
-    expect(url).toContain('search%5Bfield_filters%5D%5B2%5D%5Bkey%5D=52');
-    expect(url).toContain('search%5Bfield_filters%5D%5B2%5D%5Bvalue%5D=John');
-    expect(url).toContain('search%5Bfield_filters%5D%5B3%5D%5Bkey%5D=54');
-    expect(url).toContain('search%5Bfield_filters%5D%5B3%5D%5Bvalue%5D=');
-    expect(url).toContain('search%5Bfield_filters%5D%5B4%5D%5Bkey%5D=55');
-    expect(url).toContain('search%5Bfield_filters%5D%5B4%5D%5Bvalue%5D=0');
+    const expectedUrl = createExpectedSearchUrl('https://test.example.com', '193', {
+      field_filters: [
+        { key: '52', value: 'John', operator: '=' }, // trimmed from '  John  '
+        { key: '54', value: '', operator: '=' }, // empty string value allowed
+        { key: '55', value: '0', operator: '=' } // numeric value converted to string, key trimmed
+      ]
+    });
+    expect(url).toBe(expectedUrl);
   });
 });

@@ -66,6 +66,12 @@ describe('getEntries Search Functionality', () => {
     return new GravityFormsMCPServer();
   }
 
+  function createExpectedSearchUrl(baseUrl: string, formId: string, searchObject: any): string {
+    const params = new URLSearchParams();
+    params.append('search', JSON.stringify(searchObject));
+    return `${baseUrl}/wp-json/gf/v2/forms/${formId}/entries?${params.toString()}`;
+  }
+
   describe('field_filters array format handling', () => {
     it('should handle single field filter correctly', async () => {
       // Arrange
@@ -91,9 +97,10 @@ describe('getEntries Search Functionality', () => {
       // Assert
       expect(mockFetch).toHaveBeenCalledTimes(1);
       const [url] = mockFetch.mock.calls[0];
-      expect(url).toContain('/forms/193/entries');
-      expect(url).toContain('search%5Bfield_filters%5D%5B0%5D%5Bkey%5D=52');
-      expect(url).toContain('search%5Bfield_filters%5D%5B0%5D%5Bvalue%5D=John');
+      const expectedUrl = createExpectedSearchUrl('https://test.example.com', '193', {
+        field_filters: [{ key: '52', value: 'John', operator: '=' }]
+      });
+      expect(url).toBe(expectedUrl);
       expect(result.content[0].text).toContain('John Smith');
     });
 
@@ -110,7 +117,7 @@ describe('getEntries Search Functionality', () => {
       });
 
       // Act
-      const result = await (server as any).getEntries({
+      await (server as any).getEntries({
         form_id: '193',
         search: {
           field_filters: [
@@ -123,10 +130,13 @@ describe('getEntries Search Functionality', () => {
       // Assert
       expect(mockFetch).toHaveBeenCalledTimes(1);
       const [url] = mockFetch.mock.calls[0];
-      expect(url).toContain('search%5Bfield_filters%5D%5B0%5D%5Bkey%5D=52');
-      expect(url).toContain('search%5Bfield_filters%5D%5B0%5D%5Bvalue%5D=John');
-      expect(url).toContain('search%5Bfield_filters%5D%5B1%5D%5Bkey%5D=54');
-      expect(url).toContain('search%5Bfield_filters%5D%5B1%5D%5Bvalue%5D=test.com');
+      const expectedUrl = createExpectedSearchUrl('https://test.example.com', '193', {
+        field_filters: [
+          { key: '52', value: 'John', operator: '=' },
+          { key: '54', value: 'test.com', operator: '=' }
+        ]
+      });
+      expect(url).toBe(expectedUrl);
     });
 
     it('should handle search with pagination and sorting', async () => {
@@ -151,11 +161,11 @@ describe('getEntries Search Functionality', () => {
 
       // Assert
       const [url] = mockFetch.mock.calls[0];
-      expect(url).toContain('search%5Bfield_filters%5D%5B0%5D%5Bkey%5D=52');
-      expect(url).toContain('paging%5Bcurrent_page%5D=2');
-      expect(url).toContain('paging%5Bpage_size%5D=10');
-      expect(url).toContain('sorting%5Bkey%5D=date_created');
-      expect(url).toContain('sorting%5Bdirection%5D=DESC');
+      const expectedSearchUrl = createExpectedSearchUrl('https://test.example.com', '193', {
+        field_filters: [{ key: '52', value: 'John', operator: '=' }]
+      });
+      const expectedFullUrl = expectedSearchUrl + '&sorting%5Bkey%5D=date_created&sorting%5Bdirection%5D=DESC&paging%5Bcurrent_page%5D=2&paging%5Bpage_size%5D=10';
+      expect(url).toBe(expectedFullUrl);
     });
 
     it('should handle invalid field filter formats gracefully', async () => {
@@ -169,7 +179,7 @@ describe('getEntries Search Functionality', () => {
       });
 
       // Act & Assert - should not crash with malformed field_filters
-      const result = await (server as any).getEntries({
+      await (server as any).getEntries({
         form_id: '193',
         search: {
           field_filters: [
@@ -206,9 +216,11 @@ describe('getEntries Search Functionality', () => {
 
       // Assert
       const [url] = mockFetch.mock.calls[0];
-      expect(url).toContain('search%5Bstatus%5D=active');
-      expect(url).toContain('search%5Bfield_filters%5D%5B0%5D%5Bkey%5D=52');
-      expect(url).toContain('search%5Bfield_filters%5D%5B0%5D%5Bvalue%5D=John');
+      const expectedUrl = createExpectedSearchUrl('https://test.example.com', '193', {
+        status: 'active',
+        field_filters: [{ key: '52', value: 'John', operator: '=' }]
+      });
+      expect(url).toBe(expectedUrl);
     });
   });
 
@@ -234,8 +246,11 @@ describe('getEntries Search Functionality', () => {
 
       // Assert - should still work for non-field_filters parameters
       const [url] = mockFetch.mock.calls[0];
-      expect(url).toContain('search%5Bstatus%5D=active');
-      expect(url).toContain('search%5Bcreated_by%5D=1');
+      const expectedUrl = createExpectedSearchUrl('https://test.example.com', '193', {
+        status: 'active',
+        created_by: '1'
+      });
+      expect(url).toBe(expectedUrl);
     });
 
     it('should handle empty search parameters', async () => {
@@ -284,8 +299,13 @@ describe('getEntries Search Functionality', () => {
 
       // Assert
       const [url] = mockFetch.mock.calls[0];
-      expect(url).toContain('search%5Bfield_filters%5D%5B0%5D%5Bvalue%5D=John+%26+Jane');
-      expect(url).toContain('search%5Bfield_filters%5D%5B1%5D%5Bvalue%5D=test%40example.com');
+      const expectedUrl = createExpectedSearchUrl('https://test.example.com', '193', {
+        field_filters: [
+          { key: '52', value: 'John & Jane', operator: '=' },
+          { key: '54', value: 'test@example.com', operator: '=' }
+        ]
+      });
+      expect(url).toBe(expectedUrl);
     });
   });
 });
