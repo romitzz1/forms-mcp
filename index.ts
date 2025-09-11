@@ -1460,6 +1460,11 @@ ${exportResult.base64Data}`
       // Create a deep copy of the source form for cloning
       const clonedForm = JSON.parse(JSON.stringify(sourceForm));
       
+      // Ensure fields array exists
+      if (!clonedForm.fields || !Array.isArray(clonedForm.fields)) {
+        clonedForm.fields = [];
+      }
+      
       // Remove the original ID so a new one will be assigned
       delete clonedForm.id;
       delete clonedForm.date_created;
@@ -1487,40 +1492,33 @@ ${exportResult.base64Data}`
             labelMapping[rename.original_label] = rename.new_label;
             field.label = rename.new_label;
             
-            // Update placeholder if it references the old label
-            if (field.placeholder && field.placeholder.includes(rename.original_label.toLowerCase())) {
-              field.placeholder = field.placeholder.replace(
-                rename.original_label.toLowerCase(),
-                rename.new_label.toLowerCase()
-              );
+            // Update placeholder with exact word matching to avoid false positives
+            if (field.placeholder) {
+              // Use word boundary regex to avoid partial matches
+              const labelRegex = new RegExp(`\\b${rename.original_label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi');
+              if (labelRegex.test(field.placeholder)) {
+                field.placeholder = field.placeholder.replace(labelRegex, rename.new_label);
+              }
             }
           }
         }
         
-        // Update calculation formulas that reference renamed fields
+        // Update calculation formulas that reference renamed fields  
+        // Note: Gravity Forms uses {FieldLabel:FieldID} format in formulas
         for (const field of clonedForm.fields) {
           if (field.isCalculation && field.calculationFormula) {
             let updatedFormula = field.calculationFormula;
             for (const [oldLabel, newLabel] of Object.entries(labelMapping)) {
-              // Update formula references (looking for pattern {FieldLabel:ID})
-              const regex = new RegExp(`{${oldLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}:`, 'g');
-              updatedFormula = updatedFormula.replace(regex, `{${newLabel}:`);
+              // Update formula references preserving field IDs
+              const labelRegex = new RegExp(`{${oldLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}:`, 'g');
+              updatedFormula = updatedFormula.replace(labelRegex, `{${newLabel}:`);
             }
             field.calculationFormula = updatedFormula;
           }
         }
       }
 
-      // Use TemplateCreator for additional safety validation if available
-      const templateCreator = this.getTemplateCreator();
-      if (templateCreator && modifications.field_renames) {
-        // Validate field modifications for safety using existing TemplateCreator patterns
-        const validationResult = templateCreator.validateFieldRenames(clonedForm, modifications.field_renames);
-        if (!validationResult.success && validationResult.warnings && validationResult.warnings.length > 0) {
-          // Log warnings but don't block the operation
-          console.warn('Field modification warnings:', validationResult.warnings);
-        }
-      }
+      // Field modifications are applied - no additional validation needed for now
 
       // Create the new form
       const createdForm = await this.makeRequest('/forms', 'POST', clonedForm);
@@ -1556,16 +1554,6 @@ ${exportResult.base64Data}`
     }
   }
 
-  // Helper method to get TemplateCreator if available (for validation)
-  private getTemplateCreator(): any {
-    try {
-      const templateManager = this.getTemplateManager();
-      // For now, just return null - the TemplateCreator validation is optional
-      return null;
-    } catch {
-      return null;
-    }
-  }
 
   async run() {
     const transport = new StdioServerTransport();
