@@ -406,6 +406,35 @@ describe('ValidationHelper', () => {
       expect(result.errors).toContain('Date range start must be before end date');
     });
 
+    test('should reject invalid dates in date range', () => {
+      const params: ExportEntriesParams = {
+        form_id: '123',
+        format: 'csv',
+        search: {
+          date_range: { start: 'invalid-date', end: '2024-12-31' }
+        }
+      };
+
+      const result = validator.validateExportEntriesParams(params);
+      expect(result.isValid).toBe(false);
+      expect(result.errors).toContain('Invalid date format in date range');
+    });
+
+    test('should validate bulk operations with both invalid IDs and too many entries', () => {
+      const manyInvalidEntries = new Array(101).fill(0).map((_, i) => `invalid_${i}`);
+      const params: BulkProcessParams = {
+        entry_ids: manyInvalidEntries,
+        operation_type: 'delete',
+        confirm: true
+      };
+
+      const result = validator.validateBulkProcessParams(params);
+      expect(result.isValid).toBe(false);
+      // Should report both issues
+      expect(result.errors.some(err => err.includes('must be numeric'))).toBe(true);
+      expect(result.errors).toContain('Bulk operations limited to 100 entries maximum');
+    });
+
     test('should prevent directory traversal attacks', () => {
       const params: ExportEntriesParams = {
         form_id: '123',

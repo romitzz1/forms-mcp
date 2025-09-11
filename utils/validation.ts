@@ -214,9 +214,18 @@ export class ValidationHelper {
     // Validate search parameters
     if (params.search && params.search.date_range) {
       const { start, end } = params.search.date_range;
-      if (start && end && new Date(start) >= new Date(end)) {
-        result.isValid = false;
-        result.errors.push('Date range start must be before end date');
+      if (start && end) {
+        const startDate = new Date(start);
+        const endDate = new Date(end);
+        
+        // Check for invalid dates
+        if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+          result.isValid = false;
+          result.errors.push('Invalid date format in date range');
+        } else if (startDate >= endDate) {
+          result.isValid = false;
+          result.errors.push('Date range start must be before end date');
+        }
       }
     }
 
@@ -237,7 +246,10 @@ export class ValidationHelper {
     if (!entryIdsResult.isValid) {
       result.isValid = false;
       result.errors.push(...entryIdsResult.errors);
-    } else if (Array.isArray(params.entry_ids) && params.entry_ids.length > this.MAX_BULK_ENTRIES) {
+    }
+    
+    // Check bulk limit separately (even if entry IDs are invalid)
+    if (Array.isArray(params.entry_ids) && params.entry_ids.length > this.MAX_BULK_ENTRIES) {
       result.isValid = false;
       result.errors.push(`Bulk operations limited to ${this.MAX_BULK_ENTRIES} entries maximum`);
     }
@@ -371,10 +383,12 @@ export class ValidationHelper {
   private containsInvalidFilenameChars(filename: string): boolean {
     // Check for directory traversal and invalid filename characters
     const invalidPatterns = [
-      /\.\./,     // Directory traversal
+      /\.\./,     // Directory traversal anywhere in string
       /[<>:"|?*]/,  // Invalid filename characters
       /^[./]/,    // Starting with dot or slash
-      /[./]$/     // Ending with dot or slash
+      /[./]$/,    // Ending with dot or slash
+      /\/|\\/, // Any forward or backslash (directory separators)
+      /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i, // Reserved Windows names
     ];
 
     return invalidPatterns.some(pattern => pattern.test(filename));
