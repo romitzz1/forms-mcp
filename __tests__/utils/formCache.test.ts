@@ -2226,4 +2226,331 @@ describe('FormCache', () => {
       });
     });
   });
+
+  // =====================================
+  // Step 9: Cache Management and Invalidation Tests
+  // =====================================
+  
+  describe('Step 9: Cache Management and Invalidation', () => {
+    beforeEach(async () => {
+      formCache = new FormCache(testDbPath);
+      await formCache.init();
+    });
+
+    describe('isStale', () => {
+      it('should determine if cache is stale based on default age', async () => {
+        // Empty cache should be considered stale
+        const emptyStale = await formCache.isStale();
+        expect(emptyStale).toBe(true);
+        
+        // Add fresh data
+        await formCache.insertForm({ id: 1, title: 'Fresh Form', is_active: true });
+        const freshStale = await formCache.isStale();
+        expect(freshStale).toBe(false);
+        
+        // Make data old by updating timestamp
+        const oldTimestamp = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(); // 2 hours ago
+        const db = (formCache as any).getDatabase();
+        db.prepare(`UPDATE forms SET last_synced = ? WHERE id = ?`).run(oldTimestamp, 1);
+        
+        const oldStale = await formCache.isStale();
+        expect(oldStale).toBe(true);
+      });
+
+      it('should respect custom maxAge parameter', async () => {
+        await formCache.insertForm({ id: 1, title: 'Form', is_active: true });
+        
+        // Should not be stale with very long maxAge
+        const notStale = await formCache.isStale(24 * 60 * 60 * 1000); // 24 hours
+        expect(notStale).toBe(false);
+        
+        // Make form appear old by updating timestamp directly
+        const oldTimestamp = new Date(Date.now() - 1000).toISOString(); // 1 second ago
+        const db = (formCache as any).getDatabase();
+        db.prepare(`UPDATE forms SET last_synced = ? WHERE id = ?`).run(oldTimestamp, 1);
+        
+        // Should be stale with very short maxAge
+        const stale = await formCache.isStale(1); // 1 millisecond
+        expect(stale).toBe(true);
+      });
+
+      it('should handle empty cache gracefully', async () => {
+        const result = await formCache.isStale();
+        expect(result).toBe(true);
+        
+        const customAgeResult = await formCache.isStale(1000);
+        expect(customAgeResult).toBe(true);
+      });
+    });
+
+    describe('invalidateCache', () => {
+      it('should invalidate all cache when no formId provided', async () => {
+        // Add test data
+        await formCache.insertForm({ id: 1, title: 'Form 1', is_active: true });
+        await formCache.insertForm({ id: 2, title: 'Form 2', is_active: false });
+        
+        expect(await formCache.getFormCount()).toBe(2);
+        
+        // Invalidate all
+        await formCache.invalidateCache();
+        
+        expect(await formCache.getFormCount()).toBe(0);
+        
+        // Should be empty
+        const allForms = await formCache.getAllForms();
+        expect(allForms).toHaveLength(0);
+      });
+
+      it('should invalidate specific form when formId provided', async () => {
+        // Add test data
+        await formCache.insertForm({ id: 1, title: 'Form 1', is_active: true });
+        await formCache.insertForm({ id: 2, title: 'Form 2', is_active: false });
+        
+        expect(await formCache.getFormCount()).toBe(2);
+        
+        // Invalidate specific form
+        await formCache.invalidateCache(1);
+        
+        expect(await formCache.getFormCount()).toBe(1);
+        
+        // Form 1 should be gone, Form 2 should remain
+        expect(await formCache.getForm(1)).toBeNull();
+        expect(await formCache.getForm(2)).toBeDefined();
+      });
+
+      it('should handle invalidation of non-existent form', async () => {
+        await formCache.insertForm({ id: 1, title: 'Form 1', is_active: true });
+        
+        // Should not throw error
+        await expect(formCache.invalidateCache(999)).resolves.not.toThrow();
+        
+        // Existing form should still be there
+        expect(await formCache.getForm(1)).toBeDefined();
+      });
+    });
+
+    describe('refreshCache', () => {
+      it('should refresh cache data from API', async () => {
+        // Pre-populate with stale data
+        await formCache.insertForm({ id: 1, title: 'Stale Form', is_active: true });
+        
+        const mockApiCall = jest.fn().mockImplementation(async (endpoint: string) => {
+          if (endpoint === '/forms') {
+            return [{ id: '1', title: 'Fresh Form', is_active: '1' }];
+          }
+          throw new Error('404 Not Found');
+        });
+
+        const result = await formCache.refreshCache(mockApiCall);
+        
+        expect(result.discovered).toBe(1);
+        expect(result.updated).toBe(1);
+        
+        // Data should be refreshed
+        const refreshedForm = await formCache.getForm(1);
+        expect(refreshedForm!.title).toBe('Fresh Form');
+      });
+
+      it('should handle refresh with API failures', async () => {
+        const mockApiCall = jest.fn().mockRejectedValue(new Error('API Error'));
+
+        const result = await formCache.refreshCache(mockApiCall);
+        
+        expect(result.errors.length).toBeGreaterThan(0);
+        expect(result.errors.some(e => e.includes('API Error'))).toBe(true);
+      });
+    });
+
+    describe('getCacheStats', () => {
+      it('should return accurate cache statistics', async () => {
+        // Add mixed data with different timestamps
+        await formCache.insertForm({ id: 1, title: 'Active Form 1', is_active: true });
+        await formCache.insertForm({ id: 2, title: 'Active Form 2', is_active: true });
+        await formCache.insertForm({ id: 3, title: 'Inactive Form', is_active: false });
+        
+        // Make one form older
+        const oldTimestamp = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(); // 24 hours ago
+        const db = (formCache as any).getDatabase();
+        db.prepare(`UPDATE forms SET last_synced = ? WHERE id = ?`).run(oldTimestamp, 1);
+        
+        const stats = await formCache.getCacheStats();
+        
+        expect(stats.totalForms).toBe(3);
+        expect(stats.activeCount).toBe(2);
+        expect(stats.lastSync).toBeDefined();
+        expect(stats.hitRate).toBe(0); // No hits tracked yet in this simple implementation
+        expect(stats.oldestEntry).toBeDefined();
+        expect(stats.newestEntry).toBeDefined();
+        expect(stats.oldestEntry!.getTime()).toBeLessThan(stats.newestEntry!.getTime());
+      });
+
+      it('should handle empty cache in stats', async () => {
+        const stats = await formCache.getCacheStats();
+        
+        expect(stats.totalForms).toBe(0);
+        expect(stats.activeCount).toBe(0);
+        expect(stats.lastSync).toBeNull();
+        expect(stats.hitRate).toBe(0);
+        expect(stats.oldestEntry).toBeNull();
+        expect(stats.newestEntry).toBeNull();
+      });
+    });
+
+    describe('cleanupStaleData', () => {
+      it('should remove forms older than specified maxAge', async () => {
+        // Add forms with different ages
+        await formCache.insertForm({ id: 1, title: 'Fresh Form', is_active: true });
+        await formCache.insertForm({ id: 2, title: 'Old Form', is_active: true });
+        await formCache.insertForm({ id: 3, title: 'Very Old Form', is_active: false });
+        
+        // Make forms old with different timestamps
+        const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+        const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+        
+        const db = (formCache as any).getDatabase();
+        db.prepare(`UPDATE forms SET last_synced = ? WHERE id = ?`).run(oneDayAgo, 2);
+        db.prepare(`UPDATE forms SET last_synced = ? WHERE id = ?`).run(threeDaysAgo, 3);
+        
+        // Cleanup forms older than 2 days
+        const maxAge = 2 * 24 * 60 * 60 * 1000; // 2 days in ms
+        const removedCount = await formCache.cleanupStaleData(maxAge);
+        
+        expect(removedCount).toBe(1); // Only form 3 should be removed
+        
+        // Verify cleanup results
+        expect(await formCache.getForm(1)).toBeDefined(); // Fresh
+        expect(await formCache.getForm(2)).toBeDefined(); // 1 day old (within limit)
+        expect(await formCache.getForm(3)).toBeNull();    // 3 days old (removed)
+        
+        expect(await formCache.getFormCount()).toBe(2);
+      });
+
+      it('should return zero when no stale data to clean', async () => {
+        await formCache.insertForm({ id: 1, title: 'Fresh Form', is_active: true });
+        
+        // Try to cleanup with very long maxAge
+        const maxAge = 365 * 24 * 60 * 60 * 1000; // 1 year
+        const removedCount = await formCache.cleanupStaleData(maxAge);
+        
+        expect(removedCount).toBe(0);
+        expect(await formCache.getFormCount()).toBe(1);
+      });
+
+      it('should handle cleanup with empty cache', async () => {
+        const maxAge = 24 * 60 * 60 * 1000; // 1 day
+        const removedCount = await formCache.cleanupStaleData(maxAge);
+        
+        expect(removedCount).toBe(0);
+      });
+    });
+
+    describe('cache configuration and policies', () => {
+      it('should use appropriate default cache policies', async () => {
+        // Test that default maxAge is 1 hour (as specified in requirements)
+        await formCache.insertForm({ id: 1, title: 'Form', is_active: true });
+        
+        // Form should be fresh immediately
+        expect(await formCache.isStale()).toBe(false);
+        
+        // Make it 30 minutes old - should still be fresh
+        const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+        const db = (formCache as any).getDatabase();
+        db.prepare(`UPDATE forms SET last_synced = ? WHERE id = ?`).run(thirtyMinAgo, 1);
+        
+        expect(await formCache.isStale()).toBe(false);
+        
+        // Make it 90 minutes old - should be stale
+        const ninetyMinAgo = new Date(Date.now() - 90 * 60 * 1000).toISOString();
+        db.prepare(`UPDATE forms SET last_synced = ? WHERE id = ?`).run(ninetyMinAgo, 1);
+        
+        expect(await formCache.isStale()).toBe(true);
+      });
+
+      it('should handle cache size limits appropriately', async () => {
+        // Test that we can handle reasonable number of forms
+        const formCount = 100;
+        
+        for (let i = 1; i <= formCount; i++) {
+          await formCache.insertForm({ 
+            id: i, 
+            title: `Form ${i}`, 
+            is_active: i % 2 === 0 
+          });
+        }
+        
+        expect(await formCache.getFormCount()).toBe(formCount);
+        
+        const stats = await formCache.getCacheStats();
+        expect(stats.totalForms).toBe(formCount);
+        expect(stats.activeCount).toBe(formCount / 2); // Half are active
+      });
+    });
+
+    describe('cache corruption and recovery', () => {
+      it('should handle database errors gracefully', async () => {
+        await formCache.insertForm({ id: 1, title: 'Form', is_active: true });
+        
+        // Close the cache to simulate corruption
+        await formCache.close();
+        
+        // Operations should handle closed database gracefully
+        await expect(formCache.isStale()).rejects.toThrow('FormCache not initialized');
+        await expect(formCache.getCacheStats()).rejects.toThrow('FormCache not initialized');
+        
+        // Reinitialize for cleanup
+        formCache = new FormCache(testDbPath);
+        await formCache.init();
+      });
+
+      it('should recover from partially corrupted operations', async () => {
+        await formCache.insertForm({ id: 1, title: 'Form 1', is_active: true });
+        await formCache.insertForm({ id: 2, title: 'Form 2', is_active: true });
+        
+        // Invalidate one form
+        await formCache.invalidateCache(1);
+        
+        // Cache should still be functional
+        expect(await formCache.getFormCount()).toBe(1);
+        expect(await formCache.getForm(2)).toBeDefined();
+        
+        // Can add more forms
+        await formCache.insertForm({ id: 3, title: 'Form 3', is_active: false });
+        expect(await formCache.getFormCount()).toBe(2);
+      });
+    });
+
+    describe('integration with existing sync functionality', () => {
+      it('should work correctly with existing sync methods', async () => {
+        const mockApiCall = jest.fn().mockImplementation(async (endpoint: string) => {
+          if (endpoint === '/forms') {
+            return [
+              { id: '1', title: 'Form 1', is_active: '1' },
+              { id: '2', title: 'Form 2', is_active: '1' }
+            ];
+          }
+          throw new Error('404 Not Found');
+        });
+
+        // Initial sync
+        await formCache.syncAllForms(mockApiCall);
+        
+        // Check cache stats
+        const initialStats = await formCache.getCacheStats();
+        expect(initialStats.totalForms).toBe(2);
+        expect(initialStats.activeCount).toBe(2);
+        
+        // Cache should not be stale immediately
+        expect(await formCache.isStale()).toBe(false);
+        
+        // Force refresh should work
+        const refreshResult = await formCache.refreshCache(mockApiCall);
+        expect(refreshResult.discovered).toBe(2);
+        
+        // Invalidate and verify
+        await formCache.invalidateCache(1);
+        const afterInvalidation = await formCache.getCacheStats();
+        expect(afterInvalidation.totalForms).toBe(1);
+      });
+    });
+  });
 });

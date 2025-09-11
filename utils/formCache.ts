@@ -87,6 +87,27 @@ export interface SyncStatus {
   needsSync: boolean;
 }
 
+// =====================================
+// Step 9: Cache Management Interfaces
+// =====================================
+
+// Interface for cache statistics
+export interface CacheStats {
+  totalForms: number;
+  activeCount: number;
+  lastSync: Date | null;
+  hitRate: number;
+  oldestEntry: Date | null;
+  newestEntry: Date | null;
+}
+
+// Interface for cache configuration
+export interface CacheConfig {
+  maxAge: number; // in milliseconds
+  cleanupInterval: number; // in milliseconds
+  maxSize: number; // maximum number of forms
+}
+
 export interface FormCacheRecord {
   id: number;
   title: string;
@@ -1343,5 +1364,126 @@ export class FormCache {
       cacheAge: cacheAge === Infinity ? 0 : cacheAge,
       needsSync
     };
+  }
+
+  // =====================================
+  // Step 9: Cache Management Methods
+  // =====================================
+
+  /**
+   * Determine if cache is stale based on age threshold
+   */
+  async isStale(maxAge?: number): Promise<boolean> {
+    if (!this.isReady()) {
+      throw new Error('FormCache not initialized');
+    }
+
+    const db = this.getDatabase();
+    
+    // Default maxAge is 1 hour (as specified in requirements)
+    const maxAgeMs = maxAge ?? (60 * 60 * 1000);
+    
+    // Get the most recent sync time
+    const lastSyncResult = db.prepare(`
+      SELECT MAX(last_synced) as last_sync FROM forms
+    `).get() as { last_sync: string | null };
+
+    // If no forms exist, consider cache stale
+    if (!lastSyncResult.last_sync) {
+      return true;
+    }
+
+    const lastSyncTime = new Date(lastSyncResult.last_sync).getTime();
+    const now = Date.now();
+    const cacheAge = now - lastSyncTime;
+
+    return cacheAge > maxAgeMs;
+  }
+
+  /**
+   * Invalidate cache (all forms or specific form)
+   */
+  async invalidateCache(formId?: number): Promise<void> {
+    if (!this.isReady()) {
+      throw new Error('FormCache not initialized');
+    }
+
+    const db = this.getDatabase();
+
+    if (formId !== undefined) {
+      // Invalidate specific form
+      db.prepare('DELETE FROM forms WHERE id = ?').run(formId);
+    } else {
+      // Invalidate all cache
+      db.prepare('DELETE FROM forms').run();
+    }
+  }
+
+  /**
+   * Refresh cache by performing a full sync
+   */
+  async refreshCache(apiCall: ApiCallFunction): Promise<SyncResult> {
+    // Use the existing full sync workflow with force enabled
+    return this.syncAllForms(apiCall, { forceFullSync: true });
+  }
+
+  /**
+   * Get comprehensive cache statistics
+   */
+  async getCacheStats(): Promise<CacheStats> {
+    if (!this.isReady()) {
+      throw new Error('FormCache not initialized');
+    }
+
+    const db = this.getDatabase();
+
+    // Get form counts
+    const totalForms = await this.getFormCount();
+    const activeCount = await this.getFormCount(true);
+
+    // Get sync time statistics
+    const syncStatsResult = db.prepare(`
+      SELECT 
+        MAX(last_synced) as last_sync,
+        MIN(last_synced) as oldest_entry,
+        MAX(last_synced) as newest_entry
+      FROM forms
+    `).get() as {
+      last_sync: string | null;
+      oldest_entry: string | null;
+      newest_entry: string | null;
+    };
+
+    const lastSync = syncStatsResult.last_sync ? new Date(syncStatsResult.last_sync) : null;
+    const oldestEntry = syncStatsResult.oldest_entry ? new Date(syncStatsResult.oldest_entry) : null;
+    const newestEntry = syncStatsResult.newest_entry ? new Date(syncStatsResult.newest_entry) : null;
+
+    return {
+      totalForms,
+      activeCount,
+      lastSync,
+      hitRate: 0, // Simple implementation - no hit tracking yet
+      oldestEntry,
+      newestEntry
+    };
+  }
+
+  /**
+   * Clean up stale data older than maxAge
+   */
+  async cleanupStaleData(maxAge: number): Promise<number> {
+    if (!this.isReady()) {
+      throw new Error('FormCache not initialized');
+    }
+
+    const db = this.getDatabase();
+    const cutoffTime = new Date(Date.now() - maxAge).toISOString();
+
+    const result = db.prepare(`
+      DELETE FROM forms 
+      WHERE last_synced < ?
+    `).run(cutoffTime);
+
+    return result.changes;
   }
 }
