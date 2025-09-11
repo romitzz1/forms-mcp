@@ -135,3 +135,24 @@ When submitting forms, use exact HTML input names:
 - Name fields: `input_1_3` (first name), `input_1_6` (last name)
 
 Inspect form HTML in browser developer tools to find exact input names.
+
+## 🔗 **Critical API Documentation Reference**
+
+**⚠️ IMPORTANT:** When working with Gravity Forms API data, always reference the official documentation for accurate field formats:
+
+**Primary Documentation:**
+- **Getting Forms API Guide**: https://docs.gravityforms.com/getting-forms-with-the-rest-api-v2/
+- **REST API v2 Main Docs**: https://docs.gravityforms.com/rest-api-v2/
+
+**Key API Format Notes (Discovered 2024-01-XX):**
+- ✅ `is_active` field returns **string** `"1"`/`"0"`, NOT boolean `true`/`false`
+- ✅ `is_trash` field returns **string** `"1"`/`"0"`, NOT boolean `true`/`false` 
+- ✅ Form IDs return as **strings** `"123"`, NOT numbers `123`
+- ✅ Date fields return as **strings** in format `"YYYY-MM-DD HH:MM:SS"`
+
+**Code Implementation:**
+- Use `FormCache.insertFormFromApi()` for API data (handles string→boolean conversion)
+- Use `FormCache.insertForm()` for internal data (expects proper booleans)
+- Mock data updated to match real API format in `/tests/mocks/gravityFormsMocks.ts`
+
+**When in doubt about API format, ALWAYS check the official documentation first rather than assuming data types!**

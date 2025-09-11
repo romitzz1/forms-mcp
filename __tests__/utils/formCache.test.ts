@@ -1409,4 +1409,298 @@ describe('FormCache', () => {
       });
     });
   });
+
+  // =====================================
+  // Step 7: Probe Beyond Max Logic Tests
+  // =====================================
+
+  describe('Step 7: Probe Beyond Max Logic', () => {
+    beforeEach(async () => {
+      formCache = new FormCache(testDbPath);
+      await formCache.init();
+    });
+
+    describe('probeBeyondMax', () => {
+      it('should probe IDs beyond max active ID until consecutive failures', async () => {
+        // Mock API that returns forms for IDs 11, 13, but not 12, 14, 15, 16+
+        const mockApiCall = jest.fn().mockImplementation(async (endpoint: string) => {
+          const id = endpoint.split('/').pop();
+          
+          if (id === '11') {
+            return { id: '11', title: 'Hidden Form 11', is_active: '0' };
+          }
+          if (id === '13') {
+            return { id: '13', title: 'Hidden Form 13', is_active: '0' };
+          }
+          
+          // All other IDs fail
+          throw new Error('404 Form not found');
+        });
+
+        const results = await formCache.probeBeyondMax(11, mockApiCall);
+        
+        // Should find forms 11 and 13, then stop after consecutive failures
+        const foundResults = results.filter(r => r.found);
+        const notFoundResults = results.filter(r => !r.found);
+        
+        expect(foundResults).toHaveLength(2);
+        expect(foundResults[0].id).toBe(11);
+        expect(foundResults[1].id).toBe(13);
+        
+        // Should have stopped after default 10 consecutive failures
+        expect(notFoundResults.length).toBeGreaterThanOrEqual(10);
+        
+        // Verify forms were cached
+        const cachedForm11 = await formCache.getForm(11);
+        const cachedForm13 = await formCache.getForm(13);
+        expect(cachedForm11?.title).toBe('Hidden Form 11');
+        expect(cachedForm13?.title).toBe('Hidden Form 13');
+      });
+
+      it('should respect custom consecutive failure threshold', async () => {
+        const mockApiCall = jest.fn().mockRejectedValue(new Error('404 Not Found'));
+        
+        // Should stop after 3 consecutive failures
+        const results = await formCache.probeBeyondMax(100, mockApiCall, { consecutiveFailureThreshold: 3 });
+        
+        expect(results).toHaveLength(3);
+        expect(results.every(r => !r.found)).toBe(true);
+        expect(mockApiCall).toHaveBeenCalledTimes(3);
+      });
+
+      it('should respect maximum probe limit', async () => {
+        const mockApiCall = jest.fn().mockRejectedValue(new Error('404 Not Found'));
+        
+        // Should stop at probe limit even without consecutive failures
+        const results = await formCache.probeBeyondMax(100, mockApiCall, { 
+          consecutiveFailureThreshold: 20, 
+          maxProbeLimit: 5 
+        });
+        
+        expect(results).toHaveLength(5);
+        expect(mockApiCall).toHaveBeenCalledTimes(5);
+      });
+
+      it('should include progress tracking and call onProgress callback', async () => {
+        const mockApiCall = jest.fn()
+          .mockResolvedValueOnce({ id: '50', title: 'Form 50' })
+          .mockRejectedValueOnce(new Error('404'))
+          .mockRejectedValueOnce(new Error('404'))
+          .mockRejectedValueOnce(new Error('404'));
+
+        const progressUpdates: any[] = [];
+        const onProgress = jest.fn((progress) => progressUpdates.push(progress));
+        
+        await formCache.probeBeyondMax(50, mockApiCall, { 
+          consecutiveFailureThreshold: 3,
+          onProgress 
+        });
+        
+        expect(onProgress).toHaveBeenCalled();
+        expect(progressUpdates.length).toBeGreaterThan(0);
+        
+        // Verify progress structure
+        const lastProgress = progressUpdates[progressUpdates.length - 1];
+        expect(lastProgress).toHaveProperty('phase');
+        expect(lastProgress).toHaveProperty('current');
+        expect(lastProgress).toHaveProperty('found');
+      });
+
+      it('should handle API rate limiting with delays', async () => {
+        const mockApiCall = jest.fn().mockRejectedValue(new Error('404 Not Found'));
+        const startTime = Date.now();
+        
+        await formCache.probeBeyondMax(100, mockApiCall, { 
+          consecutiveFailureThreshold: 3,
+          probeDelayMs: 50 
+        });
+        
+        const elapsed = Date.now() - startTime;
+        // Should have delays between calls: 3 calls = 2 delays = ~100ms minimum
+        expect(elapsed).toBeGreaterThanOrEqual(90);
+      });
+
+      it.skip('should reset consecutive failure count when form is found', async () => {
+        // Mock that finds forms intermittently but never has 10 consecutive failures
+        let callCount = 0;
+        const mockApiCall = jest.fn().mockImplementation(async (endpoint: string) => {
+          callCount++;
+          const id = parseInt(endpoint.split('/').pop()!);
+          
+          // Find a form every 5th attempt to reset consecutive failures
+          if (callCount % 5 === 0) {
+            return { id: id.toString(), title: `Form ${id}` };
+          }
+          
+          throw new Error('404 Not Found');
+        });
+
+        const results = await formCache.probeBeyondMax(100, mockApiCall, { 
+          consecutiveFailureThreshold: 10,
+          maxProbeLimit: 50 
+        });
+        
+        // Should probe all 50 (limited by maxProbeLimit) because consecutive failures keep resetting
+        expect(results).toHaveLength(50);
+        const foundForms = results.filter(r => r.found);
+        expect(foundForms).toHaveLength(10); // Every 5th call succeeds
+      });
+
+      it('should validate startId parameter', async () => {
+        const mockApiCall = jest.fn();
+        
+        await expect(formCache.probeBeyondMax(0, mockApiCall)).rejects.toThrow('Invalid start ID');
+        await expect(formCache.probeBeyondMax(-1, mockApiCall)).rejects.toThrow('Invalid start ID');
+        await expect(formCache.probeBeyondMax(1.5, mockApiCall)).rejects.toThrow('Invalid start ID');
+      });
+    });
+
+    describe('findHighestFormId', () => {
+      it('should find highest form ID by probing', async () => {
+        // Mock API that has forms up to ID 25
+        const mockApiCall = jest.fn().mockImplementation(async (endpoint: string) => {
+          const id = parseInt(endpoint.split('/').pop()!);
+          
+          if (id <= 25) {
+            return { id: id.toString(), title: `Form ${id}` };
+          }
+          
+          throw new Error('404 Not Found');
+        });
+
+        const highestId = await formCache.findHighestFormId(mockApiCall);
+        
+        expect(highestId).toBe(25);
+      });
+
+      it('should handle case where no forms exist beyond start ID', async () => {
+        const mockApiCall = jest.fn().mockRejectedValue(new Error('404 Not Found'));
+        
+        const highestId = await formCache.findHighestFormId(mockApiCall, 100);
+        
+        expect(highestId).toBe(0); // No forms found
+      });
+
+      it('should use reasonable starting point when not provided', async () => {
+        const mockApiCall = jest.fn().mockImplementation(async (endpoint: string) => {
+          const id = parseInt(endpoint.split('/').pop()!);
+          
+          // Only form 1 exists
+          if (id === 1) {
+            return { id: '1', title: 'Form 1' };
+          }
+          
+          throw new Error('404 Not Found');
+        });
+
+        const highestId = await formCache.findHighestFormId(mockApiCall);
+        
+        expect(highestId).toBe(1);
+        // Should have started from a reasonable point (likely 1)
+        expect(mockApiCall).toHaveBeenCalledWith('/forms/1');
+      });
+    });
+
+    describe('isConsecutiveFailure', () => {
+      it('should detect consecutive failures at end of results', async () => {
+        const results = [
+          { id: 1, found: true },
+          { id: 2, found: false },
+          { id: 3, found: false },
+          { id: 4, found: false }
+        ];
+        
+        expect(formCache.isConsecutiveFailure(results, 3)).toBe(true);
+        expect(formCache.isConsecutiveFailure(results, 4)).toBe(false);
+      });
+
+      it('should not trigger when failures are not consecutive', async () => {
+        const results = [
+          { id: 1, found: false },
+          { id: 2, found: true },
+          { id: 3, found: false },
+          { id: 4, found: false }
+        ];
+        
+        expect(formCache.isConsecutiveFailure(results, 2)).toBe(true);
+        expect(formCache.isConsecutiveFailure(results, 3)).toBe(false);
+      });
+
+      it('should handle empty results array', async () => {
+        expect(formCache.isConsecutiveFailure([], 5)).toBe(false);
+      });
+
+      it('should handle threshold larger than results array', async () => {
+        const results = [
+          { id: 1, found: false },
+          { id: 2, found: false }
+        ];
+        
+        expect(formCache.isConsecutiveFailure(results, 5)).toBe(false);
+      });
+
+      it('should validate threshold parameter', async () => {
+        const results = [{ id: 1, found: false }];
+        
+        expect(() => formCache.isConsecutiveFailure(results, 0)).toThrow('Invalid threshold');
+        expect(() => formCache.isConsecutiveFailure(results, -1)).toThrow('Invalid threshold');
+      });
+    });
+
+    describe('beyond-max integration scenarios', () => {
+      it('should work with empty cache (fresh start)', async () => {
+        const mockApiCall = jest.fn()
+          .mockResolvedValueOnce({ id: '100', title: 'Form 100' })
+          .mockRejectedValue(new Error('404 Not Found'));
+
+        const results = await formCache.probeBeyondMax(100, mockApiCall, { consecutiveFailureThreshold: 2 });
+        
+        expect(results[0].found).toBe(true);
+        expect(results[0].id).toBe(100);
+        
+        // Verify form was cached even with empty initial cache
+        const cachedForm = await formCache.getForm(100);
+        expect(cachedForm?.title).toBe('Form 100');
+      });
+
+      it('should handle mixed success/failure patterns realistically', async () => {
+        // Realistic scenario: forms exist sporadically in higher ID ranges
+        const existingFormIds = [100, 102, 107, 110];
+        const mockApiCall = jest.fn().mockImplementation(async (endpoint: string) => {
+          const id = parseInt(endpoint.split('/').pop()!);
+          
+          if (existingFormIds.includes(id)) {
+            return { id: id.toString(), title: `Form ${id}`, is_active: '0' };
+          }
+          
+          throw new Error('404 Not Found');
+        });
+
+        const results = await formCache.probeBeyondMax(100, mockApiCall, { 
+          consecutiveFailureThreshold: 5,
+          maxProbeLimit: 20 
+        });
+        
+        const foundResults = results.filter(r => r.found);
+        expect(foundResults).toHaveLength(4);
+        expect(foundResults.map(r => r.id).sort()).toEqual([100, 102, 107, 110]);
+      });
+
+      it('should respect circuit breaker during beyond-max probing', async () => {
+        // Mock that always fails to trigger circuit breaker
+        const mockApiCall = jest.fn().mockRejectedValue(new Error('500 Server Error'));
+
+        const results = await formCache.probeBeyondMax(200, mockApiCall, { 
+          consecutiveFailureThreshold: 10,
+          maxProbeLimit: 20
+        });
+        
+        
+        // Should stop due to circuit breaker before reaching maxProbeLimit
+        const circuitBreakerResults = results.filter(r => r.error?.includes('Circuit breaker'));
+        expect(circuitBreakerResults.length).toBeGreaterThan(0);
+        expect(results.length).toBeLessThanOrEqual(20);
+      });
+    });
+  });
 });

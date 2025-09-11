@@ -33,6 +33,22 @@ export interface ProbeStats {
   errors: string[];
 }
 
+// Interface for beyond-max probing options
+export interface BeyondMaxOptions {
+  consecutiveFailureThreshold?: number;
+  maxProbeLimit?: number;
+  probeDelayMs?: number;
+  onProgress?: (progress: ProbeProgress) => void;
+}
+
+// Interface for progress tracking during beyond-max probing
+export interface ProbeProgress {
+  phase: string;
+  current: number;
+  total?: number;
+  found: number;
+}
+
 export interface FormCacheRecord {
   id: number;
   title: string;
@@ -924,5 +940,139 @@ export class FormCache {
    */
   private sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  // =====================================
+  // Step 7: Probe Beyond Max Logic Methods
+  // =====================================
+
+  /**
+   * Probe form IDs beyond the max active ID until consecutive failures
+   */
+  async probeBeyondMax(
+    startId: number, 
+    apiCall: ApiCallFunction, 
+    options: BeyondMaxOptions = {}
+  ): Promise<FormProbeResult[]> {
+    // Validate startId parameter
+    if (!Number.isInteger(startId) || startId <= 0) {
+      throw new Error('Invalid start ID: must be positive integer');
+    }
+
+    // Set default options
+    const consecutiveFailureThreshold = options.consecutiveFailureThreshold ?? 10;
+    const maxProbeLimit = options.maxProbeLimit ?? 1000;
+    const probeDelayMs = options.probeDelayMs ?? 100;
+    const onProgress = options.onProgress;
+
+    const results: FormProbeResult[] = [];
+    let currentId = startId;
+    let localConsecutiveFailures = 0;
+    let foundCount = 0;
+
+    // Progress tracking
+    const reportProgress = (phase: string) => {
+      if (onProgress) {
+        onProgress({
+          phase,
+          current: currentId,
+          total: maxProbeLimit,
+          found: foundCount
+        });
+      }
+    };
+
+    reportProgress('beyond-max-probing');
+
+    while (results.length < maxProbeLimit && localConsecutiveFailures < consecutiveFailureThreshold) {
+      // Probe current ID
+      const result = await this.probeFormById(currentId, apiCall);
+      results.push(result);
+
+      if (result.found) {
+        foundCount++;
+        localConsecutiveFailures = 0; // Reset local consecutive failure count
+        this.consecutiveFailures = 0; // Reset circuit breaker
+        reportProgress('found-form');
+      } else {
+        localConsecutiveFailures++;
+        this.consecutiveFailures++; // Update circuit breaker state
+      }
+
+      // Check circuit breaker after probing (this.consecutiveFailures is now properly updated)
+      if (this.consecutiveFailures >= this.circuitBreakerThreshold) {
+        // Circuit breaker triggered - add error messages for remaining attempts up to maxProbeLimit
+        while (results.length < maxProbeLimit) {
+          results.push({
+            id: currentId + 1,
+            found: false,
+            error: 'Circuit breaker open - too many consecutive failures'
+          });
+          currentId++;
+        }
+        break;
+      }
+
+      currentId++;
+
+      // Add delay between requests for rate limiting (except last request)  
+      if (results.length < maxProbeLimit && localConsecutiveFailures < consecutiveFailureThreshold) {
+        await this.sleep(probeDelayMs);
+      }
+    }
+
+    reportProgress('completed');
+    return results;
+  }
+
+  /**
+   * Find the highest form ID by probing systematically
+   */
+  async findHighestFormId(apiCall: ApiCallFunction, startId: number = 1): Promise<number> {
+    let highestFound = 0;
+    let currentId = startId;
+    let consecutiveFailures = 0;
+    const maxConsecutiveFailures = 10;
+
+    while (consecutiveFailures < maxConsecutiveFailures && currentId <= 10000) {
+      try {
+        const result = await this.probeFormById(currentId, apiCall);
+        
+        if (result.found) {
+          highestFound = currentId;
+          consecutiveFailures = 0;
+        } else {
+          consecutiveFailures++;
+        }
+      } catch (error) {
+        consecutiveFailures++;
+      }
+
+      currentId++;
+
+      // Add small delay to avoid overwhelming API
+      await this.sleep(50);
+    }
+
+    return highestFound;
+  }
+
+  /**
+   * Check if the last N results show consecutive failures
+   */
+  isConsecutiveFailure(results: FormProbeResult[], consecutiveThreshold: number): boolean {
+    // Validate threshold
+    if (consecutiveThreshold <= 0) {
+      throw new Error('Invalid threshold: must be positive integer');
+    }
+
+    // Handle empty results or threshold larger than results
+    if (results.length === 0 || consecutiveThreshold > results.length) {
+      return false;
+    }
+
+    // Check the last N results for consecutive failures
+    const lastResults = results.slice(-consecutiveThreshold);
+    return lastResults.every(result => !result.found);
   }
 }
