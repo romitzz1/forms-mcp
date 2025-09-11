@@ -13,6 +13,7 @@ import { ValidationHelper } from "./utils/validation.js";
 import { BulkOperationsManager } from "./utils/bulkOperations.js";
 import { TemplateManager } from "./utils/templateManager.js";
 import { FormImporter } from "./utils/formImporter.js";
+import { FormCache } from "./utils/formCache.js";
 
 // Configuration interface
 interface GravityFormsConfig {
@@ -30,6 +31,7 @@ export class GravityFormsMCPServer {
   private bulkOperationsManager?: BulkOperationsManager;
   private templateManager?: TemplateManager;
   private formImporter?: FormImporter;
+  private formCache?: FormCache;
 
   constructor() {
     this.server = new Server(
@@ -52,6 +54,9 @@ export class GravityFormsMCPServer {
     this.validator = new ValidationHelper();
     // Note: BulkOperationsManager will be initialized lazily when first needed
     // to avoid auth errors during server startup
+    
+    // Initialize FormCache (lazily initialized when first accessed)
+    this.formCache = new FormCache();
 
     this.setupToolHandlers();
   }
@@ -113,6 +118,11 @@ export class GravityFormsMCPServer {
                 include_fields: {
                   type: "boolean",
                   description: "Include full form field details",
+                  default: false
+                },
+                include_all: {
+                  type: "boolean",
+                  description: "Include all forms (active and inactive) from local cache. If true, performs complete form discovery including hidden/inactive forms.",
                   default: false
                 }
               }
@@ -591,8 +601,9 @@ export class GravityFormsMCPServer {
 
   // Tool implementation methods
   private async getForms(args: any) {
-    const { form_id, include_fields } = args;
+    const { form_id, include_fields, include_all } = args;
     
+    // When form_id is specified, always use API (ignore include_all)
     if (form_id) {
       const endpoint = `/forms/${form_id}`;
       const form = await this.makeRequest(endpoint);
@@ -604,18 +615,146 @@ export class GravityFormsMCPServer {
           }
         ]
       };
-    } else {
-      const endpoint = include_fields ? '/forms?include[]=form_fields' : '/forms';
-      const forms = await this.makeRequest(endpoint);
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Forms:\n${JSON.stringify(forms, null, 2)}`
-          }
-        ]
-      };
     }
+    
+    // If include_all is true, use FormCache for complete form discovery
+    if (include_all === true) {
+      try {
+        // Ensure FormCache is available and initialized
+        if (!this.formCache) {
+          throw new Error('FormCache not available');
+        }
+        
+        // Initialize cache if not ready
+        if (!this.formCache.isReady()) {
+          try {
+            await this.formCache.init();
+          } catch (initError) {
+            throw new Error(`Cache init failed: ${initError instanceof Error ? initError.message : 'Unknown error'}`);
+          }
+        }
+        
+        // Check if cache is stale and sync if needed
+        if (await this.formCache.isStale()) {
+          await this.formCache.performIncrementalSync(this.makeRequest.bind(this));
+        }
+        
+        // Get all forms from cache (includes inactive forms)
+        const allForms = await this.formCache.getAllForms();
+        
+        // Transform cached form data to match API format
+        const formsData = allForms.map(form => {
+          const baseForm = {
+            id: form.id.toString(),
+            title: form.title,
+            entry_count: form.entry_count,
+            is_active: form.is_active ? '1' : '0'
+          };
+          
+          // Include full form data when include_fields is true or form_data exists
+          if (include_fields && form.form_data) {
+            try {
+              const parsedData = JSON.parse(form.form_data);
+              return { ...baseForm, ...parsedData };
+            } catch {
+              // If form_data is invalid JSON, just return base form
+              return baseForm;
+            }
+          }
+          
+          return baseForm;
+        });
+        
+        return {
+          content: [
+            {
+              type: "text",
+              text: `All Forms (including inactive):\n${JSON.stringify(formsData, null, 2)}`
+            }
+          ]
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        
+        // For cache-related errors, fallback to API
+        try {
+          const endpoint = include_fields ? '/forms?include[]=form_fields' : '/forms';
+          const forms = await this.makeRequest(endpoint);
+          
+          if (message.includes('not available')) {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `${JSON.stringify(forms, null, 2)}`
+                }
+              ]
+            };
+          } else if (message.includes('Cache error')) {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `${JSON.stringify(forms, null, 2)}`
+                }
+              ]
+            };
+          } else if (message.includes('Cache init failed')) {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `Error initializing form cache: ${message}`
+                }
+              ]
+            };
+          } else {
+            // For sync failures, show error message
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `Error accessing complete form cache: ${message}`
+                }
+              ]
+            };
+          }
+        } catch (apiError) {
+          // If API fallback also fails, return the cache error with appropriate prefix
+          if (message.includes('Cache init failed')) {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `Error initializing form cache: ${message}`
+                }
+              ]
+            };
+          } else {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `Error accessing complete form cache: ${message}`
+                }
+              ]
+            };
+          }
+        }
+      }
+    }
+    
+    // Default behavior: use API only (backward compatibility)
+    const endpoint = include_fields ? '/forms?include[]=form_fields' : '/forms';
+    const forms = await this.makeRequest(endpoint);
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Forms:\n${JSON.stringify(forms, null, 2)}`
+        }
+      ]
+    };
   }
 
   private async getEntries(args: any) {
