@@ -107,7 +107,7 @@ export class FormImporter {
   /**
    * Resolves conflicts by modifying the imported form
    */
-  async resolveConflicts(importedForm: any, conflictInfo: ConflictInfo): Promise<any> {
+  async resolveConflicts(importedForm: any, conflictInfo: ConflictInfo, existingForms?: any[]): Promise<any> {
     if (!conflictInfo.hasConflict) {
       return importedForm;
     }
@@ -115,13 +115,13 @@ export class FormImporter {
     const resolvedForm = { ...importedForm };
 
     if (conflictInfo.conflictType === 'title') {
-      // Generate unique title
-      const existingForms = await this.apiCall('/forms');
+      // Generate unique title - use provided forms list to avoid duplicate API call
+      const forms = existingForms || await this.apiCall('/forms');
       const baseTitle = importedForm.title;
       let counter = 1;
       let newTitle = `${baseTitle} (Import ${counter})`;
       
-      while (existingForms.some((form: any) => form.title === newTitle)) {
+      while (forms.some((form: any) => form.title === newTitle)) {
         counter++;
         newTitle = `${baseTitle} (Import ${counter})`;
       }
@@ -129,7 +129,7 @@ export class FormImporter {
       resolvedForm.title = newTitle;
     }
 
-    // Remove ID to let Gravity Forms assign a new one
+    // Remove ID to let Gravity Forms assign a new one (handles both title and ID conflicts)
     delete resolvedForm.id;
 
     return resolvedForm;
@@ -245,12 +245,17 @@ export class FormImporter {
       let conflictsResolved = 0;
       let action: ImportResult['action'] = 'created';
       let idMapping: IdMapping | undefined;
+      let existingForms: any[] | undefined;
       
       // Handle conflicts
       if (conflictInfo.hasConflict) {
-        if (options.force_import && conflictInfo.conflictType === 'title') {
-          // Overwrite existing form
-          const existingId = conflictInfo.conflictDetails!.existingId;
+        if (options.force_import) {
+          // Force import: overwrite existing form for any conflict type
+          if (!conflictInfo.conflictDetails) {
+            throw new Error('Conflict details missing for force import');
+          }
+          
+          const existingId = conflictInfo.conflictDetails.existingId;
           resolvedForm = this.prepareFormForImport(importedForm);
           
           await this.apiCall(`/forms/${existingId}`, 'PUT', resolvedForm);
@@ -263,20 +268,12 @@ export class FormImporter {
             fields_imported: resolvedForm.fields.length,
             conflicts_resolved: 1
           };
-        } else if (!options.force_import) {
-          // Auto-resolve conflicts
-          resolvedForm = await this.resolveConflicts(importedForm, conflictInfo);
+        } else {
+          // Auto-resolve conflicts by modifying the form
+          existingForms = await this.apiCall('/forms'); // Get forms for conflict resolution
+          resolvedForm = await this.resolveConflicts(importedForm, conflictInfo, existingForms);
           conflictsResolved = 1;
           action = 'created_with_modified_title';
-        } else {
-          return {
-            success: false,
-            action: 'rejected',
-            form_title: importedForm.title,
-            fields_imported: 0,
-            conflicts_resolved: 0,
-            errors: [`Form with title "${importedForm.title}" already exists. Use force_import: true to overwrite.`]
-          };
         }
       }
       
