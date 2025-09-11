@@ -12,6 +12,7 @@ import { DataExporter } from "./utils/dataExporter.js";
 import { ValidationHelper } from "./utils/validation.js";
 import { BulkOperationsManager } from "./utils/bulkOperations.js";
 import { TemplateManager } from "./utils/templateManager.js";
+import { FormImporter } from "./utils/formImporter.js";
 
 // Configuration interface
 interface GravityFormsConfig {
@@ -28,6 +29,7 @@ export class GravityFormsMCPServer {
   private validator: ValidationHelper;
   private bulkOperationsManager?: BulkOperationsManager;
   private templateManager?: TemplateManager;
+  private formImporter?: FormImporter;
 
   constructor() {
     this.server = new Server(
@@ -449,6 +451,25 @@ export class GravityFormsMCPServer {
               },
               required: ["form_id"]
             }
+          },
+          {
+            name: "import_form_json",
+            description: "Import a form definition from JSON with automatic conflict resolution. Handles form ID conflicts, validates JSON structure, supports force import to overwrite existing forms. Maps field IDs and updates references (conditional logic, calculations) to maintain form integrity.",
+            inputSchema: {
+              type: "object",
+              properties: {
+                form_json: {
+                  type: "string",
+                  description: "JSON string containing the form definition to import (required)"
+                },
+                force_import: {
+                  type: "boolean",
+                  description: "Force import and overwrite existing form with same title (optional, default: false)",
+                  default: false
+                }
+              },
+              required: ["form_json"]
+            }
           }
         ]
       };
@@ -501,6 +522,9 @@ export class GravityFormsMCPServer {
           
           case "export_form_json":
             return await this.exportFormJson(args);
+          
+          case "import_form_json":
+            return await this.importFormJson(args);
           
           default:
             throw new McpError(
@@ -1275,6 +1299,63 @@ ${exportResult.base64Data}`
       this.templateManager = new TemplateManager((endpoint: string) => this.makeRequest(endpoint));
     }
     return this.templateManager;
+  }
+
+  private getFormImporter(): FormImporter {
+    if (!this.formImporter) {
+      // Create FormImporter with API call function
+      this.formImporter = new FormImporter((endpoint: string, method?: string, body?: any) => this.makeRequest(endpoint, method, body));
+    }
+    return this.formImporter;
+  }
+
+  private async importFormJson(args: any) {
+    try {
+      // Validate required parameters
+      const { form_json, force_import = false } = args;
+
+      if (!form_json || typeof form_json !== 'string' || form_json.trim() === '') {
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          'form_json is required and must be a non-empty string'
+        );
+      }
+
+      if (force_import !== undefined && typeof force_import !== 'boolean') {
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          'force_import must be a boolean value'
+        );
+      }
+
+      // Use FormImporter to perform the import
+      const formImporter = this.getFormImporter();
+      const result = await formImporter.importForm(form_json, { force_import });
+
+      if (!result.success) {
+        throw new McpError(
+          ErrorCode.InternalError,
+          `Form import failed: ${result.errors ? result.errors.join(', ') : 'Unknown error'}`
+        );
+      }
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Form Import Results:\n${JSON.stringify(result, null, 2)}`
+          }
+        ]
+      };
+    } catch (error) {
+      if (error instanceof McpError) {
+        throw error;
+      }
+      throw new McpError(
+        ErrorCode.InternalError,
+        `Failed to import form from JSON: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
   }
 
   async run() {
