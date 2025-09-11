@@ -517,11 +517,7 @@ export class FormCache {
       const cacheRecords: FormCacheRecord[] = [];
       
       for (const apiForm of response) {
-        // Validate individual form data
-        if (!apiForm.id || apiForm.id === '' || apiForm.id === null || !apiForm.hasOwnProperty('title')) {
-          throw new Error('Invalid form data in API response');
-        }
-        
+        // Individual form validation (null IDs will be caught in extractFormMetadata)
         const cacheRecord = this.transformApiForm(apiForm);
         cacheRecords.push(cacheRecord);
       }
@@ -589,6 +585,9 @@ export class FormCache {
    */
   extractFormMetadata(form: any): FormBasicInfo {
     const id = parseInt(form.id, 10);
+    if (isNaN(id)) {
+      throw new Error(`Invalid form ID: ${form.id}`);
+    }
     const title = form.title || '';
     const is_active = form.is_active === '1' || form.is_active === 1 || form.is_active === true;
     

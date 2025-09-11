@@ -737,7 +737,7 @@ describe('FormCache', () => {
 
         const mockApiCall = jest.fn().mockResolvedValue(mockApiResponse);
         
-        await expect(formCache.fetchActiveForms(mockApiCall)).rejects.toThrow('Invalid form data in API response');
+        await expect(formCache.fetchActiveForms(mockApiCall)).rejects.toThrow('Failed to fetch active forms: Invalid form ID: null');
       });
     });
 
@@ -918,6 +918,19 @@ describe('FormCache', () => {
         expect(result.title).toBe('Complex Form');
         expect(result.is_active).toBe(false);
         expect(result.entry_count).toBe(0);
+      });
+
+      it('should throw error for invalid form IDs', () => {
+        const invalidForms = [
+          { id: 'abc', title: 'Invalid ID' },
+          { id: 'not-a-number', title: 'Invalid ID' },
+          { id: '', title: 'Empty ID' },
+          { id: undefined, title: 'Undefined ID' }
+        ];
+
+        invalidForms.forEach(form => {
+          expect(() => formCache.extractFormMetadata(form)).toThrow('Invalid form ID');
+        });
       });
     });
   });
