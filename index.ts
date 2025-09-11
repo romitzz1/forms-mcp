@@ -99,7 +99,7 @@ export class GravityFormsMCPServer {
 
     return {
       enabled,
-      dbPath: dbPath || './data/forms-cache.db', // Fallback if empty string
+      dbPath: dbPath && dbPath.trim() !== '' ? dbPath : './data/forms-cache.db', // Fallback for empty/whitespace
       maxAgeSeconds,
       maxProbeFailures,
       autoSync
@@ -157,7 +157,11 @@ export class GravityFormsMCPServer {
       // Ensure directory exists for database
       const dbDir = path.dirname(this.cacheConfig.dbPath);
       if (!fs.existsSync(dbDir)) {
-        fs.mkdirSync(dbDir, { recursive: true });
+        try {
+          fs.mkdirSync(dbDir, { recursive: true });
+        } catch (dirError) {
+          throw new Error(`Failed to create cache directory: ${dirError instanceof Error ? dirError.message : 'Unknown error'}`);
+        }
       }
 
       this.formCache = new FormCache(this.cacheConfig.dbPath);
@@ -193,8 +197,11 @@ export class GravityFormsMCPServer {
    * Get comprehensive cache status for monitoring
    */
   private async getCacheStatus(): Promise<CacheStatus> {
+    // Cache is enabled if configured AND actually initialized
+    const actuallyEnabled = this.cacheConfig.enabled && this.formCache !== null;
+    
     const baseStatus: CacheStatus = {
-      enabled: this.cacheConfig.enabled && this.formCache !== null, // Enabled and actually working
+      enabled: actuallyEnabled,
       ready: false,
       dbPath: this.cacheConfig.dbPath,
       totalForms: 0,
@@ -204,7 +211,6 @@ export class GravityFormsMCPServer {
     };
 
     if (!this.formCache || this.formCache === null) {
-      baseStatus.enabled = false; // Actually disabled if cache is null
       return baseStatus;
     }
 
@@ -214,11 +220,11 @@ export class GravityFormsMCPServer {
 
       if (ready) {
         const stats = await this.formCache.getCacheStats();
-        const syncStatus = await this.formCache.getSyncStatus();
         
-        baseStatus.totalForms = stats.totalForms;
-        baseStatus.activeForms = stats.activeCount;
-        baseStatus.lastSync = stats.lastSync;
+        // Safely extract stats with defaults
+        baseStatus.totalForms = stats?.totalForms ?? 0;
+        baseStatus.activeForms = stats?.activeCount ?? 0;
+        baseStatus.lastSync = stats?.lastSync ?? null;
       }
     } catch (error) {
       // Status retrieval failed, return base status
