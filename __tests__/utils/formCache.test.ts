@@ -657,4 +657,268 @@ describe('FormCache', () => {
       });
     });
   });
+
+  describe('Active Forms Fetching (Step 4)', () => {
+    beforeEach(async () => {
+      formCache = new FormCache(testDbPath);
+      await formCache.init();
+    });
+
+    describe('fetchActiveForms', () => {
+      it('should fetch all active forms from API endpoint', async () => {
+        // Mock API response with multiple forms
+        const mockApiResponse = [
+          {
+            id: '1',
+            title: 'Contact Form',
+            is_active: '1',
+            entries: []
+          },
+          {
+            id: '2', 
+            title: 'Newsletter Signup',
+            is_active: '1',
+            entries: []
+          }
+        ];
+
+        const mockApiCall = jest.fn().mockResolvedValue(mockApiResponse);
+        
+        const result = await formCache.fetchActiveForms(mockApiCall);
+        
+        expect(mockApiCall).toHaveBeenCalledWith('/forms');
+        expect(result).toHaveLength(2);
+        expect(result[0].id).toBe(1);
+        expect(result[0].title).toBe('Contact Form');
+        expect(result[0].is_active).toBe(true);
+        expect(result[1].id).toBe(2);
+        expect(result[1].title).toBe('Newsletter Signup');
+        expect(result[1].is_active).toBe(true);
+      });
+
+      it('should handle empty API response', async () => {
+        const mockApiCall = jest.fn().mockResolvedValue([]);
+        
+        const result = await formCache.fetchActiveForms(mockApiCall);
+        
+        expect(result).toHaveLength(0);
+        expect(mockApiCall).toHaveBeenCalledWith('/forms');
+      });
+
+      it('should handle API errors gracefully', async () => {
+        const mockApiCall = jest.fn().mockRejectedValue(new Error('API timeout'));
+        
+        await expect(formCache.fetchActiveForms(mockApiCall)).rejects.toThrow('Failed to fetch active forms: API timeout');
+      });
+
+      it('should handle network errors', async () => {
+        const mockApiCall = jest.fn().mockRejectedValue(new Error('ECONNREFUSED'));
+        
+        await expect(formCache.fetchActiveForms(mockApiCall)).rejects.toThrow('Failed to fetch active forms: ECONNREFUSED');
+      });
+
+      it('should handle authentication errors', async () => {
+        const mockApiCall = jest.fn().mockRejectedValue(new Error('401 Unauthorized'));
+        
+        await expect(formCache.fetchActiveForms(mockApiCall)).rejects.toThrow('Failed to fetch active forms: 401 Unauthorized');
+      });
+
+      it('should handle malformed API response', async () => {
+        const mockApiCall = jest.fn().mockResolvedValue('invalid response');
+        
+        await expect(formCache.fetchActiveForms(mockApiCall)).rejects.toThrow('Invalid API response format');
+      });
+
+      it('should handle response with invalid form data', async () => {
+        const mockApiResponse = [
+          { id: null, title: '', is_active: '1' }, // Invalid form
+          { id: '2', title: 'Valid Form', is_active: '1' } // Valid form
+        ];
+
+        const mockApiCall = jest.fn().mockResolvedValue(mockApiResponse);
+        
+        await expect(formCache.fetchActiveForms(mockApiCall)).rejects.toThrow('Invalid form data in API response');
+      });
+    });
+
+    describe('transformApiForm', () => {
+      it('should transform basic API form to cache record', () => {
+        const apiForm = {
+          id: '5',
+          title: 'Test Form',
+          is_active: '1',
+          entries: []
+        };
+
+        const result = formCache.transformApiForm(apiForm);
+
+        expect(result.id).toBe(5);
+        expect(result.title).toBe('Test Form');
+        expect(result.is_active).toBe(true);
+        expect(result.entry_count).toBe(0);
+        expect(result.form_data).toBe(JSON.stringify(apiForm));
+      });
+
+      it('should handle different is_active formats', () => {
+        const testCases = [
+          { input: '1', expected: true },
+          { input: '0', expected: false },
+          { input: 1, expected: true },
+          { input: 0, expected: false },
+          { input: true, expected: true },
+          { input: false, expected: false }
+        ];
+
+        testCases.forEach((testCase, index) => {
+          const apiForm = {
+            id: `${index + 10}`,
+            title: `Form ${index}`,
+            is_active: testCase.input,
+            entries: []
+          };
+
+          const result = formCache.transformApiForm(apiForm);
+          expect(result.is_active).toBe(testCase.expected);
+        });
+      });
+
+      it('should extract entry count from entries array', () => {
+        const apiForm = {
+          id: '7',
+          title: 'Form with Entries',
+          is_active: '1',
+          entries: [{}, {}, {}] // 3 entries
+        };
+
+        const result = formCache.transformApiForm(apiForm);
+        expect(result.entry_count).toBe(3);
+      });
+
+      it('should handle missing or null entries', () => {
+        const testCases = [
+          { entries: undefined, expected: 0 },
+          { entries: null, expected: 0 },
+          { entries: [], expected: 0 }
+        ];
+
+        testCases.forEach((testCase, index) => {
+          const apiForm = {
+            id: `${index + 20}`,
+            title: `Form ${index}`,
+            is_active: '1',
+            entries: testCase.entries
+          };
+
+          const result = formCache.transformApiForm(apiForm);
+          expect(result.entry_count).toBe(testCase.expected);
+        });
+      });
+
+      it('should handle missing or empty title', () => {
+        const testCases = [
+          { title: undefined, expected: '' },
+          { title: null, expected: '' },
+          { title: '', expected: '' },
+          { title: 'Valid Title', expected: 'Valid Title' }
+        ];
+
+        testCases.forEach((testCase, index) => {
+          const apiForm = {
+            id: `${index + 30}`,
+            title: testCase.title,
+            is_active: '1',
+            entries: []
+          };
+
+          const result = formCache.transformApiForm(apiForm);
+          expect(result.title).toBe(testCase.expected);
+        });
+      });
+    });
+
+    describe('validateApiResponse', () => {
+      it('should validate correct API response array', () => {
+        const validResponse = [
+          { id: '1', title: 'Form 1', is_active: '1' },
+          { id: '2', title: 'Form 2', is_active: '0' }
+        ];
+
+        expect(formCache.validateApiResponse(validResponse)).toBe(true);
+      });
+
+      it('should reject non-array responses', () => {
+        const invalidResponses = [
+          'string response',
+          123,
+          { id: '1', title: 'Single Form' },
+          null,
+          undefined
+        ];
+
+        invalidResponses.forEach(response => {
+          expect(formCache.validateApiResponse(response)).toBe(false);
+        });
+      });
+
+      it('should reject array with invalid form objects', () => {
+        const invalidResponses = [
+          [{ title: 'Missing ID' }],
+          [{ id: '', title: 'Empty ID' }],
+          [{ id: '1' }], // Missing title
+          ['string instead of object']
+        ];
+
+        invalidResponses.forEach(response => {
+          expect(formCache.validateApiResponse(response)).toBe(false);
+        });
+      });
+
+      it('should accept empty array', () => {
+        expect(formCache.validateApiResponse([])).toBe(true);
+      });
+    });
+
+    describe('extractFormMetadata', () => {
+      it('should extract basic form metadata', () => {
+        const form = {
+          id: '15',
+          title: 'Registration Form',
+          is_active: '1',
+          date_created: '2024-01-15 10:30:00',
+          entries: [{}, {}]
+        };
+
+        const result = formCache.extractFormMetadata(form);
+
+        expect(result.id).toBe(15);
+        expect(result.title).toBe('Registration Form');
+        expect(result.is_active).toBe(true);
+        expect(result.entry_count).toBe(2);
+      });
+
+      it('should handle forms with complex structures', () => {
+        const complexForm = {
+          id: '25',
+          title: 'Complex Form',
+          is_active: '0',
+          fields: [
+            { id: 1, type: 'text' },
+            { id: 2, type: 'email' }
+          ],
+          settings: {
+            confirmations: [],
+            notifications: []
+          },
+          entries: []
+        };
+
+        const result = formCache.extractFormMetadata(complexForm);
+
+        expect(result.id).toBe(25);
+        expect(result.title).toBe('Complex Form');
+        expect(result.is_active).toBe(false);
+        expect(result.entry_count).toBe(0);
+      });
+    });
+  });
 });

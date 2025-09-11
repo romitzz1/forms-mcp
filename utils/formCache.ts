@@ -6,6 +6,17 @@ import Database from 'better-sqlite3';
 
 const CURRENT_SCHEMA_VERSION = 1;
 
+// Type for API call function
+export type ApiCallFunction = (endpoint: string) => Promise<any>;
+
+// Interface for basic form metadata extraction
+export interface FormBasicInfo {
+  id: number;
+  title: string;
+  is_active: boolean;
+  entry_count: number;
+}
+
 export interface FormCacheRecord {
   id: number;
   title: string;
@@ -484,5 +495,118 @@ export class FormCache {
     const stmt = db.prepare(query);
     const result = stmt.get() as { count: number };
     return result.count;
+  }
+
+  // =====================================
+  // Step 4: Active Forms Fetching Methods
+  // =====================================
+
+  /**
+   * Fetch all active forms from the API and transform them to cache format
+   */
+  async fetchActiveForms(apiCall: ApiCallFunction): Promise<FormCacheRecord[]> {
+    try {
+      const response = await apiCall('/forms');
+      
+      // Validate response format
+      if (!this.validateApiResponse(response)) {
+        throw new Error('Invalid API response format');
+      }
+
+      // Transform each API form to cache format
+      const cacheRecords: FormCacheRecord[] = [];
+      
+      for (const apiForm of response) {
+        // Validate individual form data
+        if (!apiForm.id || apiForm.id === '' || apiForm.id === null || !apiForm.hasOwnProperty('title')) {
+          throw new Error('Invalid form data in API response');
+        }
+        
+        const cacheRecord = this.transformApiForm(apiForm);
+        cacheRecords.push(cacheRecord);
+      }
+
+      return cacheRecords;
+      
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      throw new Error(`Failed to fetch active forms: ${message}`);
+    }
+  }
+
+  /**
+   * Transform API form data to FormCacheRecord format
+   */
+  transformApiForm(apiForm: any): FormCacheRecord {
+    const basicInfo = this.extractFormMetadata(apiForm);
+    
+    return {
+      id: basicInfo.id,
+      title: basicInfo.title,
+      entry_count: basicInfo.entry_count,
+      is_active: basicInfo.is_active,
+      last_synced: new Date().toISOString(),
+      form_data: JSON.stringify(apiForm)
+    };
+  }
+
+  /**
+   * Validate API response format
+   */
+  validateApiResponse(response: any): boolean {
+    // Must be an array
+    if (!Array.isArray(response)) {
+      return false;
+    }
+
+    // Empty array is valid
+    if (response.length === 0) {
+      return true;
+    }
+
+    // Check each element is an object and has basic structure
+    for (const form of response) {
+      if (typeof form !== 'object' || form === null) {
+        return false;
+      }
+      
+      // Reject completely missing ID or title properties
+      if (!form.hasOwnProperty('id') || !form.hasOwnProperty('title')) {
+        return false;
+      }
+
+      // Reject empty string IDs (null will be caught in individual validation)
+      if (form.id === '') {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  /**
+   * Extract basic form metadata from API form data
+   */
+  extractFormMetadata(form: any): FormBasicInfo {
+    const id = parseInt(form.id, 10);
+    const title = form.title || '';
+    const is_active = form.is_active === '1' || form.is_active === 1 || form.is_active === true;
+    
+    // Extract entry count from entries array if present
+    let entry_count = 0;
+    if (Array.isArray(form.entries)) {
+      entry_count = form.entries.length;
+    } else if (form.entries) {
+      // Handle case where entries might be a number or string
+      const parsed = parseInt(form.entries, 10);
+      entry_count = isNaN(parsed) ? 0 : parsed;
+    }
+
+    return {
+      id,
+      title,
+      is_active,
+      entry_count
+    };
   }
 }
