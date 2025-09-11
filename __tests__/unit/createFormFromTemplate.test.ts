@@ -394,7 +394,7 @@ describe('create_form_from_template tool logic', () => {
     it('should validate template_id parameter', () => {
       const invalidTemplateIds = ['', null, undefined, 0, false];
 
-      invalidTemplateIds.forEach(async (invalidId) => {
+      invalidTemplateIds.forEach((invalidId) => {
         const params = {
           template_id: invalidId as any,
           new_form_title: 'Test Form'
