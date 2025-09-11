@@ -60,7 +60,7 @@ export class TemplateManager {
    * Templates must have titles ending with '-template'
    */
   isTemplate(form: any): boolean {
-    if (!form || typeof form !== 'object' || !form.title) {
+    if (!form || typeof form !== 'object' || typeof form.title !== 'string') {
       return false;
     }
 
@@ -71,9 +71,10 @@ export class TemplateManager {
    * Generates a template name by adding '-template' suffix
    * Avoids double-adding the suffix
    */
-  generateTemplateName(baseName: string): string {
-    if (!baseName) {
-      return `${baseName}-template`;
+  generateTemplateName(baseName: string | null | undefined): string {
+    // Handle null/undefined/empty cases
+    if (!baseName || baseName.trim() === '') {
+      return 'untitled-template';
     }
 
     if (baseName.endsWith('-template')) {

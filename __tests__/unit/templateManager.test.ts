@@ -55,6 +55,23 @@ describe('TemplateManager', () => {
       expect(templateManager.isTemplate(null)).toBe(false);
       expect(templateManager.isTemplate(undefined)).toBe(false);
     });
+
+    it('should handle forms with non-string titles', () => {
+      const formWithNumberTitle = {
+        id: '1',
+        title: 123,
+        fields: []
+      };
+      
+      const formWithObjectTitle = {
+        id: '1',
+        title: { name: 'Contact Form-template' },
+        fields: []
+      };
+      
+      expect(templateManager.isTemplate(formWithNumberTitle)).toBe(false);
+      expect(templateManager.isTemplate(formWithObjectTitle)).toBe(false);
+    });
   });
 
   describe('generateTemplateName', () => {
@@ -69,8 +86,10 @@ describe('TemplateManager', () => {
     });
 
     it('should handle empty or null base names', () => {
-      expect(templateManager.generateTemplateName('')).toBe('-template');
-      expect(templateManager.generateTemplateName(null as any)).toBe('null-template');
+      expect(templateManager.generateTemplateName('')).toBe('untitled-template');
+      expect(templateManager.generateTemplateName(null)).toBe('untitled-template');
+      expect(templateManager.generateTemplateName(undefined)).toBe('untitled-template');
+      expect(templateManager.generateTemplateName('   ')).toBe('untitled-template');
     });
   });
 
