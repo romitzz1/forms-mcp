@@ -80,4 +80,15 @@ export class DatabaseManager {
   getPath(): string {
     return this.dbPath;
   }
+
+  /**
+   * Get database instance for advanced operations
+   * Only available when connection is ready
+   */
+  getDatabase(): Database.Database {
+    if (!this.isReady()) {
+      throw new Error('Database not initialized or connection not ready');
+    }
+    return this.db!;
+  }
 }

@@ -117,6 +117,21 @@ describe('DatabaseManager', () => {
       expect(() => dbManager.init()).not.toThrow();
       expect(dbManager.isReady()).toBe(true);
     });
+
+    it('should provide database instance when ready', () => {
+      dbManager.init();
+      
+      const db = dbManager.getDatabase();
+      expect(db).toBeDefined();
+      
+      // Should be able to execute queries
+      const result = db.prepare('SELECT 1 as test').get();
+      expect(result).toEqual({ test: 1 });
+    });
+
+    it('should throw error when getting database instance before init', () => {
+      expect(() => dbManager.getDatabase()).toThrow('Database not initialized or connection not ready');
+    });
   });
 
   describe('error handling', () => {
