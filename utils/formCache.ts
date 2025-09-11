@@ -608,4 +608,88 @@ export class FormCache {
       entry_count
     };
   }
+
+  // =====================================
+  // Step 5: ID Gap Detection Methods
+  // =====================================
+
+  /**
+   * Find gaps in ID sequences from 1 to max ID
+   */
+  findIdGaps(existingIds: number[]): number[] {
+    // Validate input
+    for (const id of existingIds) {
+      if (!Number.isInteger(id) || id <= 0) {
+        throw new Error('Invalid form IDs: must be positive integers');
+      }
+    }
+
+    // Handle empty input
+    if (existingIds.length === 0) {
+      return [];
+    }
+
+    // Remove duplicates and sort
+    const uniqueIds = [...new Set(existingIds)].sort((a, b) => a - b);
+    const maxId = uniqueIds[uniqueIds.length - 1];
+
+    // Find gaps efficiently using Set lookup
+    const existingSet = new Set(uniqueIds);
+    const gaps: number[] = [];
+
+    for (let id = 1; id <= maxId; id++) {
+      if (!existingSet.has(id)) {
+        gaps.push(id);
+      }
+    }
+
+    return gaps;
+  }
+
+  /**
+   * Get maximum form ID from cache
+   */
+  async getMaxFormId(): Promise<number> {
+    if (!this.isReady()) {
+      throw new Error('FormCache not initialized');
+    }
+
+    const db = this.getDatabase();
+    const stmt = db.prepare(`
+      SELECT MAX(id) as max_id FROM forms
+    `);
+
+    const result = stmt.get() as { max_id: number | null };
+    return result.max_id ?? 0;
+  }
+
+  /**
+   * Get all existing form IDs from cache
+   */
+  async getExistingFormIds(): Promise<number[]> {
+    if (!this.isReady()) {
+      throw new Error('FormCache not initialized');
+    }
+
+    const db = this.getDatabase();
+    const stmt = db.prepare(`
+      SELECT id FROM forms ORDER BY id
+    `);
+
+    const results = stmt.all() as { id: number }[];
+    return results.map(row => row.id);
+  }
+
+  /**
+   * Generate probe list from active form IDs (find gaps from 1 to max active ID)
+   */
+  generateProbeList(activeIds: number[]): number[] {
+    // Handle empty input
+    if (activeIds.length === 0) {
+      return [];
+    }
+
+    // Use findIdGaps to get missing IDs
+    return this.findIdGaps(activeIds);
+  }
 }

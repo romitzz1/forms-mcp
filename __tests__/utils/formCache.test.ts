@@ -934,4 +934,178 @@ describe('FormCache', () => {
       });
     });
   });
+
+  describe('ID Gap Detection (Step 5)', () => {
+    beforeEach(async () => {
+      formCache = new FormCache(testDbPath);
+      await formCache.init();
+    });
+
+    describe('findIdGaps', () => {
+      it('should find gaps in ID sequences', () => {
+        const testCases = [
+          { input: [1, 2, 4, 7], expected: [3, 5, 6] },
+          { input: [1, 3, 5], expected: [2, 4] },
+          { input: [2, 4, 6, 8], expected: [1, 3, 5, 7] },
+          { input: [1, 10], expected: [2, 3, 4, 5, 6, 7, 8, 9] }
+        ];
+
+        testCases.forEach(({ input, expected }) => {
+          const result = formCache.findIdGaps(input);
+          expect(result).toEqual(expected);
+        });
+      });
+
+      it('should handle edge cases', () => {
+        // Empty array
+        expect(formCache.findIdGaps([])).toEqual([]);
+        
+        // Single element
+        expect(formCache.findIdGaps([5])).toEqual([1, 2, 3, 4]);
+        
+        // No gaps
+        expect(formCache.findIdGaps([1, 2, 3, 4])).toEqual([]);
+        
+        // Starting from 1
+        expect(formCache.findIdGaps([1, 2, 3])).toEqual([]);
+      });
+
+      it('should handle unsorted input arrays', () => {
+        const unsorted = [7, 2, 4, 1];
+        const result = formCache.findIdGaps(unsorted);
+        expect(result).toEqual([3, 5, 6]);
+      });
+
+      it('should handle duplicate IDs', () => {
+        const withDuplicates = [1, 2, 2, 4, 4, 7];
+        const result = formCache.findIdGaps(withDuplicates);
+        expect(result).toEqual([3, 5, 6]);
+      });
+
+      it('should work efficiently with large ID ranges', () => {
+        const largeArray = [1, 500, 1000];
+        const result = formCache.findIdGaps(largeArray);
+        
+        // Should find gaps efficiently without creating huge arrays
+        expect(result.length).toBe(997); // 1000 - 3 = 997 missing IDs
+        expect(result[0]).toBe(2);
+        expect(result[result.length - 1]).toBe(999);
+      });
+
+      it('should handle invalid inputs gracefully', () => {
+        const invalidInputs = [
+          [-1, 2, 3], // negative numbers
+          [0, 1, 2], // zero
+          [1.5, 2, 3] // non-integers
+        ];
+
+        invalidInputs.forEach(input => {
+          expect(() => formCache.findIdGaps(input)).toThrow('Invalid form IDs');
+        });
+      });
+    });
+
+    describe('getMaxFormId', () => {
+      it('should return maximum form ID from cache', async () => {
+        // Insert test forms
+        await formCache.insertForm({ id: 1, title: 'Form 1' });
+        await formCache.insertForm({ id: 5, title: 'Form 5' });
+        await formCache.insertForm({ id: 3, title: 'Form 3' });
+
+        const maxId = await formCache.getMaxFormId();
+        expect(maxId).toBe(5);
+      });
+
+      it('should return 0 when no forms exist', async () => {
+        const maxId = await formCache.getMaxFormId();
+        expect(maxId).toBe(0);
+      });
+    });
+
+    describe('getExistingFormIds', () => {
+      it('should return all form IDs from cache', async () => {
+        // Insert test forms
+        await formCache.insertForm({ id: 1, title: 'Form 1' });
+        await formCache.insertForm({ id: 5, title: 'Form 5' });
+        await formCache.insertForm({ id: 3, title: 'Form 3' });
+
+        const ids = await formCache.getExistingFormIds();
+        expect(ids.sort()).toEqual([1, 3, 5]);
+      });
+
+      it('should return empty array when no forms exist', async () => {
+        const ids = await formCache.getExistingFormIds();
+        expect(ids).toEqual([]);
+      });
+
+      it('should include both active and inactive forms', async () => {
+        await formCache.insertForm({ id: 1, title: 'Active Form', is_active: true });
+        await formCache.insertForm({ id: 2, title: 'Inactive Form', is_active: false });
+
+        const ids = await formCache.getExistingFormIds();
+        expect(ids.sort()).toEqual([1, 2]);
+      });
+    });
+
+    describe('generateProbeList', () => {
+      it('should generate probe list from active form IDs', () => {
+        const activeIds = [1, 2, 4, 7, 10];
+        const probeList = formCache.generateProbeList(activeIds);
+        
+        // Should return missing IDs from 1 to max active ID
+        expect(probeList).toEqual([3, 5, 6, 8, 9]);
+      });
+
+      it('should handle empty active IDs', () => {
+        const probeList = formCache.generateProbeList([]);
+        expect(probeList).toEqual([]);
+      });
+
+      it('should handle continuous sequence (no gaps)', () => {
+        const activeIds = [1, 2, 3, 4, 5];
+        const probeList = formCache.generateProbeList(activeIds);
+        expect(probeList).toEqual([]);
+      });
+
+      it('should work with unsorted active IDs', () => {
+        const activeIds = [7, 2, 4, 1, 10];
+        const probeList = formCache.generateProbeList(activeIds);
+        expect(probeList).toEqual([3, 5, 6, 8, 9]);
+      });
+
+      it('should handle large gaps efficiently', () => {
+        const activeIds = [1, 1000];
+        const probeList = formCache.generateProbeList(activeIds);
+        
+        expect(probeList.length).toBe(998);
+        expect(probeList[0]).toBe(2);
+        expect(probeList[probeList.length - 1]).toBe(999);
+      });
+    });
+
+    describe('gap detection integration', () => {
+      it('should work end-to-end with cached forms', async () => {
+        // Insert some forms with gaps
+        await formCache.insertForm({ id: 1, title: 'Form 1' });
+        await formCache.insertForm({ id: 3, title: 'Form 3' });
+        await formCache.insertForm({ id: 7, title: 'Form 7' });
+
+        const existingIds = await formCache.getExistingFormIds();
+        const gaps = formCache.findIdGaps(existingIds);
+        
+        expect(gaps).toEqual([2, 4, 5, 6]);
+      });
+
+      it('should handle mixed active/inactive forms', async () => {
+        await formCache.insertForm({ id: 1, title: 'Active Form', is_active: true });
+        await formCache.insertForm({ id: 2, title: 'Inactive Form', is_active: false });
+        await formCache.insertForm({ id: 5, title: 'Another Active', is_active: true });
+
+        const existingIds = await formCache.getExistingFormIds();
+        const gaps = formCache.findIdGaps(existingIds);
+        
+        expect(gaps).toEqual([3, 4]);
+      });
+    });
+  });
 });
