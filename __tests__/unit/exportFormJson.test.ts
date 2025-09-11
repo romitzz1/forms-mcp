@@ -136,7 +136,7 @@ describe('export_form_json tool logic', () => {
         exportForm.notifications = exportForm.notifications.map((notification: any) => {
           const cleanNotification = { ...notification };
           // Remove sensitive email addresses and API keys
-          if (cleanNotification.to && cleanNotification.to.includes('@')) {
+          if (cleanNotification.to && cleanNotification.to.includes('@') && cleanNotification.to !== '{admin_email}') {
             cleanNotification.to = '{admin_email}'; // Use placeholder
           }
           delete cleanNotification.apiKey;
@@ -344,6 +344,34 @@ describe('export_form_json tool logic', () => {
       // Stripe secret key should be removed, publishable key can remain
       expect(sanitized.settings.stripe.secretKey).toBeUndefined();
       expect(sanitized.settings.stripe.publishableKey).toBe('pk_test_12345'); // Public key OK
+    });
+
+    it('should handle webhook URLs in notifications', () => {
+      const sanitized = sanitizeFormForExport(mockFormWithSensitiveData);
+
+      // Webhook URL should be preserved (not an email address)
+      expect(sanitized.notifications[1].to).toBe('https://webhook.site/12345');
+      expect(sanitized.notifications[1].to).not.toBe('{admin_email}');
+    });
+
+    it('should preserve existing admin_email placeholders', () => {
+      const formWithPlaceholder = {
+        ...mockFormWithSensitiveData,
+        notifications: [
+          {
+            id: 'admin',
+            name: 'Admin Notification',
+            to: '{admin_email}', // Already a placeholder
+            apiKey: 'secret-key'
+          }
+        ]
+      };
+
+      const sanitized = sanitizeFormForExport(formWithPlaceholder);
+
+      // Should preserve existing placeholder, not double-replace
+      expect(sanitized.notifications[0].to).toBe('{admin_email}');
+      expect(sanitized.notifications[0].apiKey).toBeUndefined();
     });
 
     it('should preserve non-sensitive configuration', () => {
