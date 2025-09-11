@@ -381,6 +381,24 @@ export class GravityFormsMCPServer {
                 }
               }
             }
+          },
+          {
+            name: "save_form_as_template",
+            description: "Save an existing form as a reusable template. Clones the form structure while removing form-specific data like entries and notifications. The template can then be used to create new forms with similar structure.",
+            inputSchema: {
+              type: "object",
+              properties: {
+                form_id: {
+                  type: "string",
+                  description: "ID of the form to convert to a template (required)"
+                },
+                template_name: {
+                  type: "string",
+                  description: "Name for the template (optional - defaults to form title + '-template')"
+                }
+              },
+              required: ["form_id"]
+            }
           }
         ]
       };
@@ -424,6 +442,9 @@ export class GravityFormsMCPServer {
           
           case "list_form_templates":
             return await this.listFormTemplates(args);
+          
+          case "save_form_as_template":
+            return await this.saveFormAsTemplate(args);
           
           default:
             throw new McpError(
@@ -913,6 +934,101 @@ ${exportResult.base64Data}`
         `Failed to list templates: ${error instanceof Error ? error.message : 'Unknown error'}`
       );
     }
+  }
+
+  private async saveFormAsTemplate(args: any) {
+    try {
+      // Validate required parameters
+      const { form_id, template_name } = args;
+
+      if (!form_id) {
+        throw new McpError(ErrorCode.InvalidParams, 'form_id is required');
+      }
+
+      // Get TemplateManager (lazy initialization)
+      const templateManager = this.getTemplateManager();
+
+      // Fetch the source form
+      const sourceForm = await this.makeRequest(`/forms/${form_id}`, 'GET');
+
+      if (!sourceForm) {
+        throw new McpError(ErrorCode.InvalidParams, `Form with ID ${form_id} not found`);
+      }
+
+      // Check if the source form is already a template
+      if (templateManager.isTemplate(sourceForm)) {
+        throw new McpError(ErrorCode.InvalidParams, `Form with ID ${form_id} is already a template`);
+      }
+
+      // Generate template name
+      const finalTemplateName = template_name || templateManager.generateTemplateName(sourceForm.title);
+
+      // Check for name conflicts with existing templates
+      const existingTemplates = await templateManager.listTemplates();
+      const hasConflict = existingTemplates.some(template => template.name === finalTemplateName);
+
+      // Clone and sanitize the form data for template use
+      const templateData = this.prepareTemplateData(sourceForm, finalTemplateName);
+
+      // Create the template via API
+      const createdTemplate = await this.makeRequest('/forms', 'POST', templateData);
+
+      // Prepare response
+      const response: any = {
+        success: true,
+        template_id: createdTemplate.id,
+        template_name: finalTemplateName,
+        original_form_id: form_id
+      };
+
+      if (hasConflict) {
+        response.warnings = [`Template name '${finalTemplateName}' may conflict with existing template`];
+      }
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(response, null, 2)
+          }
+        ]
+      };
+
+    } catch (error) {
+      if (error instanceof McpError) {
+        throw error;
+      }
+      throw new McpError(
+        ErrorCode.InternalError,
+        `Failed to save form as template: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
+  }
+
+  private prepareTemplateData(sourceForm: any, templateName: string): any {
+    // Deep clone the source form to avoid mutation
+    const templateData = JSON.parse(JSON.stringify(sourceForm));
+
+    // Remove form-specific properties
+    delete templateData.id;
+    delete templateData.date_created;
+    delete templateData.date_updated;
+    delete templateData.entries_count;
+
+    // Clear form-specific data
+    templateData.notifications = [];
+    templateData.confirmations = [];
+
+    // Set template-specific properties
+    templateData.title = templateName;
+    templateData.is_template = true;
+    templateData.template_metadata = {
+      original_form_id: sourceForm.id,
+      created_from_form: true,
+      created_at: new Date().toISOString()
+    };
+
+    return templateData;
   }
 
   private getTemplateManager(): TemplateManager {
