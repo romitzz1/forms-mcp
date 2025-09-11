@@ -435,6 +435,20 @@ export class GravityFormsMCPServer {
               },
               required: ["template_id", "new_form_title"]
             }
+          },
+          {
+            name: "export_form_json",
+            description: "Export a complete form definition as JSON for backup, migration, or import purposes. Removes sensitive data (API keys, private settings) while preserving all form structure, fields, conditional logic, and calculations. Returns formatted JSON suitable for import.",
+            inputSchema: {
+              type: "object",
+              properties: {
+                form_id: {
+                  type: "string",
+                  description: "ID of the form to export (required)"
+                }
+              },
+              required: ["form_id"]
+            }
           }
         ]
       };
@@ -484,6 +498,9 @@ export class GravityFormsMCPServer {
           
           case "create_form_from_template":
             return await this.createFormFromTemplate(args);
+          
+          case "export_form_json":
+            return await this.exportFormJson(args);
           
           default:
             throw new McpError(
@@ -1146,6 +1163,108 @@ ${exportResult.base64Data}`
       throw new McpError(
         ErrorCode.InternalError,
         `Failed to create form from template: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
+  }
+
+  private async exportFormJson(args: any) {
+    try {
+      // Validate required parameters
+      const { form_id } = args;
+
+      if (!form_id || typeof form_id !== 'string' || form_id.trim() === '') {
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          'form_id is required and must be a non-empty string'
+        );
+      }
+
+      // Fetch the form data
+      const form = await this.makeRequest(`/forms/${form_id}`);
+
+      if (!form) {
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          `Form with ID ${form_id} not found`
+        );
+      }
+
+      // Create a clean copy for export
+      const exportForm = JSON.parse(JSON.stringify(form));
+
+      // Remove runtime/metadata properties that shouldn't be exported
+      delete exportForm.id;
+      delete exportForm.date_created;
+      delete exportForm.date_updated;
+      delete exportForm.entries_count;
+      delete exportForm.is_active;
+      delete exportForm.is_trash;
+
+      // Remove sensitive data from notifications
+      if (exportForm.notifications && Array.isArray(exportForm.notifications)) {
+        exportForm.notifications = exportForm.notifications.map((notification: any) => {
+          const cleanNotification = { ...notification };
+          
+          // Replace sensitive email addresses with placeholders
+          if (cleanNotification.to && cleanNotification.to.includes('@') && cleanNotification.to !== '{admin_email}') {
+            cleanNotification.to = '{admin_email}';
+          }
+          
+          // Remove API keys and sensitive auth data
+          delete cleanNotification.apiKey;
+          delete cleanNotification.privateKey;
+          delete cleanNotification.authToken;
+          delete cleanNotification.customHeaders;
+          
+          return cleanNotification;
+        });
+      }
+
+      // Remove sensitive payment gateway data
+      if (exportForm.settings) {
+        if (exportForm.settings.paypal) {
+          delete exportForm.settings.paypal.apiUsername;
+          delete exportForm.settings.paypal.apiPassword;
+          delete exportForm.settings.paypal.signature;
+        }
+        if (exportForm.settings.stripe) {
+          delete exportForm.settings.stripe.secretKey;
+          // Keep publishable key as it's not sensitive
+        }
+        // Remove other sensitive payment processor data
+        if (exportForm.settings.authorizenet) {
+          delete exportForm.settings.authorizenet.apiLoginId;
+          delete exportForm.settings.authorizenet.transactionKey;
+        }
+      }
+
+      // Add export metadata for tracking
+      exportForm.export_metadata = {
+        exported_at: new Date().toISOString(),
+        export_version: '1.0',
+        source: 'gravity-forms-mcp',
+        original_form_id: form_id
+      };
+
+      // Format JSON with proper indentation for readability
+      const formattedJson = JSON.stringify(exportForm, null, 2);
+
+      return {
+        success: true,
+        message: 'Form exported successfully as JSON',
+        form_id: form_id,
+        form_title: exportForm.title || 'Untitled Form',
+        export_size: formattedJson.length,
+        fields_count: exportForm.fields ? exportForm.fields.length : 0,
+        json_data: formattedJson
+      };
+    } catch (error) {
+      if (error instanceof McpError) {
+        throw error;
+      }
+      throw new McpError(
+        ErrorCode.InternalError,
+        `Failed to export form as JSON: ${error instanceof Error ? error.message : 'Unknown error'}`
       );
     }
   }
