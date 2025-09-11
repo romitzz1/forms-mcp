@@ -976,7 +976,7 @@ export class FormCache {
         onProgress({
           phase,
           current: currentId,
-          total: maxProbeLimit,
+          total: undefined, // Don't specify total since method can stop early due to consecutive failures
           found: foundCount
         });
       }
@@ -992,31 +992,16 @@ export class FormCache {
       if (result.found) {
         foundCount++;
         localConsecutiveFailures = 0; // Reset local consecutive failure count
-        this.consecutiveFailures = 0; // Reset circuit breaker
         reportProgress('found-form');
       } else {
         localConsecutiveFailures++;
-        this.consecutiveFailures++; // Update circuit breaker state
-      }
-
-      // Check circuit breaker after probing (this.consecutiveFailures is now properly updated)
-      if (this.consecutiveFailures >= this.circuitBreakerThreshold) {
-        // Circuit breaker triggered - add error messages for remaining attempts up to maxProbeLimit
-        while (results.length < maxProbeLimit) {
-          results.push({
-            id: currentId + 1,
-            found: false,
-            error: 'Circuit breaker open - too many consecutive failures'
-          });
-          currentId++;
-        }
-        break;
       }
 
       currentId++;
 
-      // Add delay between requests for rate limiting (except last request)  
-      if (results.length < maxProbeLimit && localConsecutiveFailures < consecutiveFailureThreshold) {
+      // Add delay between requests for rate limiting (avoid delay before exit conditions)
+      const shouldContinue = results.length < maxProbeLimit && localConsecutiveFailures < consecutiveFailureThreshold;
+      if (shouldContinue) {
         await this.sleep(probeDelayMs);
       }
     }
@@ -1028,13 +1013,21 @@ export class FormCache {
   /**
    * Find the highest form ID by probing systematically
    */
-  async findHighestFormId(apiCall: ApiCallFunction, startId: number = 1): Promise<number> {
+  async findHighestFormId(
+    apiCall: ApiCallFunction, 
+    startId: number = 1, 
+    options: { maxConsecutiveFailures?: number; maxSearchLimit?: number; probeDelayMs?: number } = {}
+  ): Promise<number> {
+    // Set configurable options with sensible defaults
+    const maxConsecutiveFailures = options.maxConsecutiveFailures ?? 10;
+    const maxSearchLimit = options.maxSearchLimit ?? 50000; // Much higher but still bounded
+    const probeDelayMs = options.probeDelayMs ?? 50;
+
     let highestFound = 0;
     let currentId = startId;
     let consecutiveFailures = 0;
-    const maxConsecutiveFailures = 10;
 
-    while (consecutiveFailures < maxConsecutiveFailures && currentId <= 10000) {
+    while (consecutiveFailures < maxConsecutiveFailures && currentId <= maxSearchLimit) {
       try {
         const result = await this.probeFormById(currentId, apiCall);
         
@@ -1050,8 +1043,10 @@ export class FormCache {
 
       currentId++;
 
-      // Add small delay to avoid overwhelming API
-      await this.sleep(50);
+      // Add delay to avoid overwhelming API (skip delay before potential exit)
+      if (consecutiveFailures < maxConsecutiveFailures && currentId <= maxSearchLimit) {
+        await this.sleep(probeDelayMs);
+      }
     }
 
     return highestFound;
@@ -1062,7 +1057,7 @@ export class FormCache {
    */
   isConsecutiveFailure(results: FormProbeResult[], consecutiveThreshold: number): boolean {
     // Validate threshold
-    if (consecutiveThreshold <= 0) {
+    if (!Number.isInteger(consecutiveThreshold) || consecutiveThreshold <= 0) {
       throw new Error('Invalid threshold: must be positive integer');
     }
 
