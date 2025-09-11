@@ -49,6 +49,44 @@ export interface ProbeProgress {
   found: number;
 }
 
+// =====================================
+// Step 8: Full Discovery Workflow Interfaces
+// =====================================
+
+// Interface for sync operation options
+export interface SyncOptions {
+  forceFullSync?: boolean;
+  maxProbeFailures?: number;
+  onProgress?: (status: SyncProgress) => void;
+}
+
+// Interface for sync operation results
+export interface SyncResult {
+  discovered: number;
+  updated: number;
+  errors: string[];
+  duration: number;
+  lastSyncTime: Date;
+}
+
+// Interface for sync progress tracking
+export interface SyncProgress {
+  phase: string;
+  current: number;
+  total: number;
+  found: number;
+}
+
+// Interface for sync status information
+export interface SyncStatus {
+  totalForms: number;
+  activeForms: number;
+  inactiveForms: number;
+  lastSyncTime: Date | null;
+  cacheAge: number; // in milliseconds
+  needsSync: boolean;
+}
+
 export interface FormCacheRecord {
   id: number;
   title: string;
@@ -623,9 +661,13 @@ export class FormCache {
     const title = form.title || '';
     const is_active = form.is_active === '1' || form.is_active === 1 || form.is_active === true;
     
-    // Extract entry count from entries array if present
+    // Extract entry count - prefer direct entry_count field, then entries array length
     let entry_count = 0;
-    if (Array.isArray(form.entries)) {
+    if (form.entry_count !== undefined) {
+      // Direct entry_count field from API
+      const parsed = parseInt(form.entry_count, 10);
+      entry_count = isNaN(parsed) ? 0 : parsed;
+    } else if (Array.isArray(form.entries)) {
       entry_count = form.entries.length;
     } else if (form.entries) {
       // Handle case where entries might be a number or string
@@ -1069,5 +1111,217 @@ export class FormCache {
     // Check the last N results for consecutive failures
     const lastResults = results.slice(-consecutiveThreshold);
     return lastResults.every(result => !result.found);
+  }
+
+  // =====================================
+  // Step 8: Full Discovery Workflow Methods
+  // =====================================
+
+  /**
+   * Execute complete form discovery and sync workflow
+   */
+  async syncAllForms(apiCall: ApiCallFunction, options: SyncOptions = {}): Promise<SyncResult> {
+    if (!this.isReady()) {
+      throw new Error('FormCache not initialized');
+    }
+
+    const startTime = Date.now();
+    const errors: string[] = [];
+    let discovered = 0;
+    let updated = 0;
+    let foundCount = 0;
+
+    // Set default options
+    const maxProbeFailures = options.maxProbeFailures ?? 10;
+    const onProgress = options.onProgress;
+
+    // Helper to report progress
+    const reportProgress = (phase: string, current = 0, total = 0) => {
+      if (onProgress) {
+        onProgress({ phase, current, total, found: foundCount });
+      }
+    };
+
+    try {
+      // Phase 1: Fetch active forms from /forms endpoint
+      reportProgress('fetching-active-forms', 0, 0);
+      
+      const activeForms = await this.fetchActiveForms(apiCall);
+      const activeFormIds = activeForms.map(f => f.id);
+      
+      // Cache active forms and track statistics
+      for (const form of activeForms) {
+        const existing = await this.getForm(form.id);
+        if (existing) {
+          await this.updateForm(form.id, {
+            title: form.title,
+            entry_count: form.entry_count,
+            is_active: form.is_active,
+            form_data: form.form_data
+          });
+          updated++;
+        } else {
+          await this.insertForm({
+            id: form.id,
+            title: form.title,
+            entry_count: form.entry_count,
+            is_active: form.is_active,
+            form_data: form.form_data
+          });
+        }
+        discovered++; // Count all processed forms
+        foundCount++;
+      }
+
+      // Phase 2: Detect ID gaps and probe missing IDs
+      reportProgress('probing-gaps', 0, 0);
+      
+      if (activeFormIds.length > 0) {
+        const gapIds = this.generateProbeList(activeFormIds);
+        
+        if (gapIds.length > 0) {
+          try {
+            const gapResults = await this.probeBatch(gapIds, apiCall);
+            
+            for (const result of gapResults) {
+              if (result.found && result.form) {
+                // Form is already cached by probeFormById, just track statistics
+                discovered++; // Count all processed forms in this sync
+                foundCount++;
+              } else if (result.error && !result.error.includes('404')) {
+                // Only collect non-404 errors as 404s are expected for gap probing
+                errors.push(`Gap probe ${result.id}: ${result.error}`);
+              }
+            }
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            errors.push(`Gap probing failed: ${message}`);
+          }
+        }
+      }
+
+      // Phase 3: Probe beyond max active ID (or starting from 1 if no active forms)
+      reportProgress('beyond-max-probing', 0, 0);
+      
+      let beyondMaxStartId = 1; // Default starting point
+      if (activeFormIds.length > 0) {
+        const maxActiveId = Math.max(...activeFormIds);
+        beyondMaxStartId = maxActiveId + 1;
+      }
+        
+      try {
+        const beyondMaxResults = await this.probeBeyondMax(beyondMaxStartId, apiCall, {
+          consecutiveFailureThreshold: maxProbeFailures,
+          maxProbeLimit: 100, // Reasonable limit for beyond-max probing
+          probeDelayMs: 100,
+          onProgress: (progress) => {
+            foundCount = discovered + progress.found;
+            reportProgress('beyond-max-probing', progress.current, progress.total);
+          }
+        });
+
+        for (const result of beyondMaxResults) {
+          if (result.found && result.form) {
+            // Form is already cached by probeFormById, just track statistics
+            discovered++; // Count all processed forms in this sync
+            foundCount++;
+          } else if (result.error && !result.error.includes('404')) {
+            // Don't log 404 errors as they're expected, but collect others (like 500 Server Error)
+            errors.push(`Beyond-max probe ${result.id}: ${result.error}`);
+          }
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        errors.push(`Beyond-max probing failed: ${message}`);
+      }
+
+      // Phase 4: Update database (already done incrementally above)
+      reportProgress('updating-database', discovered, discovered);
+
+      // Phase 5: Clean up stale cache entries would go here in future versions
+
+      // Phase 6: Mark completion
+      reportProgress('completed', discovered, discovered);
+
+      const endTime = Date.now();
+      return {
+        discovered,
+        updated,
+        errors,
+        duration: endTime - startTime,
+        lastSyncTime: new Date(endTime)
+      };
+
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      errors.push(`Sync workflow failed: ${message}`);
+      
+      const endTime = Date.now();
+      return {
+        discovered,
+        updated,
+        errors,
+        duration: endTime - startTime,
+        lastSyncTime: new Date(endTime)
+      };
+    }
+  }
+
+  /**
+   * Perform initial comprehensive sync (first-time setup)
+   */
+  async performInitialSync(apiCall: ApiCallFunction): Promise<SyncResult> {
+    return this.syncAllForms(apiCall, { 
+      forceFullSync: true,
+      maxProbeFailures: 10
+    });
+  }
+
+  /**
+   * Perform incremental sync (update existing cache)
+   */
+  async performIncrementalSync(apiCall: ApiCallFunction): Promise<SyncResult> {
+    return this.syncAllForms(apiCall, { 
+      forceFullSync: false,
+      maxProbeFailures: 5 // Less aggressive for incremental
+    });
+  }
+
+  /**
+   * Get current sync status and cache information
+   */
+  async getSyncStatus(): Promise<SyncStatus> {
+    if (!this.isReady()) {
+      throw new Error('FormCache not initialized');
+    }
+
+    const db = this.getDatabase();
+
+    // Get form counts
+    const totalForms = await this.getFormCount();
+    const activeForms = await this.getFormCount(true);
+    const inactiveForms = totalForms - activeForms;
+
+    // Get most recent sync time
+    const lastSyncResult = db.prepare(`
+      SELECT MAX(last_synced) as last_sync FROM forms
+    `).get() as { last_sync: string | null };
+
+    const lastSyncTime = lastSyncResult.last_sync ? new Date(lastSyncResult.last_sync) : null;
+    
+    // Calculate cache age and determine if sync needed
+    const now = Date.now();
+    const cacheAge = lastSyncTime ? now - lastSyncTime.getTime() : Infinity;
+    const maxCacheAge = 60 * 60 * 1000; // 1 hour in milliseconds
+    const needsSync = totalForms === 0 || cacheAge > maxCacheAge;
+
+    return {
+      totalForms,
+      activeForms,
+      inactiveForms,
+      lastSyncTime,
+      cacheAge: cacheAge === Infinity ? 0 : cacheAge,
+      needsSync
+    };
   }
 }

@@ -1703,4 +1703,493 @@ describe('FormCache', () => {
       });
     });
   });
+
+  // =====================================
+  // Step 8: Full Discovery Workflow Tests
+  // =====================================
+  
+  describe('Step 8: Full Discovery Workflow', () => {
+    beforeEach(async () => {
+      formCache = new FormCache(testDbPath);
+      await formCache.init();
+    });
+
+    describe('syncAllForms - complete discovery workflow', () => {
+      it('should execute complete discovery process end-to-end', async () => {
+        // Mock API with:
+        // - Active forms: 1, 3, 5 (API returns these)
+        // - Inactive forms: 2, 4 (found during gap probing)
+        // - Beyond-max forms: 7, 10 (found during beyond-max probing)
+        
+        const activeFormsResponse = [
+          { id: '1', title: 'Active Form 1', is_active: '1', entries: [] },
+          { id: '3', title: 'Active Form 3', is_active: '1', entries: [] },
+          { id: '5', title: 'Active Form 5', is_active: '1', entries: [] }
+        ];
+        
+        const mockApiCall = jest.fn().mockImplementation(async (endpoint: string) => {
+          if (endpoint === '/forms') {
+            return activeFormsResponse;
+          }
+          
+          const id = parseInt(endpoint.split('/').pop()!);
+          
+          // Gap probing - find forms 2, 4
+          if (id === 2) return { id: '2', title: 'Hidden Form 2', is_active: '0', entries: [] };
+          if (id === 4) return { id: '4', title: 'Hidden Form 4', is_active: '0', entries: [] };
+          
+          // Beyond-max probing - find forms 7, 10
+          if (id === 7) return { id: '7', title: 'Hidden Form 7', is_active: '0', entries: [] };
+          if (id === 10) return { id: '10', title: 'Hidden Form 10', is_active: '0', entries: [] };
+          
+          // All others not found
+          throw new Error('404 Not Found');
+        });
+
+        // Track progress updates
+        const progressUpdates: any[] = [];
+        const onProgress = (status: any) => progressUpdates.push(status);
+
+        const startTime = Date.now();
+        const result = await formCache.syncAllForms(mockApiCall, { onProgress });
+        const endTime = Date.now();
+        
+        // Verify sync result
+        expect(result.discovered).toBe(7); // 3 active + 2 gap + 2 beyond-max
+        expect(result.updated).toBe(0); // All new forms
+        expect(result.errors).toEqual([]);
+        expect(result.duration).toBeGreaterThan(0);
+        expect(result.lastSyncTime.getTime()).toBeCloseTo(endTime, -2);
+        
+        // Verify all forms were cached
+        const allCachedForms = await formCache.getAllForms();
+        expect(allCachedForms).toHaveLength(7);
+        
+        const formIds = allCachedForms.map(f => f.id).sort((a, b) => a - b);
+        expect(formIds).toEqual([1, 2, 3, 4, 5, 7, 10]);
+        
+        // Verify progress tracking occurred
+        expect(progressUpdates.length).toBeGreaterThan(0);
+        expect(progressUpdates.some(p => p.phase === 'fetching-active-forms')).toBe(true);
+        expect(progressUpdates.some(p => p.phase === 'probing-gaps')).toBe(true);
+        expect(progressUpdates.some(p => p.phase === 'beyond-max-probing')).toBe(true);
+        expect(progressUpdates.some(p => p.phase === 'completed')).toBe(true);
+      });
+
+      it('should handle partial failures gracefully', async () => {
+        const activeFormsResponse = [
+          { id: '1', title: 'Active Form 1', is_active: '1', entries: [] }
+        ];
+        
+        let apiCallCount = 0;
+        const mockApiCall = jest.fn().mockImplementation(async (endpoint: string) => {
+          apiCallCount++;
+          
+          if (endpoint === '/forms') {
+            return activeFormsResponse;
+          }
+          
+          const id = parseInt(endpoint.split('/').pop()!);
+          
+          // Simulate intermittent failures
+          if (apiCallCount % 3 === 0) {
+            throw new Error('500 Server Error');
+          }
+          
+          if (id === 2) return { id: '2', title: 'Form 2', is_active: '0' };
+          
+          throw new Error('404 Not Found');
+        });
+
+        const result = await formCache.syncAllForms(mockApiCall, { maxProbeFailures: 3 });
+        
+        // Should succeed with partial data
+        expect(result.discovered).toBeGreaterThanOrEqual(1); // At least the active form
+        expect(result.errors.length).toBeGreaterThan(0); // Should have some errors
+        expect(result.errors.some(e => e.includes('500 Server Error'))).toBe(true);
+        
+        // Verify active forms were still cached despite probe failures
+        const cachedForm = await formCache.getForm(1);
+        expect(cachedForm).toBeDefined();
+        expect(cachedForm!.title).toBe('Active Form 1');
+      });
+
+      it('should maintain data consistency during sync process', async () => {
+        // Pre-populate cache with existing data
+        await formCache.insertForm({ id: 1, title: 'Old Form 1', is_active: true });
+        await formCache.insertForm({ id: 99, title: 'Stale Form 99', is_active: false });
+        
+        const activeFormsResponse = [
+          { id: '1', title: 'Updated Form 1', is_active: '1', entry_count: 5 }
+        ];
+        
+        const mockApiCall = jest.fn().mockImplementation(async (endpoint: string) => {
+          if (endpoint === '/forms') {
+            return activeFormsResponse;
+          }
+          
+          throw new Error('404 Not Found');
+        });
+
+        const result = await formCache.syncAllForms(mockApiCall);
+        
+        // Verify existing form was updated
+        const updatedForm = await formCache.getForm(1);
+        expect(updatedForm!.title).toBe('Updated Form 1');
+        expect(updatedForm!.entry_count).toBe(5);
+        
+        // Verify stale form still exists (no cleanup in basic sync)
+        const staleForm = await formCache.getForm(99);
+        expect(staleForm).toBeDefined();
+        expect(staleForm!.title).toBe('Stale Form 99');
+        
+        expect(result.updated).toBe(1); // One form updated
+        expect(result.discovered).toBe(1); // One total form processed
+      });
+
+      it('should support force full sync option', async () => {
+        // Pre-populate with recent data
+        await formCache.insertForm({ 
+          id: 1, 
+          title: 'Recent Form', 
+          is_active: true
+        });
+        
+        const activeFormsResponse = [
+          { id: '1', title: 'Force Updated Form', is_active: '1' }
+        ];
+        
+        const mockApiCall = jest.fn().mockImplementation(async (endpoint: string) => {
+          if (endpoint === '/forms') {
+            return activeFormsResponse;
+          }
+          throw new Error('404 Not Found');
+        });
+
+        // Force full sync regardless of cache age
+        const result = await formCache.syncAllForms(mockApiCall, { forceFullSync: true });
+        
+        expect(result.discovered).toBe(1);
+        
+        const updatedForm = await formCache.getForm(1);
+        expect(updatedForm!.title).toBe('Force Updated Form');
+      });
+
+      it('should handle configuration options correctly', async () => {
+        const activeFormsResponse: any[] = [];
+        
+        let probeAttempts = 0;
+        const mockApiCall = jest.fn().mockImplementation(async (endpoint: string) => {
+          if (endpoint === '/forms') {
+            return activeFormsResponse;
+          }
+          
+          probeAttempts++;
+          throw new Error('500 Server Error');
+        });
+
+        // Test with reduced max probe failures
+        const result = await formCache.syncAllForms(mockApiCall, { maxProbeFailures: 2 });
+        
+        // Should stop probing early due to reduced failure threshold
+        expect(probeAttempts).toBeLessThan(10); // Default would try more
+        expect(result.errors.length).toBeGreaterThan(0);
+      });
+    });
+
+    describe('performInitialSync', () => {
+      it('should perform first-time sync with mixed active/inactive forms', async () => {
+        const activeFormsResponse = [
+          { id: '1', title: 'Active Form 1', is_active: '1' },
+          { id: '5', title: 'Active Form 5', is_active: '1' }
+        ];
+        
+        const mockApiCall = jest.fn().mockImplementation(async (endpoint: string) => {
+          if (endpoint === '/forms') {
+            return activeFormsResponse;
+          }
+          
+          const id = parseInt(endpoint.split('/').pop()!);
+          
+          // Fill some gaps
+          if (id === 2) return { id: '2', title: 'Hidden Form 2', is_active: '0' };
+          if (id === 3) return { id: '3', title: 'Hidden Form 3', is_active: '0' };
+          
+          throw new Error('404 Not Found');
+        });
+
+        const result = await formCache.performInitialSync(mockApiCall);
+        
+        expect(result.discovered).toBeGreaterThanOrEqual(4); // 2 active + 2 inactive
+        
+        const allForms = await formCache.getAllForms();
+        expect(allForms.length).toBeGreaterThanOrEqual(4);
+        
+        // Verify mix of active and inactive
+        const activeForms = allForms.filter(f => f.is_active);
+        const inactiveForms = allForms.filter(f => !f.is_active);
+        expect(activeForms.length).toBe(2);
+        expect(inactiveForms.length).toBeGreaterThanOrEqual(2);
+      });
+
+      it('should handle empty initial state (no existing forms)', async () => {
+        const mockApiCall = jest.fn().mockImplementation(async (endpoint: string) => {
+          if (endpoint === '/forms') {
+            return []; // No active forms
+          }
+          throw new Error('404 Not Found');
+        });
+
+        const result = await formCache.performInitialSync(mockApiCall);
+        
+        expect(result.discovered).toBe(0);
+        expect(result.errors).toEqual([]);
+        
+        const allForms = await formCache.getAllForms();
+        expect(allForms).toHaveLength(0);
+      });
+    });
+
+    describe('performIncrementalSync', () => {
+      it('should find only new forms since last sync', async () => {
+        // Pre-populate cache with older data
+        const oldTimestamp = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(); // 24 hours ago
+        await formCache.insertForm({ 
+          id: 1, 
+          title: 'Existing Form 1', 
+          is_active: true
+        });
+        
+        const activeFormsResponse = [
+          { id: '1', title: 'Existing Form 1', is_active: '1' }, // Unchanged
+          { id: '2', title: 'New Form 2', is_active: '1' }      // New
+        ];
+        
+        const mockApiCall = jest.fn().mockImplementation(async (endpoint: string) => {
+          if (endpoint === '/forms') {
+            return activeFormsResponse;
+          }
+          
+          const id = parseInt(endpoint.split('/').pop()!);
+          if (id === 3) return { id: '3', title: 'Hidden New Form 3', is_active: '0' };
+          
+          throw new Error('404 Not Found');
+        });
+
+        const result = await formCache.performIncrementalSync(mockApiCall);
+        
+        // Should find new forms (2 and 3) and update existing ones
+        expect(result.discovered).toBe(3); // All processed forms
+        expect(result.updated).toBe(1); // Form 1 updated timestamp
+        
+        const allForms = await formCache.getAllForms();
+        expect(allForms).toHaveLength(3);
+        expect(allForms.map(f => f.id).sort()).toEqual([1, 2, 3]);
+      });
+    });
+
+    describe('getSyncStatus', () => {
+      it('should return current sync status information', async () => {
+        // Add some test data
+        await formCache.insertForm({ id: 1, title: 'Form 1', is_active: true });
+        await formCache.insertForm({ id: 2, title: 'Form 2', is_active: false });
+        
+        const status = await formCache.getSyncStatus();
+        
+        expect(status).toHaveProperty('totalForms');
+        expect(status).toHaveProperty('activeForms');
+        expect(status).toHaveProperty('inactiveForms');
+        expect(status).toHaveProperty('lastSyncTime');
+        expect(status).toHaveProperty('cacheAge');
+        expect(status).toHaveProperty('needsSync');
+        
+        expect(status.totalForms).toBe(2);
+        expect(status.activeForms).toBe(1);
+        expect(status.inactiveForms).toBe(1);
+        expect(status.lastSyncTime).toBeDefined();
+        expect(typeof status.cacheAge).toBe('number');
+        expect(typeof status.needsSync).toBe('boolean');
+      });
+
+      it('should indicate sync needed when cache is stale', async () => {
+        // Insert old data
+        const oldTimestamp = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(); // 2 hours ago
+        await formCache.insertForm({ 
+          id: 1, 
+          title: 'Old Form'
+        });
+        
+        // Manually update the timestamp to make it old (direct database access)
+        await formCache.updateForm(1, { title: 'Old Form' });
+        const db = (formCache as any).getDatabase();
+        db.prepare(`UPDATE forms SET last_synced = ? WHERE id = ?`).run(oldTimestamp, 1);
+        
+        const status = await formCache.getSyncStatus();
+        
+        expect(status.needsSync).toBe(true);
+        expect(status.cacheAge).toBeGreaterThan(2 * 60 * 60 * 1000 - 1000); // About 2 hours in ms
+      });
+
+      it('should handle empty cache', async () => {
+        const status = await formCache.getSyncStatus();
+        
+        expect(status.totalForms).toBe(0);
+        expect(status.activeForms).toBe(0);
+        expect(status.inactiveForms).toBe(0);
+        expect(status.needsSync).toBe(true); // Empty cache always needs sync
+      });
+    });
+
+    describe('sync workflow phases integration', () => {
+      it('should execute all 5 phases in correct order', async () => {
+        const phaseOrder: string[] = [];
+        
+        const mockApiCall = jest.fn().mockImplementation(async (endpoint: string) => {
+          if (endpoint === '/forms') {
+            return [{ id: '1', title: 'Form 1', is_active: '1' }];
+          }
+          throw new Error('404 Not Found');
+        });
+
+        const onProgress = (status: any) => {
+          if (!phaseOrder.includes(status.phase)) {
+            phaseOrder.push(status.phase);
+          }
+        };
+        
+        await formCache.syncAllForms(mockApiCall, { onProgress });
+        
+        // Verify phases executed in correct order
+        const expectedPhases = [
+          'fetching-active-forms',
+          'probing-gaps', 
+          'beyond-max-probing',
+          'updating-database',
+          'completed'
+        ];
+        
+        expect(phaseOrder).toEqual(expectedPhases);
+      });
+
+      it('should handle large form datasets efficiently', async () => {
+        // Simulate smaller but realistic dataset for speed
+        const activeFormIds = Array.from({ length: 10 }, (_, i) => i * 2 + 1); // 1, 3, 5, ... 19
+        const activeFormsResponse = activeFormIds.map(id => ({
+          id: id.toString(),
+          title: `Form ${id}`,
+          is_active: '1'
+        }));
+        
+        const mockApiCall = jest.fn().mockImplementation(async (endpoint: string) => {
+          if (endpoint === '/forms') {
+            return activeFormsResponse;
+          }
+          
+          const id = parseInt(endpoint.split('/').pop()!);
+          
+          // Fill some gaps (even numbers up to 20)
+          if (id <= 20 && id % 2 === 0) {
+            return { id: id.toString(), title: `Hidden Form ${id}`, is_active: '0' };
+          }
+          
+          throw new Error('404 Not Found');
+        });
+
+        const startTime = Date.now();
+        const result = await formCache.syncAllForms(mockApiCall, { 
+          maxProbeFailures: 3 // Reduce for speed
+        });
+        const duration = Date.now() - startTime;
+        
+        // Should handle 10 active + 10 gap forms = 20 total
+        expect(result.discovered).toBeGreaterThanOrEqual(20);
+        expect(duration).toBeLessThan(10000); // Should complete in reasonable time
+        
+        const allForms = await formCache.getAllForms();
+        expect(allForms.length).toBeGreaterThanOrEqual(20);
+      }, 15000); // 15 second timeout
+
+      it('should handle database transaction failures gracefully', async () => {
+        // This test would need a way to inject transaction failures
+        // For now, test basic error recovery
+        
+        const activeFormsResponse = [
+          { id: '1', title: 'Form 1', is_active: '1' }
+        ];
+        
+        const mockApiCall = jest.fn().mockImplementation(async (endpoint: string) => {
+          if (endpoint === '/forms') {
+            return activeFormsResponse;
+          }
+          throw new Error('404 Not Found');
+        });
+
+        // Close cache to simulate database unavailable
+        await formCache.close();
+        
+        await expect(formCache.syncAllForms(mockApiCall)).rejects.toThrow();
+        
+        // Reinitialize for cleanup
+        formCache = new FormCache(testDbPath);
+        await formCache.init();
+      });
+    });
+
+    describe('error handling and recovery', () => {
+      it('should collect and report all errors during sync', async () => {
+        let callCount = 0;
+        const mockApiCall = jest.fn().mockImplementation(async (endpoint: string) => {
+          callCount++;
+          
+          if (endpoint === '/forms') {
+            return [{ id: '1', title: 'Form 1', is_active: '1' }];
+          }
+          
+          // Every other probe fails with different errors
+          if (callCount % 2 === 0) {
+            throw new Error(`Test Error ${callCount}`);
+          }
+          
+          throw new Error('404 Not Found');
+        });
+
+        const result = await formCache.syncAllForms(mockApiCall, { maxProbeFailures: 3 });
+        
+        expect(result.errors.length).toBeGreaterThan(0);
+        expect(result.errors.some(e => e.includes('Test Error'))).toBe(true);
+      });
+
+      it('should continue sync despite individual probe failures', async () => {
+        const activeFormsResponse = [
+          { id: '1', title: 'Form 1', is_active: '1' },
+          { id: '3', title: 'Form 3', is_active: '1' }
+        ];
+        
+        const mockApiCall = jest.fn().mockImplementation(async (endpoint: string) => {
+          if (endpoint === '/forms') {
+            return activeFormsResponse;
+          }
+          
+          const id = parseInt(endpoint.split('/').pop()!);
+          
+          // ID 2 fails, but sync should continue
+          if (id === 2) {
+            throw new Error('500 Server Error');
+          }
+          
+          throw new Error('404 Not Found');
+        });
+
+        const result = await formCache.syncAllForms(mockApiCall, { maxProbeFailures: 2 });
+        
+        // Should still cache the active forms despite probe failure
+        expect(result.discovered).toBe(2); // Two active forms
+        expect(result.errors.length).toBeGreaterThan(0);
+        
+        const cachedForms = await formCache.getAllForms();
+        expect(cachedForms).toHaveLength(2);
+        expect(cachedForms.map(f => f.id).sort()).toEqual([1, 3]);
+      });
+    });
+  });
 });

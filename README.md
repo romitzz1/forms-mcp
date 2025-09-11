@@ -4,6 +4,8 @@ The ultimate Model Context Protocol (MCP) server that transforms your Gravity Fo
 
 *Built with the precision of a Swiss watch and the power of a monster truck!* 🏎️
 
+An experiment in VibeCoding
+
 ## Features
 
 ### Core Functionality
@@ -29,7 +31,7 @@ The ultimate Model Context Protocol (MCP) server that transforms your Gravity Fo
 
 ## Prerequisites
 
-- Node.js 18+ 
+- Node.js 18+
 - WordPress site with Gravity Forms 2.4+
 - Gravity Forms REST API enabled
 - Valid API credentials
