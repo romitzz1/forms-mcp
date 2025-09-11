@@ -1029,13 +1029,16 @@ Consider using form templates or cloning for management.`;
       }
       if (search.field_filters && Array.isArray(search.field_filters)) {
         search.field_filters.forEach((filter: any, index: number) => {
-          if (filter && filter.key && filter.value) {
+          if (filter && filter.key != null && filter.value != null) {
             // Sanitize filter values before URL encoding
             const sanitizedKey = String(filter.key).trim();
             const sanitizedValue = String(filter.value).trim();
             
-            params.append(`search[field_filters][${index}][key]`, sanitizedKey);
-            params.append(`search[field_filters][${index}][value]`, sanitizedValue);
+            // Only append if key is not empty after trimming (value can be empty)
+            if (sanitizedKey !== '') {
+              params.append(`search[field_filters][${index}][key]`, sanitizedKey);
+              params.append(`search[field_filters][${index}][value]`, sanitizedValue);
+            }
           }
         });
       }
