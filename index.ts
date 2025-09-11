@@ -399,6 +399,42 @@ export class GravityFormsMCPServer {
               },
               required: ["form_id"]
             }
+          },
+          {
+            name: "create_form_from_template",
+            description: "Create a new form from an existing template with optional field customizations. Supports safe field label renames while preserving field types, validation rules, and conditional logic. Dangerous field type changes (e.g., date->phone) are prevented for data integrity.",
+            inputSchema: {
+              type: "object",
+              properties: {
+                template_id: {
+                  type: "string",
+                  description: "ID of the template form to use as the base (required)"
+                },
+                new_form_title: {
+                  type: "string",
+                  description: "Title for the new form (required)"
+                },
+                field_renames: {
+                  type: "array",
+                  description: "Optional array of field label renames to apply",
+                  items: {
+                    type: "object",
+                    properties: {
+                      original_label: {
+                        type: "string",
+                        description: "Current field label in the template"
+                      },
+                      new_label: {
+                        type: "string",
+                        description: "New label to assign to the field"
+                      }
+                    },
+                    required: ["original_label", "new_label"]
+                  }
+                }
+              },
+              required: ["template_id", "new_form_title"]
+            }
           }
         ]
       };
@@ -445,6 +481,9 @@ export class GravityFormsMCPServer {
           
           case "save_form_as_template":
             return await this.saveFormAsTemplate(args);
+          
+          case "create_form_from_template":
+            return await this.createFormFromTemplate(args);
           
           default:
             throw new McpError(
@@ -1029,6 +1068,86 @@ ${exportResult.base64Data}`
     };
 
     return templateData;
+  }
+
+  private async createFormFromTemplate(args: any) {
+    try {
+      // Validate required parameters
+      const { template_id, new_form_title, field_renames } = args;
+
+      if (!template_id || typeof template_id !== 'string') {
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          'template_id is required and must be a string'
+        );
+      }
+
+      if (!new_form_title || typeof new_form_title !== 'string') {
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          'new_form_title is required and must be a string'
+        );
+      }
+
+      // Validate field_renames if provided
+      if (field_renames && (!Array.isArray(field_renames) || 
+          field_renames.some((rename: any) => 
+            !rename || 
+            typeof rename !== 'object' ||
+            !rename.original_label || 
+            !rename.new_label ||
+            typeof rename.original_label !== 'string' ||
+            typeof rename.new_label !== 'string'
+          ))) {
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          'field_renames must be an array of objects with original_label and new_label string properties'
+        );
+      }
+
+      // Import TemplateCreator here to avoid circular import
+      const { TemplateCreator } = await import('./utils/templateCreator.js');
+      
+      // Create TemplateCreator with API call function
+      const templateCreator = new TemplateCreator((endpoint: string) => this.makeRequest(endpoint));
+
+      // Prepare modifications for TemplateCreator
+      const modifications = {
+        title: new_form_title,
+        field_renames: field_renames || [],
+        preserve_logic: true
+      };
+
+      // Clone form from template with modifications
+      const clonedForm = await templateCreator.cloneFromTemplate(template_id, modifications);
+
+      // Remove template-specific properties to create a regular form
+      delete clonedForm.is_template;
+      delete clonedForm.template_metadata;
+
+      // Create the new form via API
+      const result = await this.makeRequest('/forms', 'POST', clonedForm);
+
+      return {
+        success: true,
+        message: 'Form created successfully from template',
+        form: {
+          id: result.id,
+          title: result.title,
+          fields_count: result.fields ? result.fields.length : 0,
+          template_id: template_id,
+          applied_renames: field_renames ? field_renames.length : 0
+        }
+      };
+    } catch (error) {
+      if (error instanceof McpError) {
+        throw error;
+      }
+      throw new McpError(
+        ErrorCode.InternalError,
+        `Failed to create form from template: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
   }
 
   private getTemplateManager(): TemplateManager {
