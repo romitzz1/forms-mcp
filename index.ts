@@ -14,6 +14,8 @@ import { BulkOperationsManager } from "./utils/bulkOperations.js";
 import { TemplateManager } from "./utils/templateManager.js";
 import { FormImporter } from "./utils/formImporter.js";
 import { FormCache } from "./utils/formCache.js";
+import * as fs from 'fs';
+import * as path from 'path';
 
 // Configuration interface
 interface GravityFormsConfig {
@@ -23,15 +25,36 @@ interface GravityFormsConfig {
   authMethod: 'basic' | 'oauth';
 }
 
+// Cache configuration interface  
+interface CacheConfig {
+  enabled: boolean;
+  dbPath: string;
+  maxAgeSeconds: number;
+  maxProbeFailures: number;
+  autoSync: boolean;
+}
+
+// Cache status interface
+interface CacheStatus {
+  enabled: boolean;
+  ready: boolean;
+  dbPath: string;
+  totalForms: number;
+  activeForms: number;
+  lastSync: Date | null;
+  config: CacheConfig;
+}
+
 export class GravityFormsMCPServer {
   private server: Server;
   private config: GravityFormsConfig;
+  private cacheConfig: CacheConfig;
   private dataExporter: DataExporter;
   private validator: ValidationHelper;
   private bulkOperationsManager?: BulkOperationsManager;
   private templateManager?: TemplateManager;
   private formImporter?: FormImporter;
-  private formCache?: FormCache;
+  private formCache?: FormCache | null;
 
   constructor() {
     this.server = new Server(
@@ -49,16 +72,160 @@ export class GravityFormsMCPServer {
       authMethod: (process.env.GRAVITY_FORMS_AUTH_METHOD as 'basic' | 'oauth') || 'basic'
     };
 
+    // Load cache configuration
+    this.cacheConfig = this.loadCacheConfig();
+
     // Initialize utility classes
     this.dataExporter = new DataExporter();
     this.validator = new ValidationHelper();
     // Note: BulkOperationsManager will be initialized lazily when first needed
     // to avoid auth errors during server startup
     
-    // Initialize FormCache (lazily initialized when first accessed)
-    this.formCache = new FormCache();
+    // FormCache will be initialized during startup if enabled
+    this.formCache = undefined;
 
     this.setupToolHandlers();
+  }
+
+  /**
+   * Load cache configuration from environment variables with defaults
+   */
+  private loadCacheConfig(): CacheConfig {
+    const enabled = this.parseBooleanEnv('GRAVITY_FORMS_CACHE_ENABLED', true);
+    const dbPath = process.env.GRAVITY_FORMS_CACHE_DB_PATH || './data/forms-cache.db';
+    const maxAgeSeconds = this.parseIntEnv('GRAVITY_FORMS_CACHE_MAX_AGE_SECONDS', 3600, 60, 86400);
+    const maxProbeFailures = this.parseIntEnv('GRAVITY_FORMS_CACHE_MAX_PROBE_FAILURES', 10, 1, 50);
+    const autoSync = this.parseBooleanEnv('GRAVITY_FORMS_CACHE_AUTO_SYNC', true);
+
+    return {
+      enabled,
+      dbPath: dbPath || './data/forms-cache.db', // Fallback if empty string
+      maxAgeSeconds,
+      maxProbeFailures,
+      autoSync
+    };
+  }
+
+  /**
+   * Parse boolean environment variable with fallback
+   */
+  private parseBooleanEnv(key: string, defaultValue: boolean): boolean {
+    const value = process.env[key];
+    if (value === undefined) return defaultValue;
+    
+    // For invalid values, return default instead of false
+    const lowerValue = value.toLowerCase();
+    if (lowerValue === 'true') return true;
+    if (lowerValue === 'false') return false;
+    
+    // Invalid value, return default
+    return defaultValue;
+  }
+
+  /**
+   * Parse integer environment variable with validation and fallback
+   */
+  private parseIntEnv(key: string, defaultValue: number, min?: number, max?: number): number {
+    const value = process.env[key];
+    if (value === undefined) return defaultValue;
+    
+    const parsed = parseInt(value, 10);
+    if (isNaN(parsed)) return defaultValue;
+    if (min !== undefined && parsed < min) return defaultValue;
+    if (max !== undefined && parsed > max) return defaultValue;
+    
+    return parsed;
+  }
+
+  /**
+   * Get current cache configuration
+   */
+  private getCacheConfig(): CacheConfig {
+    return { ...this.cacheConfig };
+  }
+
+  /**
+   * Initialize FormCache if enabled
+   */
+  private async initializeCache(): Promise<void> {
+    if (!this.cacheConfig.enabled) {
+      this.formCache = null;
+      return;
+    }
+
+    try {
+      // Ensure directory exists for database
+      const dbDir = path.dirname(this.cacheConfig.dbPath);
+      if (!fs.existsSync(dbDir)) {
+        fs.mkdirSync(dbDir, { recursive: true });
+      }
+
+      this.formCache = new FormCache(this.cacheConfig.dbPath);
+      await this.formCache.init();
+    } catch (error) {
+      console.error('FormCache initialization failed:', error instanceof Error ? error.message : 'Unknown error');
+      this.formCache = null;
+    }
+  }
+
+  /**
+   * Server startup lifecycle method
+   */
+  private async startup(): Promise<void> {
+    await this.initializeCache();
+  }
+
+  /**
+   * Server shutdown lifecycle method
+   */
+  private async shutdown(): Promise<void> {
+    if (this.formCache && this.formCache !== null) {
+      try {
+        await this.formCache.close();
+      } catch (error) {
+        console.error('Error closing FormCache:', error instanceof Error ? error.message : 'Unknown error');
+      }
+    }
+    this.formCache = null;
+  }
+
+  /**
+   * Get comprehensive cache status for monitoring
+   */
+  private async getCacheStatus(): Promise<CacheStatus> {
+    const baseStatus: CacheStatus = {
+      enabled: this.cacheConfig.enabled && this.formCache !== null, // Enabled and actually working
+      ready: false,
+      dbPath: this.cacheConfig.dbPath,
+      totalForms: 0,
+      activeForms: 0,
+      lastSync: null,
+      config: this.getCacheConfig()
+    };
+
+    if (!this.formCache || this.formCache === null) {
+      baseStatus.enabled = false; // Actually disabled if cache is null
+      return baseStatus;
+    }
+
+    try {
+      const ready = this.formCache.isReady();
+      baseStatus.ready = ready;
+
+      if (ready) {
+        const stats = await this.formCache.getCacheStats();
+        const syncStatus = await this.formCache.getSyncStatus();
+        
+        baseStatus.totalForms = stats.totalForms;
+        baseStatus.activeForms = stats.activeCount;
+        baseStatus.lastSync = stats.lastSync;
+      }
+    } catch (error) {
+      // Status retrieval failed, return base status
+      console.warn('Failed to get cache status:', error instanceof Error ? error.message : 'Unknown error');
+    }
+
+    return baseStatus;
   }
 
   private getAuthHeaders(): Record<string, string> {
@@ -532,6 +699,15 @@ export class GravityFormsMCPServer {
               },
               required: ["source_form_id"]
             }
+          },
+          {
+            name: "get_cache_status",
+            description: "Get comprehensive FormCache status and statistics for monitoring and debugging. Shows cache health, configuration, form counts, and last sync information.",
+            inputSchema: {
+              type: "object",
+              properties: {},
+              required: []
+            }
           }
         ]
       };
@@ -591,6 +767,9 @@ export class GravityFormsMCPServer {
           case "clone_form_with_modifications":
             return await this.cloneFormWithModifications(args);
           
+          case "get_cache_status":
+            return await this.getCacheStatusTool();
+          
           default:
             throw new McpError(
               ErrorCode.MethodNotFound,
@@ -631,7 +810,7 @@ export class GravityFormsMCPServer {
     if (include_all === true) {
       try {
         // Ensure FormCache is available and initialized
-        if (!this.formCache) {
+        if (!this.formCache || this.formCache === null) {
           throw new Error('FormCache not available');
         }
         
@@ -1159,7 +1338,7 @@ ${exportResult.base64Data}`
         // Use cache for complete template discovery
         try {
           // Check if FormCache is available
-          if (!this.formCache) {
+          if (!this.formCache || this.formCache === null) {
             console.warn('FormCache not available, falling back to API-only template discovery');
             allTemplates = await templateManager.listTemplates();
           } else {
@@ -1562,10 +1741,11 @@ ${exportResult.base64Data}`
 
   private getFormImporter(): FormImporter {
     if (!this.formImporter) {
-      // Create FormImporter with API call function and FormCache
+      // Create FormImporter with API call function and FormCache (if available)
+      const cacheInstance = (this.formCache && this.formCache !== null) ? this.formCache : undefined;
       this.formImporter = new FormImporter(
         (endpoint: string, method?: string, body?: any) => this.makeRequest(endpoint, method, body),
-        this.formCache
+        cacheInstance
       );
     }
     return this.formImporter;
@@ -1781,8 +1961,31 @@ ${exportResult.base64Data}`
     }
   }
 
+  /**
+   * Get cache status tool implementation
+   */
+  private async getCacheStatusTool() {
+    try {
+      const status = await this.getCacheStatus();
+      
+      return {
+        content: [
+          {
+            type: "text",
+            text: `FormCache Status Report:\n${JSON.stringify(status, null, 2)}`
+          }
+        ]
+      };
+    } catch (error) {
+      throw new McpError(
+        ErrorCode.InternalError,
+        `Failed to get cache status: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
+  }
 
   async run() {
+    await this.startup();
     const transport = new StdioServerTransport();
     await this.server.connect(transport);
     console.error("Gravity Forms MCP server running on stdio");
