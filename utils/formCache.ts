@@ -106,6 +106,13 @@ export class FormCacheLogger {
     return FormCacheLogger.instance;
   }
 
+  /**
+   * Reset the singleton instance (primarily for testing)
+   */
+  static resetInstance(): void {
+    FormCacheLogger.instance = new FormCacheLogger();
+  }
+
   setLogLevel(level: LogLevel): void {
     this.logLevel = level;
   }
@@ -134,9 +141,10 @@ export class FormCacheLogger {
       }
     }
     
-    // Truncate large form_data
-    if (sanitized.form_data && typeof sanitized.form_data === 'string' && sanitized.form_data.length > 200) {
-      sanitized.form_data = sanitized.form_data.substring(0, 200) + '... [TRUNCATED]';
+    // Truncate large form_data (use hardcoded value since logger is standalone)
+    const LOG_TRUNCATE_LENGTH = 200;
+    if (sanitized.form_data && typeof sanitized.form_data === 'string' && sanitized.form_data.length > LOG_TRUNCATE_LENGTH) {
+      sanitized.form_data = sanitized.form_data.substring(0, LOG_TRUNCATE_LENGTH) + '... [TRUNCATED]';
     }
     
     return sanitized;
@@ -1157,9 +1165,32 @@ export class FormCache {
   // Step 6: Individual Form Probing Methods
   // =====================================
 
+  // Configuration constants for error handling and circuit breaker
+  private static readonly DEFAULT_CIRCUIT_BREAKER_THRESHOLD = 5;
+  private static readonly DEFAULT_MAX_ERROR_HISTORY_SIZE = 100;
+  private static readonly DEFAULT_RETRY_BASE_DELAY_MS = 100;
+  private static readonly DEFAULT_RETRY_MAX_DELAY_MS = 5000;
+  private static readonly DEFAULT_RETRY_JITTER_MS = 50;
+  private static readonly DEFAULT_PROBE_DELAY_MS = 100;
+  private static readonly DEFAULT_LOG_TRUNCATE_LENGTH = 200;
+
   private lastProbeStats: ProbeStats = { attempted: 0, found: 0, failed: 0, errors: [] };
   private consecutiveFailures = 0;
-  private circuitBreakerThreshold = 5;
+  private circuitBreakerThreshold = FormCache.DEFAULT_CIRCUIT_BREAKER_THRESHOLD;
+  private maxErrorHistorySize = FormCache.DEFAULT_MAX_ERROR_HISTORY_SIZE;
+
+  /**
+   * Add error to statistics with size limit management
+   */
+  private addErrorToStats(error: string): void {
+    this.lastProbeStats.errors.push(error);
+    
+    // Trim error history if it exceeds limit to prevent memory leaks
+    if (this.lastProbeStats.errors.length > this.maxErrorHistorySize) {
+      // Keep only the most recent errors
+      this.lastProbeStats.errors = this.lastProbeStats.errors.slice(-this.maxErrorHistorySize);
+    }
+  }
 
   /**
    * Probe a single form by ID via API
@@ -1229,7 +1260,7 @@ export class FormCache {
         this.lastProbeStats.attempted++;
         this.lastProbeStats.failed++;
         if (result.error) {
-          this.lastProbeStats.errors.push(result.error);
+          this.addErrorToStats(result.error);
         }
         this.consecutiveFailures++;
       }
@@ -1263,15 +1294,17 @@ export class FormCache {
       
       // Check circuit breaker
       if (this.consecutiveFailures >= this.circuitBreakerThreshold) {
+        const circuitBreakerError = 'Circuit breaker open - too many consecutive failures';
         const remainingIds = ids.slice(i);
         for (const remainingId of remainingIds) {
           results.push({
             id: remainingId,
             found: false,
-            error: 'Circuit breaker open - too many consecutive failures'
+            error: circuitBreakerError
           });
           this.lastProbeStats.attempted++;
           this.lastProbeStats.failed++;
+          this.addErrorToStats(circuitBreakerError);
         }
         break;
       }
@@ -1288,14 +1321,14 @@ export class FormCache {
       } else {
         this.lastProbeStats.failed++;
         if (result.error) {
-          this.lastProbeStats.errors.push(result.error);
+          this.addErrorToStats(result.error);
         }
         this.consecutiveFailures++;
       }
 
       // Add delay between requests for rate limiting (except last request)
       if (i < ids.length - 1) {
-        await this.sleep(100);
+        await this.sleep(FormCache.DEFAULT_PROBE_DELAY_MS);
       }
     }
 
@@ -1380,10 +1413,9 @@ export class FormCache {
    * Calculate exponential backoff delay
    */
   private calculateBackoffDelay(attempt: number): number {
-    const baseDelay = 100; // 100ms base delay
-    const exponentialDelay = baseDelay * Math.pow(2, attempt);
-    const jitter = Math.random() * 50; // Add some jitter
-    return Math.min(exponentialDelay + jitter, 5000); // Cap at 5 seconds
+    const exponentialDelay = FormCache.DEFAULT_RETRY_BASE_DELAY_MS * Math.pow(2, attempt);
+    const jitter = Math.random() * FormCache.DEFAULT_RETRY_JITTER_MS; // Add some jitter
+    return Math.min(exponentialDelay + jitter, FormCache.DEFAULT_RETRY_MAX_DELAY_MS); // Cap at max delay
   }
 
   /**
@@ -1597,12 +1629,13 @@ export class FormCache {
           active_ids: activeFormIds.slice(0, 10) // Log first 10 IDs
         });
       } catch (error) {
-        // For malformed responses or complete API failures that prevent any sync
-        if (error instanceof ApiError && error.message.includes('Invalid API response format')) {
+        // Convert all API errors to SyncError in sync context for consistency
+        if (error instanceof ApiError) {
           throw new SyncError(`Sync failed during active forms fetch: ${error.message}`, {
             operation: 'syncAllForms',
             phase: 'fetch-active',
-            original_error: error.message
+            original_error: error.message,
+            http_status: error.httpStatus
           });
         }
         // For other errors, let them propagate normally (will be handled by outer catch)

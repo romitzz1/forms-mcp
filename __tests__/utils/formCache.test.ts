@@ -2360,10 +2360,8 @@ describe('FormCache', () => {
       it('should handle refresh with API failures', async () => {
         const mockApiCall = jest.fn().mockRejectedValue(new Error('API Error'));
 
-        const result = await formCache.refreshCache(mockApiCall);
-        
-        expect(result.errors.length).toBeGreaterThan(0);
-        expect(result.errors.some(e => e.includes('API Error'))).toBe(true);
+        // After improving error classification, refresh with API failures now throws SyncError
+        await expect(formCache.refreshCache(mockApiCall)).rejects.toThrow('Sync failed during active forms fetch');
       });
     });
 

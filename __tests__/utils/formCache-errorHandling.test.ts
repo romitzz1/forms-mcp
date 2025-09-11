@@ -1,7 +1,7 @@
 // ABOUTME: Test suite for FormCache comprehensive error handling and logging
 // ABOUTME: Tests error classification, recovery mechanisms, and logging framework
 
-import { FormCache, FormCacheInsert } from '../../utils/formCache.js';
+import { FormCache, FormCacheInsert, FormCacheLogger } from '../../utils/formCache.js';
 import { CacheError, DatabaseError, ApiError, SyncError, ConfigurationError } from '../../utils/formCache.js';
 import fs from 'fs';
 import path from 'path';
@@ -52,6 +52,9 @@ describe('FormCache Error Handling and Logging', () => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'forms-mcp-error-test-'));
     testDbPath = path.join(tempDir, 'test-forms.db');
     logMessages = [];
+
+    // Reset logger singleton to prevent test pollution
+    FormCacheLogger.resetInstance();
 
     // Mock console methods to capture logs
     console.log = jest.fn((...args) => logMessages.push(`LOG: ${args.join(' ')}`));
@@ -283,9 +286,8 @@ describe('FormCache Error Handling and Logging', () => {
 
       const failingApiCall = createMockApiCall('500');
       
-      // Sync should return result with errors but not throw for 500 errors (not malformed responses)
-      const result = await formCache.syncAllForms(failingApiCall);
-      expect(result.errors.length).toBeGreaterThan(0);
+      // After improving error classification, API errors now properly throw SyncError
+      await expect(formCache.syncAllForms(failingApiCall)).rejects.toThrow(SyncError);
       
       // Original form should still exist despite sync failure
       const originalForm = await formCache.getForm(1);
