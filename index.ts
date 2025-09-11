@@ -469,7 +469,7 @@ export class GravityFormsMCPServer {
           },
           {
             name: "import_form_json",
-            description: "Import a form definition from JSON with automatic conflict resolution. Handles form ID conflicts, validates JSON structure, supports force import to overwrite existing forms. Maps field IDs and updates references (conditional logic, calculations) to maintain form integrity.",
+            description: "Import a form definition from JSON with automatic conflict resolution. Handles form ID conflicts, validates JSON structure, supports force import to overwrite existing forms. Maps field IDs and updates references (conditional logic, calculations) to maintain form integrity. Supports complete discovery to check conflicts against both active and inactive forms.",
             inputSchema: {
               type: "object",
               properties: {
@@ -480,6 +480,11 @@ export class GravityFormsMCPServer {
                 force_import: {
                   type: "boolean",
                   description: "Force import and overwrite existing form with same title (optional, default: false)",
+                  default: false
+                },
+                use_complete_discovery: {
+                  type: "boolean",
+                  description: "Use complete form discovery including inactive forms for conflict detection (optional, default: false)",
                   default: false
                 }
               },
@@ -1557,8 +1562,11 @@ ${exportResult.base64Data}`
 
   private getFormImporter(): FormImporter {
     if (!this.formImporter) {
-      // Create FormImporter with API call function
-      this.formImporter = new FormImporter((endpoint: string, method?: string, body?: any) => this.makeRequest(endpoint, method, body));
+      // Create FormImporter with API call function and FormCache
+      this.formImporter = new FormImporter(
+        (endpoint: string, method?: string, body?: any) => this.makeRequest(endpoint, method, body),
+        this.formCache
+      );
     }
     return this.formImporter;
   }
@@ -1566,7 +1574,7 @@ ${exportResult.base64Data}`
   private async importFormJson(args: any) {
     try {
       // Validate required parameters
-      const { form_json, force_import = false } = args;
+      const { form_json, force_import = false, use_complete_discovery = false } = args;
 
       if (!form_json || typeof form_json !== 'string' || form_json.trim() === '') {
         throw new McpError(
@@ -1582,9 +1590,19 @@ ${exportResult.base64Data}`
         );
       }
 
+      if (use_complete_discovery !== undefined && typeof use_complete_discovery !== 'boolean') {
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          'use_complete_discovery must be a boolean value'
+        );
+      }
+
       // Use FormImporter to perform the import
       const formImporter = this.getFormImporter();
-      const result = await formImporter.importForm(form_json, { force_import });
+      const result = await formImporter.importForm(form_json, { 
+        force_import, 
+        useCompleteDiscovery: use_complete_discovery 
+      });
 
       if (!result.success) {
         throw new McpError(

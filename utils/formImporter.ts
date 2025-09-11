@@ -1,10 +1,13 @@
 // ABOUTME: Form import utilities for importing Gravity Forms from JSON with conflict resolution
 // ABOUTME: Handles JSON validation, ID mapping, conflict detection, and reference updates
 
+import { FormCache } from './formCache.js';
+
 export interface ImportOptions {
   force_import?: boolean;
   auto_resolve_conflicts?: boolean;
   preserve_ids?: boolean;
+  useCompleteDiscovery?: boolean;
 }
 
 export interface ConflictInfo {
@@ -35,7 +38,10 @@ export interface ImportResult {
 }
 
 export class FormImporter {
-  constructor(private apiCall: (endpoint: string, method?: string, body?: any) => Promise<any>) {}
+  constructor(
+    private apiCall: (endpoint: string, method?: string, body?: any) => Promise<any>,
+    private formCache?: FormCache
+  ) {}
 
   /**
    * Validates form JSON structure and content
@@ -72,9 +78,37 @@ export class FormImporter {
   /**
    * Detects conflicts with existing forms
    */
-  async detectConflicts(importedForm: any): Promise<ConflictInfo> {
+  async detectConflicts(importedForm: any, useCompleteDiscovery: boolean = false): Promise<ConflictInfo> {
     try {
-      const existingForms = await this.apiCall('/forms');
+      let existingForms: any[];
+
+      // Use cache if available and complete discovery requested
+      if (useCompleteDiscovery && this.formCache && this.formCache.isReady()) {
+        try {
+          // Check if cache is stale and auto-sync if needed
+          const isStale = await this.formCache.isStale();
+          if (isStale) {
+            await this.formCache.refreshCache(this.apiCall);
+          }
+          
+          // Get all forms from cache (including inactive)
+          const cachedForms = await this.formCache.getAllForms();
+          existingForms = cachedForms.map(cached => ({
+            id: cached.id.toString(),
+            title: cached.title,
+            is_active: cached.is_active
+          }));
+        } catch (error) {
+          // If complete discovery is specifically requested but cache fails, throw the error
+          throw error;
+        }
+      } else if (useCompleteDiscovery && (!this.formCache || !this.formCache.isReady())) {
+        // Fall back to API if complete discovery requested but cache unavailable
+        existingForms = await this.apiCall('/forms');
+      } else {
+        // Use existing API-only behavior (backward compatibility)
+        existingForms = await this.apiCall('/forms');
+      }
       
       // Check for title conflicts
       const titleConflict = existingForms.find((form: any) => form.title === importedForm.title);
@@ -107,7 +141,7 @@ export class FormImporter {
   /**
    * Resolves conflicts by modifying the imported form
    */
-  async resolveConflicts(importedForm: any, conflictInfo: ConflictInfo, existingForms?: any[]): Promise<any> {
+  async resolveConflicts(importedForm: any, conflictInfo: ConflictInfo, useCompleteDiscovery: boolean = false, existingForms?: any[]): Promise<any> {
     if (!conflictInfo.hasConflict) {
       return importedForm;
     }
@@ -115,8 +149,29 @@ export class FormImporter {
     const resolvedForm = { ...importedForm };
 
     if (conflictInfo.conflictType === 'title') {
-      // Generate unique title - use provided forms list to avoid duplicate API call
-      const forms = existingForms || await this.apiCall('/forms');
+      let forms: any[];
+      
+      // Use provided forms list to avoid duplicate API call
+      if (existingForms) {
+        forms = existingForms;
+      } else if (useCompleteDiscovery && this.formCache && this.formCache.isReady()) {
+        try {
+          // Get all forms from cache for complete conflict resolution
+          const cachedForms = await this.formCache.getAllForms();
+          forms = cachedForms.map(cached => ({
+            id: cached.id.toString(),
+            title: cached.title,
+            is_active: cached.is_active
+          }));
+        } catch (error) {
+          // Fall back to API if cache fails
+          forms = await this.apiCall('/forms');
+        }
+      } else {
+        // Use API-only behavior
+        forms = await this.apiCall('/forms');
+      }
+      
       const baseTitle = importedForm.title;
       let counter = 1;
       let newTitle = `${baseTitle} (Import ${counter})`;
@@ -237,9 +292,10 @@ export class FormImporter {
       // Validate JSON
       const importedForm = this.validateFormJson(formJson);
       const originalTitle = importedForm.title;
+      const useCompleteDiscovery = options.useCompleteDiscovery ?? false;
       
       // Check for conflicts
-      const conflictInfo = await this.detectConflicts(importedForm);
+      const conflictInfo = await this.detectConflicts(importedForm, useCompleteDiscovery);
       
       let resolvedForm = importedForm;
       let conflictsResolved = 0;
@@ -270,8 +326,12 @@ export class FormImporter {
           };
         } else {
           // Auto-resolve conflicts by modifying the form
-          existingForms = await this.apiCall('/forms'); // Get forms for conflict resolution
-          resolvedForm = await this.resolveConflicts(importedForm, conflictInfo, existingForms);
+          // Only get existing forms for traditional resolution if not using complete discovery
+          if (!useCompleteDiscovery) {
+            existingForms = await this.apiCall('/forms');
+          }
+          
+          resolvedForm = await this.resolveConflicts(importedForm, conflictInfo, useCompleteDiscovery, existingForms);
           conflictsResolved = 1;
           action = 'created_with_modified_title';
         }
