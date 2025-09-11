@@ -11,6 +11,7 @@ import {
 import { DataExporter } from "./utils/dataExporter.js";
 import { ValidationHelper } from "./utils/validation.js";
 import { BulkOperationsManager } from "./utils/bulkOperations.js";
+import { TemplateManager } from "./utils/templateManager.js";
 
 // Configuration interface
 interface GravityFormsConfig {
@@ -26,6 +27,7 @@ export class GravityFormsMCPServer {
   private dataExporter: DataExporter;
   private validator: ValidationHelper;
   private bulkOperationsManager?: BulkOperationsManager;
+  private templateManager?: TemplateManager;
 
   constructor() {
     this.server = new Server(
@@ -354,6 +356,31 @@ export class GravityFormsMCPServer {
               },
               required: ["entry_ids", "operation_type", "confirm"]
             }
+          },
+          {
+            name: "list_form_templates",
+            description: "List all available form templates (forms with '-template' suffix). Returns template metadata including name, description, field count, and creation date. Supports optional filtering by search term and sorting by name or creation date.",
+            inputSchema: {
+              type: "object",
+              properties: {
+                search_term: {
+                  type: "string",
+                  description: "Optional search term to filter templates by name or description"
+                },
+                sort_by: {
+                  type: "string",
+                  enum: ["name", "date"],
+                  description: "Sort templates by name or creation date",
+                  default: "name"
+                },
+                sort_order: {
+                  type: "string",
+                  enum: ["asc", "desc"],
+                  description: "Sort order: ascending or descending",
+                  default: "asc"
+                }
+              }
+            }
           }
         ]
       };
@@ -394,6 +421,9 @@ export class GravityFormsMCPServer {
           
           case "process_entries_bulk":
             return await this.processEntriesBulk(args);
+          
+          case "list_form_templates":
+            return await this.listFormTemplates(args);
           
           default:
             throw new McpError(
@@ -805,6 +835,78 @@ ${exportResult.base64Data}`
         `Bulk operation failed: ${error instanceof Error ? error.message : 'Unknown error'}`
       );
     }
+  }
+
+  private async listFormTemplates(args: any) {
+    try {
+      // Get TemplateManager (lazy initialization)
+      const templateManager = this.getTemplateManager();
+
+      // Get all templates from TemplateManager
+      const allTemplates = await templateManager.listTemplates();
+
+      // Extract parameters with defaults
+      const { search_term, sort_by = 'name', sort_order = 'asc' } = args;
+
+      // Filter templates by search term if provided
+      let filteredTemplates = allTemplates;
+      if (search_term && search_term.trim() !== '') {
+        const searchLower = search_term.trim().toLowerCase();
+        filteredTemplates = allTemplates.filter(template => 
+          template.name.toLowerCase().includes(searchLower) ||
+          template.description.toLowerCase().includes(searchLower)
+        );
+      }
+
+      // Sort templates
+      filteredTemplates.sort((a, b) => {
+        let comparison = 0;
+        
+        if (sort_by === 'name') {
+          comparison = a.name.localeCompare(b.name);
+        } else if (sort_by === 'date') {
+          // Convert date strings to Date objects for comparison
+          const dateA = new Date(a.created_date);
+          const dateB = new Date(b.created_date);
+          comparison = dateA.getTime() - dateB.getTime();
+        }
+
+        return sort_order === 'desc' ? -comparison : comparison;
+      });
+
+      // Prepare response
+      const response = {
+        templates: filteredTemplates,
+        total_count: filteredTemplates.length,
+        message: filteredTemplates.length === 0 ? 'No templates found matching the criteria.' : undefined
+      };
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(response, null, 2)
+          }
+        ]
+      };
+
+    } catch (error) {
+      if (error instanceof McpError) {
+        throw error;
+      }
+      throw new McpError(
+        ErrorCode.InternalError,
+        `Failed to list templates: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
+  }
+
+  private getTemplateManager(): TemplateManager {
+    if (!this.templateManager) {
+      // Create TemplateManager with API call function
+      this.templateManager = new TemplateManager((endpoint: string) => this.makeRequest(endpoint));
+    }
+    return this.templateManager;
   }
 
   async run() {
