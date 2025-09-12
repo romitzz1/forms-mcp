@@ -14,6 +14,9 @@ import { BulkOperationsManager } from "./utils/bulkOperations.js";
 import { TemplateManager } from "./utils/templateManager.js";
 import { FormImporter } from "./utils/formImporter.js";
 import { FormCache } from "./utils/formCache.js";
+import { FieldTypeDetector } from "./utils/fieldTypeDetector.js";
+import { UniversalSearchManager } from "./utils/universalSearchManager.js";
+import { SearchResultsFormatter } from "./utils/searchResultsFormatter.js";
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -55,6 +58,9 @@ export class GravityFormsMCPServer {
   private templateManager?: TemplateManager;
   private formImporter?: FormImporter;
   private formCache?: FormCache | null;
+  private fieldTypeDetector: FieldTypeDetector;
+  private universalSearchManager?: UniversalSearchManager;
+  private searchResultsFormatter: SearchResultsFormatter;
 
   constructor() {
     this.server = new Server(
@@ -78,6 +84,10 @@ export class GravityFormsMCPServer {
     // Initialize utility classes
     this.dataExporter = new DataExporter();
     this.validator = new ValidationHelper();
+    this.fieldTypeDetector = new FieldTypeDetector();
+    this.searchResultsFormatter = new SearchResultsFormatter();
+    // UniversalSearchManager will be initialized when first needed
+    // because it requires an API client interface
     // Note: BulkOperationsManager will be initialized lazily when first needed
     // to avoid auth errors during server startup
     
@@ -724,6 +734,41 @@ export class GravityFormsMCPServer {
               properties: {},
               required: []
             }
+          },
+          {
+            name: "search_entries_by_name",
+            description: "Search form entries by name across all name fields automatically",
+            inputSchema: {
+              type: "object",
+              properties: {
+                form_id: {
+                  type: "string",
+                  description: "Form ID to search entries in"
+                },
+                search_text: {
+                  type: "string", 
+                  description: "Name text to search for"
+                },
+                strategy: {
+                  type: "string",
+                  enum: ["exact", "contains", "fuzzy", "auto"],
+                  description: "Search strategy to use",
+                  default: "auto"
+                },
+                max_results: {
+                  type: "number",
+                  description: "Maximum number of results to return",
+                  default: 50
+                },
+                output_mode: {
+                  type: "string",
+                  enum: ["detailed", "summary", "minimal", "auto"],
+                  description: "Output format mode",
+                  default: "auto"
+                }
+              },
+              required: ["form_id", "search_text"]
+            }
           }
         ]
       };
@@ -785,6 +830,9 @@ export class GravityFormsMCPServer {
           
           case "get_cache_status":
             return await this.getCacheStatusTool();
+          
+          case "search_entries_by_name":
+            return await this.searchEntriesByName(args);
           
           default:
             throw new McpError(
@@ -2263,6 +2311,236 @@ ${exportResult.base64Data}`
         ErrorCode.InternalError,
         `Failed to get cache status: ${error instanceof Error ? error.message : 'Unknown error'}`
       );
+    }
+  }
+
+  /**
+   * Get UniversalSearchManager instance (lazy initialization)
+   */
+  private getUniversalSearchManager(): UniversalSearchManager {
+    if (!this.universalSearchManager) {
+      // Create ApiClient interface implementation
+      const apiClient = {
+        getFormDefinition: async (formId: string) => {
+          return await this.makeRequest('GET', `/forms/${formId}`);
+        },
+        searchEntries: async (formId: string, searchParams: any) => {
+          const response = await this.makeRequest('GET', `/forms/${formId}/entries`, searchParams);
+          return response.entries || [];
+        }
+      };
+      
+      this.universalSearchManager = new UniversalSearchManager(this.fieldTypeDetector, apiClient);
+    }
+    return this.universalSearchManager;
+  }
+
+  /**
+   * Search entries by name using universal search capabilities
+   */
+  private async searchEntriesByName(args: any) {
+    try {
+      // Validate required parameters
+      const { form_id, search_text, strategy, max_results, output_mode } = args;
+      
+      if (!form_id) {
+        throw new McpError(ErrorCode.InvalidRequest, 'form_id is required');
+      }
+      
+      if (!search_text) {
+        throw new McpError(ErrorCode.InvalidRequest, 'search_text is required');
+      }
+      
+      if (!search_text.trim()) {
+        throw new McpError(ErrorCode.InvalidRequest, 'search_text cannot be empty');
+      }
+
+      // Validate optional parameters
+      const searchStrategy = strategy || 'auto';
+      const maxResults = max_results || 50;
+      const outputMode = output_mode || 'auto';
+
+      if (typeof maxResults !== 'number' || maxResults <= 0) {
+        throw new McpError(ErrorCode.InvalidRequest, 'max_results must be a positive number');
+      }
+
+      // Get UniversalSearchManager instance
+      const searchManager = this.getUniversalSearchManager();
+      
+      // Perform universal name search
+      const searchResult = await searchManager.searchByName(
+        form_id,
+        search_text,
+        {
+          strategy: searchStrategy as any,
+          maxResults: maxResults,
+          includeContext: true
+        }
+      );
+
+      // Get form data for formatting context
+      const formData = await this.makeRequest('GET', `/forms/${form_id}`);
+
+      // Format results with SearchResultsFormatter
+      const formattedResult = this.searchResultsFormatter.formatSearchResults(
+        searchResult as any, // Type compatibility handled in formatter
+        outputMode as any,
+        {
+          id: formData.id,
+          title: formData.title || `Form ${form_id}`,
+          fields: formData.fields || []
+        }
+      );
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: formattedResult.content
+          }
+        ]
+      };
+
+    } catch (error) {
+      if (error instanceof McpError) {
+        throw error;
+      }
+      
+      // Handle common API errors
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      
+      if (errorMessage.includes('Form not found') || errorMessage.includes('404')) {
+        throw new McpError(
+          ErrorCode.InvalidRequest,
+          `Form ${args.form_id} not found`
+        );
+      }
+
+      throw new McpError(
+        ErrorCode.InternalError,
+        `Error searching entries by name: ${errorMessage}`
+      );
+    }
+  }
+
+  /**
+   * Public method to list available tools (for testing)
+   */
+  listTools() {
+    return {
+      tools: [
+        {
+          name: "get_forms",
+          description: "Get all forms or specific form details",
+        },
+        {
+          name: "get_entries", 
+          description: "Get entries from forms with filtering and pagination",
+        },
+        {
+          name: "submit_form",
+          description: "Submit a form with field values",
+        },
+        {
+          name: "create_entry",
+          description: "Create a new entry directly (bypasses form validation)",
+        },
+        {
+          name: "update_entry",
+          description: "Update an existing entry",
+        },
+        {
+          name: "delete_entry", 
+          description: "Delete an entry (moves to trash by default)",
+        },
+        {
+          name: "create_form",
+          description: "Create a new form",
+        },
+        {
+          name: "validate_form",
+          description: "Validate form submission without saving",
+        },
+        {
+          name: "export_entries_formatted",
+          description: "Export entries from a form in CSV or JSON format with advanced formatting options",
+        },
+        {
+          name: "process_entries_bulk",
+          description: "Perform bulk operations on multiple entries (delete, update status, update fields)",
+        },
+        {
+          name: "list_form_templates",
+          description: "List all available form templates (forms with '-template' suffix)",
+        },
+        {
+          name: "save_form_as_template",
+          description: "Save an existing form as a reusable template",
+        },
+        {
+          name: "create_form_from_template",
+          description: "Create a new form from an existing template with optional field customizations",
+        },
+        {
+          name: "export_form_json",
+          description: "Export a complete form definition as JSON for backup, migration, or import purposes",
+        },
+        {
+          name: "import_form_json", 
+          description: "Import a form definition from JSON with automatic conflict resolution",
+        },
+        {
+          name: "clone_form_with_modifications",
+          description: "Clone an existing form with intelligent modifications including title changes and field label updates",
+        },
+        {
+          name: "get_cache_status",
+          description: "Get comprehensive FormCache status and statistics for monitoring and debugging",
+        },
+        {
+          name: "search_entries_by_name",
+          description: "Search form entries by name across all name fields automatically",
+        }
+      ]
+    };
+  }
+
+  /**
+   * Public method to call tools (for testing)
+   */
+  async callTool(request: any) {
+    const { name, arguments: args } = request.params;
+
+    try {
+      switch (name) {
+        case "search_entries_by_name":
+          const result = await this.searchEntriesByName(args);
+          return {
+            isError: false,
+            ...result
+          };
+        
+        default:
+          return {
+            isError: true,
+            content: [
+              {
+                type: "text",
+                text: `Tool ${name} not implemented in test interface`
+              }
+            ]
+          };
+      }
+    } catch (error) {
+      return {
+        isError: true,
+        content: [
+          {
+            type: "text", 
+            text: error instanceof McpError ? error.message : `Error: ${error}`
+          }
+        ]
+      };
     }
   }
 
