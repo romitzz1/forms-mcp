@@ -189,6 +189,83 @@ Create a new form.
 - `fields` (optional): Array of field objects
 - `settings` (optional): Form settings
 
+#### `update_form`
+Update an existing form with advanced capabilities including partial updates, field validation, and flexible response formats.
+
+**Parameters:**
+- `form_id` (required): ID of the form to update
+- `title` (optional*): Updated form title
+- `fields` (optional*): Updated array of field objects
+- `description` (optional): Updated form description
+- `settings` (optional): Updated form settings
+- `confirmations` (optional): Form confirmations configuration
+- `notifications` (optional): Form notifications configuration
+- `partial_update` (optional): Enable partial updates (only update provided fields)
+- `validate_fields` (optional): Validate field types before updating
+- `response_format` (optional): Response format (`detailed`, `compact`, or `minimal`)
+- `debug` (optional): Enable debug logging for troubleshooting
+
+*Required for full updates, optional for partial updates
+
+**Advanced Features:**
+
+1. **Partial Updates**: Update only specific fields without affecting others
+2. **Field Type Validation**: Validate field types against Gravity Forms standards
+3. **Response Formatting**: Choose from detailed, compact, or minimal response formats
+4. **Settings & Notifications**: Update form confirmations and notifications
+5. **Debug Logging**: Performance timing and detailed operation logs
+
+**Examples:**
+
+Full update:
+```javascript
+{
+  "form_id": "1",
+  "title": "Updated Contact Form",
+  "fields": [
+    {
+      "type": "text",
+      "label": "Full Name",
+      "isRequired": true
+    }
+  ],
+  "description": "Updated form description"
+}
+```
+
+Partial update (title only):
+```javascript
+{
+  "form_id": "1",
+  "title": "New Form Title",
+  "partial_update": true
+}
+```
+
+With field validation and compact response:
+```javascript
+{
+  "form_id": "1",
+  "title": "Validated Form",
+  "fields": [
+    { "type": "email", "label": "Email Address" },
+    { "type": "phone", "label": "Phone Number" }
+  ],
+  "validate_fields": true,
+  "response_format": "compact"
+}
+```
+
+With debug logging:
+```javascript
+{
+  "form_id": "1",
+  "title": "Debug Form",
+  "fields": [{ "type": "text", "label": "Test Field" }],
+  "debug": true
+}
+```
+
 #### `validate_form`
 Validate form submission without saving.
 

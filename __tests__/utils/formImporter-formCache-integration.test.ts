@@ -110,9 +110,9 @@ describe('FormImporter FormCache Integration', () => {
       });
       
       // Mock API response (active forms only)
-      mockApiCall.mockResolvedValueOnce([
-        { id: '1', title: 'Active Form', is_active: '1' }
-      ]);
+      mockApiCall.mockResolvedValueOnce({
+        "1": { id: '1', title: 'Active Form', is_active: '1' }
+      });
       
       const conflictInfo = await formImporter.detectConflicts(importedForm, false);
       
@@ -127,9 +127,9 @@ describe('FormImporter FormCache Integration', () => {
       // Create importer without cache
       const noCacheImporter = new FormImporter(mockApiCall);
       
-      mockApiCall.mockResolvedValueOnce([
-        { id: '1', title: 'API Form', is_active: '1' }
-      ]);
+      mockApiCall.mockResolvedValueOnce({
+        "1": { id: '1', title: 'API Form', is_active: '1' }
+      });
       
       const conflictInfo = await noCacheImporter.detectConflicts(importedForm, true);
       
@@ -175,10 +175,10 @@ describe('FormImporter FormCache Integration', () => {
       });
       
       // Mock API for fresh sync (complete discovery should refresh cache)
-      mockApiCall.mockResolvedValueOnce([
-        { id: '1', title: 'Cached Active Form', is_active: '1' },
-        { id: '2', title: 'New Active Form', is_active: '1' }
-      ]);
+      mockApiCall.mockResolvedValueOnce({
+        "1": { id: '1', title: 'Cached Active Form', is_active: '1' },
+        "2": { id: '2', title: 'New Active Form', is_active: '1' }
+      });
       
       const testForm = {
         title: 'Cached Inactive Form',
@@ -241,9 +241,9 @@ describe('FormImporter FormCache Integration', () => {
       };
       
       // Mock API response for conflict resolution
-      mockApiCall.mockResolvedValueOnce([
-        { id: '1', title: 'Contact Form', is_active: '1' }
-      ]);
+      mockApiCall.mockResolvedValueOnce({
+        "1": { id: '1', title: 'Contact Form', is_active: '1' }
+      });
       
       const resolvedForm = await noCacheImporter.resolveConflicts(importedForm, conflictInfo);
       
@@ -267,7 +267,7 @@ describe('FormImporter FormCache Integration', () => {
       };
       
       // Mock API response (only active forms)
-      mockApiCall.mockResolvedValueOnce([]);
+      mockApiCall.mockResolvedValueOnce({});
       
       const conflictInfo = await formImporter.detectConflicts(importedForm);
       
@@ -285,7 +285,7 @@ describe('FormImporter FormCache Integration', () => {
       // Don't initialize cache to simulate failure
       const importerWithFailingCache = new FormImporter(mockApiCall, failingCache);
       
-      mockApiCall.mockResolvedValueOnce([]);
+      mockApiCall.mockResolvedValueOnce({});
       
       const importedForm = {
         title: 'Test Form',
@@ -304,7 +304,7 @@ describe('FormImporter FormCache Integration', () => {
       await formCache.close();
       
       // Mock API fallback
-      mockApiCall.mockResolvedValueOnce([]);
+      mockApiCall.mockResolvedValueOnce({});
       
       // Try to use the importer with the closed cache
       const importedForm = {
@@ -326,7 +326,7 @@ describe('FormImporter FormCache Integration', () => {
       };
       
       // Mock API response for sync
-      mockApiCall.mockResolvedValueOnce([]);
+      mockApiCall.mockResolvedValueOnce({});
       
       const conflictInfo = await formImporter.detectConflicts(importedForm, true);
       
@@ -435,7 +435,7 @@ describe('FormImporter FormCache Integration', () => {
       
       // Mock API responses for conflict detection and form creation
       mockApiCall
-        .mockResolvedValueOnce([]) // Empty forms list
+        .mockResolvedValueOnce({}) // Empty forms list
         .mockResolvedValueOnce({ id: '1', title: 'Test Form' }); // Form creation
       
       const importResult = await noCacheImporter.importForm(formJson);

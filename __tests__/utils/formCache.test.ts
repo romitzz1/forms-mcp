@@ -668,20 +668,20 @@ describe('FormCache', () => {
     describe('fetchActiveForms', () => {
       it('should fetch all active forms from API endpoint', async () => {
         // Mock API response with multiple forms
-        const mockApiResponse = [
-          {
+        const mockApiResponse = {
+          "1": {
             id: '1',
             title: 'Contact Form',
             is_active: '1',
             entries: []
           },
-          {
+          "2": {
             id: '2', 
             title: 'Newsletter Signup',
             is_active: '1',
             entries: []
           }
-        ];
+        };
 
         const mockApiCall = jest.fn().mockResolvedValue(mockApiResponse);
         
@@ -698,7 +698,7 @@ describe('FormCache', () => {
       });
 
       it('should handle empty API response', async () => {
-        const mockApiCall = jest.fn().mockResolvedValue([]);
+        const mockApiCall = jest.fn().mockResolvedValue({});
         
         const result = await formCache.fetchActiveForms(mockApiCall);
         
@@ -731,10 +731,10 @@ describe('FormCache', () => {
       });
 
       it('should handle response with invalid form data', async () => {
-        const mockApiResponse = [
-          { id: null, title: '', is_active: '1' }, // Invalid form
-          { id: '2', title: 'Valid Form', is_active: '1' } // Valid form
-        ];
+        const mockApiResponse = {
+          "invalid": { id: null, title: '', is_active: '1' }, // Invalid form
+          "2": { id: '2', title: 'Valid Form', is_active: '1' } // Valid form
+        };
 
         const mockApiCall = jest.fn().mockResolvedValue(mockApiResponse);
         
@@ -844,11 +844,11 @@ describe('FormCache', () => {
     });
 
     describe('validateApiResponse', () => {
-      it('should validate correct API response array', () => {
-        const validResponse = [
-          { id: '1', title: 'Form 1', is_active: '1' },
-          { id: '2', title: 'Form 2', is_active: '0' }
-        ];
+      it('should validate correct API response object', () => {
+        const validResponse = {
+          "1": { id: '1', title: 'Form 1', is_active: '1' },
+          "2": { id: '2', title: 'Form 2', is_active: '0' }
+        };
 
         expect(formCache.validateApiResponse(validResponse)).toBe(true);
       });
@@ -880,8 +880,8 @@ describe('FormCache', () => {
         });
       });
 
-      it('should accept empty array', () => {
-        expect(formCache.validateApiResponse([])).toBe(true);
+      it('should accept empty object', () => {
+        expect(formCache.validateApiResponse({})).toBe(true);
       });
     });
 
@@ -1728,11 +1728,11 @@ describe('FormCache', () => {
         // - Inactive forms: 2, 4 (found during gap probing)
         // - Beyond-max forms: 7, 10 (found during beyond-max probing)
         
-        const activeFormsResponse = [
-          { id: '1', title: 'Active Form 1', is_active: '1', entries: [] },
-          { id: '3', title: 'Active Form 3', is_active: '1', entries: [] },
-          { id: '5', title: 'Active Form 5', is_active: '1', entries: [] }
-        ];
+        const activeFormsResponse = {
+          "1": { id: '1', title: 'Active Form 1', is_active: '1', entries: [] },
+          "3": { id: '3', title: 'Active Form 3', is_active: '1', entries: [] },
+          "5": { id: '5', title: 'Active Form 5', is_active: '1', entries: [] }
+        };
         
         const mockApiCall = jest.fn().mockImplementation(async (endpoint: string) => {
           if (endpoint === '/forms') {
@@ -1784,9 +1784,9 @@ describe('FormCache', () => {
       });
 
       it('should handle partial failures gracefully', async () => {
-        const activeFormsResponse = [
-          { id: '1', title: 'Active Form 1', is_active: '1', entries: [] }
-        ];
+        const activeFormsResponse = {
+          "1": { id: '1', title: 'Active Form 1', is_active: '1', entries: [] }
+        };
         
         let apiCallCount = 0;
         const mockApiCall = jest.fn().mockImplementation(async (endpoint: string) => {
@@ -1826,9 +1826,9 @@ describe('FormCache', () => {
         await formCache.insertForm({ id: 1, title: 'Old Form 1', is_active: true });
         await formCache.insertForm({ id: 99, title: 'Stale Form 99', is_active: false });
         
-        const activeFormsResponse = [
-          { id: '1', title: 'Updated Form 1', is_active: '1', entry_count: 5 }
-        ];
+        const activeFormsResponse = {
+          "1": { id: '1', title: 'Updated Form 1', is_active: '1', entry_count: 5 }
+        };
         
         const mockApiCall = jest.fn().mockImplementation(async (endpoint: string) => {
           if (endpoint === '/forms') {
@@ -1862,9 +1862,9 @@ describe('FormCache', () => {
           is_active: true
         });
         
-        const activeFormsResponse = [
-          { id: '1', title: 'Force Updated Form', is_active: '1' }
-        ];
+        const activeFormsResponse = {
+          "1": { id: '1', title: 'Force Updated Form', is_active: '1' }
+        };
         
         const mockApiCall = jest.fn().mockImplementation(async (endpoint: string) => {
           if (endpoint === '/forms') {
@@ -1891,9 +1891,9 @@ describe('FormCache', () => {
           is_active: true
         });
         
-        const activeFormsResponse = [
-          { id: '1', title: 'API Form Title', is_active: '1' }
-        ];
+        const activeFormsResponse = {
+          "1": { id: '1', title: 'API Form Title', is_active: '1' }
+        };
         
         const mockApiCall = jest.fn().mockImplementation(async (endpoint: string) => {
           if (endpoint === '/forms') {
@@ -1913,7 +1913,7 @@ describe('FormCache', () => {
       });
 
       it('should handle configuration options correctly', async () => {
-        const activeFormsResponse: any[] = [];
+        const activeFormsResponse = {};
         
         let probeAttempts = 0;
         const mockApiCall = jest.fn().mockImplementation(async (endpoint: string) => {
@@ -1936,10 +1936,10 @@ describe('FormCache', () => {
 
     describe('performInitialSync', () => {
       it('should perform first-time sync with mixed active/inactive forms', async () => {
-        const activeFormsResponse = [
-          { id: '1', title: 'Active Form 1', is_active: '1' },
-          { id: '5', title: 'Active Form 5', is_active: '1' }
-        ];
+        const activeFormsResponse = {
+          "1": { id: '1', title: 'Active Form 1', is_active: '1' },
+          "5": { id: '5', title: 'Active Form 5', is_active: '1' }
+        };
         
         const mockApiCall = jest.fn().mockImplementation(async (endpoint: string) => {
           if (endpoint === '/forms') {
@@ -1972,7 +1972,7 @@ describe('FormCache', () => {
       it('should handle empty initial state (no existing forms)', async () => {
         const mockApiCall = jest.fn().mockImplementation(async (endpoint: string) => {
           if (endpoint === '/forms') {
-            return []; // No active forms
+            return {}; // No active forms
           }
           throw new Error('404 Not Found');
         });
@@ -2001,10 +2001,10 @@ describe('FormCache', () => {
         const db = (formCache as any).getDatabase();
         db.prepare(`UPDATE forms SET last_synced = ? WHERE id = ?`).run(oldTimestamp, 1);
         
-        const activeFormsResponse = [
-          { id: '1', title: 'Existing Form 1', is_active: '1' }, // Unchanged
-          { id: '2', title: 'New Form 2', is_active: '1' }      // New
-        ];
+        const activeFormsResponse = {
+          "1": { id: '1', title: 'Existing Form 1', is_active: '1' }, // Unchanged
+          "2": { id: '2', title: 'New Form 2', is_active: '1' }      // New
+        };
         
         const mockApiCall = jest.fn().mockImplementation(async (endpoint: string) => {
           if (endpoint === '/forms') {
@@ -2087,7 +2087,7 @@ describe('FormCache', () => {
         
         const mockApiCall = jest.fn().mockImplementation(async (endpoint: string) => {
           if (endpoint === '/forms') {
-            return [{ id: '1', title: 'Form 1', is_active: '1' }];
+            return { "1": { id: '1', title: 'Form 1', is_active: '1' } };
           }
           throw new Error('404 Not Found');
         });
@@ -2115,11 +2115,14 @@ describe('FormCache', () => {
       it('should handle large form datasets efficiently', async () => {
         // Simulate smaller but realistic dataset for speed
         const activeFormIds = Array.from({ length: 10 }, (_, i) => i * 2 + 1); // 1, 3, 5, ... 19
-        const activeFormsResponse = activeFormIds.map(id => ({
-          id: id.toString(),
-          title: `Form ${id}`,
-          is_active: '1'
-        }));
+        const activeFormsResponse = activeFormIds.reduce((acc, id) => {
+          acc[id.toString()] = {
+            id: id.toString(),
+            title: `Form ${id}`,
+            is_active: '1'
+          };
+          return acc;
+        }, {} as any);
         
         const mockApiCall = jest.fn().mockImplementation(async (endpoint: string) => {
           if (endpoint === '/forms') {
@@ -2183,7 +2186,7 @@ describe('FormCache', () => {
           callCount++;
           
           if (endpoint === '/forms') {
-            return [{ id: '1', title: 'Form 1', is_active: '1' }];
+            return { "1": { id: '1', title: 'Form 1', is_active: '1' } };
           }
           
           // Every other probe fails with different errors
@@ -2201,10 +2204,10 @@ describe('FormCache', () => {
       });
 
       it('should continue sync despite individual probe failures', async () => {
-        const activeFormsResponse = [
-          { id: '1', title: 'Form 1', is_active: '1' },
-          { id: '3', title: 'Form 3', is_active: '1' }
-        ];
+        const activeFormsResponse = {
+          "1": { id: '1', title: 'Form 1', is_active: '1' },
+          "3": { id: '3', title: 'Form 3', is_active: '1' }
+        };
         
         const mockApiCall = jest.fn().mockImplementation(async (endpoint: string) => {
           if (endpoint === '/forms') {
@@ -2343,7 +2346,7 @@ describe('FormCache', () => {
         
         const mockApiCall = jest.fn().mockImplementation(async (endpoint: string) => {
           if (endpoint === '/forms') {
-            return [{ id: '1', title: 'Fresh Form', is_active: '1' }];
+            return { "1": { id: '1', title: 'Fresh Form', is_active: '1' } };
           }
           throw new Error('404 Not Found');
         });
@@ -2528,10 +2531,10 @@ describe('FormCache', () => {
       it('should work correctly with existing sync methods', async () => {
         const mockApiCall = jest.fn().mockImplementation(async (endpoint: string) => {
           if (endpoint === '/forms') {
-            return [
-              { id: '1', title: 'Form 1', is_active: '1' },
-              { id: '2', title: 'Form 2', is_active: '1' }
-            ];
+            return {
+              "1": { id: '1', title: 'Form 1', is_active: '1' },
+              "2": { id: '2', title: 'Form 2', is_active: '1' }
+            };
           }
           throw new Error('404 Not Found');
         });

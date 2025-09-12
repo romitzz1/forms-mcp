@@ -233,7 +233,7 @@ describe('GravityFormsMCPServer', () => {
       server = new GravityFormsMCPServer();
       
       // Mock fetch for API calls
-      jest.spyOn((global as any, 'fetch').mockImplementation();
+      jest.spyOn(global as any, 'fetch').mockImplementation();
     });
 
     describe('backward compatibility', () => {

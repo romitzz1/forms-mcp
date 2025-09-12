@@ -208,8 +208,8 @@ export class FieldTypeDetector {
             }
         }
 
-        // Third pass: partial matches with priority order (team > name to avoid conflicts)
-        const priorityOrder: Array<keyof typeof this.patterns> = ['team', 'email', 'phone', 'name'];
+        // Third pass: partial matches with priority order (team > name to avoid conflicts)  
+        const priorityOrder = ['team', 'email', 'phone', 'name'] as const;
         
         for (const type of priorityOrder) {
             const config = this.patterns[type];

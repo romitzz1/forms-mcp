@@ -97,16 +97,16 @@ npm start
 
 ## Verify Installation
 
-Once configured, your MCP server provides **20 powerful tools**:
+Once configured, your MCP server provides **21 powerful tools**:
 
 ### 🆕 Universal Search Tools (NEW!)
 - `search_entries_by_name` - Intelligent name search across any form
 - `search_entries_universal` - Advanced multi-field search with custom targeting  
 - `get_field_mappings` - Field structure analysis and debugging
 
-### Core Tools (8)
+### Core Tools (9)
 - `get_forms`, `get_entries`, `submit_form`, `create_entry`
-- `update_entry`, `delete_entry`, `create_form`, `validate_form`
+- `update_entry`, `delete_entry`, `create_form`, `update_form`, `validate_form`
 
 ### Enhanced Tools (8) 
 - `export_entries_formatted`, `process_entries_bulk`

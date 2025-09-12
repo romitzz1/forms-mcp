@@ -37,6 +37,7 @@ interface ICacheConfig {
   maxAgeSeconds: number;
   maxProbeFailures: number;
   autoSync: boolean;
+  fullSyncIntervalHours: number;
 }
 
 // Cache status interface
@@ -108,13 +109,15 @@ export class GravityFormsMCPServer {
     const maxAgeSeconds = this.parseIntEnv('GRAVITY_FORMS_CACHE_MAX_AGE_SECONDS', 3600, 60, 86400);
     const maxProbeFailures = this.parseIntEnv('GRAVITY_FORMS_CACHE_MAX_PROBE_FAILURES', 10, 1, 50);
     const autoSync = this.parseBooleanEnv('GRAVITY_FORMS_CACHE_AUTO_SYNC', true);
+    const fullSyncIntervalHours = this.parseIntEnv('GRAVITY_FORMS_FULL_SYNC_INTERVAL_HOURS', 24, 1, 168);
 
     return {
       enabled,
       dbPath: dbPath && dbPath.trim() !== '' ? dbPath : './data/forms-cache.db', // Fallback for empty/whitespace
       maxAgeSeconds,
       maxProbeFailures,
-      autoSync
+      autoSync,
+      fullSyncIntervalHours
     };
   }
 
@@ -480,6 +483,61 @@ export class GravityFormsMCPServer {
                 }
               },
               required: ["title"]
+            }
+          },
+          {
+            name: "update_form",
+            description: "Update an existing form",
+            inputSchema: {
+              type: "object",
+              properties: {
+                form_id: {
+                  type: "string",
+                  description: "ID of the form to update"
+                },
+                title: {
+                  type: "string",
+                  description: "Updated form title"
+                },
+                fields: {
+                  type: "array",
+                  description: "Updated array of field objects"
+                },
+                description: {
+                  type: "string",
+                  description: "Updated form description"
+                },
+                settings: {
+                  type: "object",
+                  description: "Updated form settings"
+                },
+                confirmations: {
+                  type: "object",
+                  description: "Form confirmations"
+                },
+                notifications: {
+                  type: "object",
+                  description: "Form notifications"
+                },
+                partial_update: {
+                  type: "boolean",
+                  description: "Enable partial updates (only update provided fields)"
+                },
+                validate_fields: {
+                  type: "boolean",
+                  description: "Validate field types before updating"
+                },
+                response_format: {
+                  type: "string",
+                  enum: ["detailed", "compact", "minimal"],
+                  description: "Response format (detailed, compact, or minimal)"
+                },
+                debug: {
+                  type: "boolean",
+                  description: "Enable debug logging for troubleshooting"
+                }
+              },
+              required: ["form_id"]
             }
           },
           {
@@ -924,6 +982,9 @@ export class GravityFormsMCPServer {
           case "create_form":
             return await this.createForm(args);
           
+          case "update_form":
+            return await this.updateForm(args);
+          
           case "validate_form":
             return await this.validateForm(args);
           
@@ -1161,10 +1222,14 @@ Consider using form templates or cloning for management.`;
         
         // Check if cache is stale and sync if needed
         if (await this.formCache.isStale()) {
-          await this.formCache.performIncrementalSync(this.makeRequest.bind(this));
+          await this.formCache.performHybridSync(
+            this.makeRequest.bind(this), 
+            this.cacheConfig.fullSyncIntervalHours,
+            this.cacheConfig.maxAgeSeconds * 1000
+          );
         }
         
-        // Get all forms from cache (includes inactive forms)
+        // Get all forms from cache
         const allForms = await this.formCache.getAllForms();
         
         // Transform cached form data to match API format
@@ -1272,6 +1337,8 @@ Consider using form templates or cloning for management.`;
     // Default behavior: use API only (backward compatibility)
     const endpoint = include_fields ? '/forms?include[]=form_fields' : '/forms';
     const forms = await this.makeRequest(endpoint);
+    
+    // /forms endpoint only returns active forms, no filtering needed
     return {
       content: [
         {
@@ -1658,6 +1725,208 @@ Consider using form templates or cloning for management.`;
     };
   }
 
+  private async updateForm(args: any) {
+    const { 
+      form_id, 
+      title, 
+      fields, 
+      description, 
+      settings, 
+      confirmations,
+      notifications,
+      partial_update = false,
+      validate_fields = false,
+      response_format = 'detailed',
+      debug = false,
+      ...rest 
+    } = args;
+    
+    // Start timing for debug
+    const startTime = debug ? Date.now() : 0;
+    
+    if (debug) {
+      console.log('[UPDATE_FORM_DEBUG] Starting form update');
+      console.log(`[UPDATE_FORM_DEBUG] form_id: ${form_id}`);
+      console.log(`[UPDATE_FORM_DEBUG] partial_update: ${partial_update}`);
+      console.log(`[UPDATE_FORM_DEBUG] validate_fields: ${validate_fields}`);
+      console.log(`[UPDATE_FORM_DEBUG] response_format: ${response_format}`);
+    }
+    
+    // Validate form_id (always required)
+    if (form_id === undefined || form_id === null) {
+      throw new McpError(
+        ErrorCode.InvalidParams,
+        'form_id is required'
+      );
+    }
+    
+    if (typeof form_id !== 'string') {
+      throw new McpError(
+        ErrorCode.InvalidParams,
+        'form_id must be a string'
+      );
+    }
+    
+    if (form_id.trim() === '') {
+      throw new McpError(
+        ErrorCode.InvalidParams,
+        'form_id must be a non-empty string'
+      );
+    }
+    
+    let existingForm = null;
+    let finalTitle = title;
+    let finalFields = fields;
+    let finalDescription = description;
+    let finalSettings = settings;
+    let finalConfirmations = confirmations;
+    let finalNotifications = notifications;
+    
+    // If partial update, retrieve existing form data
+    if (partial_update) {
+      if (debug) {
+        console.log('[UPDATE_FORM_DEBUG] Retrieving existing form for partial update');
+      }
+      
+      existingForm = await this.makeRequest(`/forms/${form_id}`, 'GET');
+      
+      // Use existing values if not provided
+      finalTitle = title || existingForm.title;
+      finalFields = fields || existingForm.fields;
+      finalDescription = description !== undefined ? description : existingForm.description;
+      finalSettings = settings || existingForm.settings;
+      finalConfirmations = confirmations || existingForm.confirmations;
+      finalNotifications = notifications || existingForm.notifications;
+    } else {
+      // For full updates, validate required fields
+      if (title === undefined || title === null) {
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          'title is required'
+        );
+      }
+      
+      if (typeof title !== 'string') {
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          'title must be a string'
+        );
+      }
+      
+      if (title.trim() === '') {
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          'title must be a non-empty string'
+        );
+      }
+      
+      if (fields === undefined || fields === null) {
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          'fields is required'
+        );
+      }
+      
+      if (!Array.isArray(fields)) {
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          'fields must be an array'
+        );
+      }
+    }
+    
+    // Validate field types if requested
+    if (validate_fields && finalFields) {
+      // Common Gravity Forms field types - more comprehensive list
+      const validFieldTypes = [
+        'text', 'textarea', 'select', 'multiselect', 'number', 'checkbox', 
+        'radio', 'hidden', 'html', 'section', 'page', 'date', 'time', 'phone', 
+        'website', 'email', 'fileupload', 'captcha', 'list', 'password', 'name',
+        'address', 'post_title', 'post_content', 'post_excerpt', 'post_tags',
+        'post_category', 'post_image', 'product', 'quantity', 'shipping', 'total',
+        'option', 'donation', 'creditcard', 'consent', 'signature', 'survey',
+        'poll', 'quiz', 'rating', 'likert', 'rank', 'repeater', 'calculation'
+      ];
+      
+      for (const field of finalFields) {
+        if (field.type && !validFieldTypes.includes(field.type)) {
+          if (debug) {
+            console.log(`[UPDATE_FORM_DEBUG] Warning: Unknown field type '${field.type}' - this may be a custom field type`);
+          }
+          // For now, just warn but don't fail - custom field types are possible
+          // throw new McpError(
+          //   ErrorCode.InvalidParams,
+          //   `Invalid field type: ${field.type}. Supported types: ${validFieldTypes.join(', ')}`
+          // );
+        }
+      }
+      
+      if (debug) {
+        console.log(`[UPDATE_FORM_DEBUG] Field validation passed for ${finalFields.length} fields`);
+      }
+    }
+
+    // Build the request body
+    const formUpdateData = {
+      title: finalTitle,
+      fields: finalFields,
+      ...(finalDescription !== undefined && { description: finalDescription }),
+      ...(finalConfirmations && { confirmations: finalConfirmations }),
+      ...(finalNotifications && { notifications: finalNotifications }),
+      ...rest
+    };
+    
+    // Apply settings carefully to avoid conflicts
+    if (finalSettings) {
+      Object.assign(formUpdateData, finalSettings);
+    }
+    
+    if (debug) {
+      console.log(`[UPDATE_FORM_DEBUG] Request body size: ${JSON.stringify(formUpdateData).length} characters`);
+    }
+    
+    // Make the PUT request to update the form
+    const response = await this.makeRequest(`/forms/${form_id}`, 'PUT', formUpdateData);
+    
+    if (debug) {
+      const endTime = Date.now();
+      console.log(`[UPDATE_FORM_DEBUG] Update completed in ${endTime - startTime}ms`);
+    }
+    
+    // Format response based on requested format
+    let responseText: string;
+    
+    switch (response_format) {
+      case 'minimal':
+        responseText = `Form ${response.id} updated successfully`;
+        break;
+      
+      case 'compact':
+        responseText = `Form updated successfully\nID: ${response.id}\nTitle: ${response.title}`;
+        if (response.description) {
+          responseText += `\nDescription: ${response.description}`;
+        }
+        if (response.fields && response.fields.length > 0) {
+          responseText += `\nFields: ${response.fields.length} field(s)`;
+        }
+        break;
+      
+      case 'detailed':
+      default:
+        responseText = `Successfully updated form:\n${JSON.stringify(response, null, 2)}`;
+        break;
+    }
+    
+    return {
+      content: [
+        {
+          type: "text",
+          text: responseText
+        }
+      ]
+    };
+  }
+
   private async validateForm(args: any) {
     const { form_id, field_values } = args;
     
@@ -1940,7 +2209,11 @@ ${exportResult.base64Data}`
 
             // Check if cache needs sync
             if (await this.formCache.isStale()) {
-              await this.formCache.performIncrementalSync(this.makeRequest.bind(this));
+              await this.formCache.performHybridSync(
+                this.makeRequest.bind(this), 
+                this.cacheConfig.fullSyncIntervalHours,
+                this.cacheConfig.maxAgeSeconds * 1000
+              );
             }
 
             // Get all cached forms

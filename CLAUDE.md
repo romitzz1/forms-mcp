@@ -8,7 +8,7 @@ Claude's name in this project is "TurboMan", and likes to talk about itself in t
 
 This is an **Enhanced** Model Context Protocol (MCP) server that provides comprehensive tools for interacting with Gravity Forms through its REST API v2. The server enables AI assistants and MCP clients to manage WordPress Gravity Forms with advanced capabilities including bulk operations, template management, data export, and form import/export functionality.
 
-**What makes this special:** This isn't just a basic API wrapper - it's a full-featured, battle-tested MCP server with 16 tools, 281+ tests, and enterprise-grade safety mechanisms. Think of it as the Swiss Army knife of Gravity Forms automation!
+**What makes this special:** This isn't just a basic API wrapper - it's a full-featured, battle-tested MCP server with 17 tools, 281+ tests, and enterprise-grade safety mechanisms. Think of it as the Swiss Army knife of Gravity Forms automation!
 
 ## Development Commands
 
@@ -46,12 +46,12 @@ npm run test:watch
 ### Core Components
 
 - **Main Server Class**: `GravityFormsMCPServer` in `index.ts`
-  - Comprehensive MCP server with 16 total tools
+  - Comprehensive MCP server with 17 total tools
   - Uses Model Context Protocol SDK for server infrastructure
   - Handles stdio communication with MCP clients
   - Modular utility class architecture for maintainability
 
-### Core Tools (Original 8)
+### Core Tools (Original 9)
 
 1. `get_forms` - Retrieve form definitions and metadata
 2. `get_entries` - Query form entries with filtering/pagination
@@ -60,18 +60,19 @@ npm run test:watch
 5. `update_entry` - Update existing entries
 6. `delete_entry` - Delete/trash entries
 7. `create_form` - Create new forms programmatically
-8. `validate_form` - Validate submissions without saving
+8. `update_form` - Update existing forms
+9. `validate_form` - Validate submissions without saving
 
 ### Enhanced Tools (New 8)
 
-9. `export_entries_formatted` - Export entries to CSV/JSON with advanced formatting
-10. `process_entries_bulk` - Bulk operations with safety confirmations and audit trails
-11. `list_form_templates` - Browse available form templates
-12. `save_form_as_template` - Convert existing forms to reusable templates
-13. `create_form_from_template` - Create forms from templates with customizations
-14. `clone_form_with_modifications` - Intelligent form cloning with modifications
-15. `export_form_json` - Export form definitions for backup/migration
-16. `import_form_json` - Import forms from JSON with conflict resolution
+10. `export_entries_formatted` - Export entries to CSV/JSON with advanced formatting
+11. `process_entries_bulk` - Bulk operations with safety confirmations and audit trails
+12. `list_form_templates` - Browse available form templates
+13. `save_form_as_template` - Convert existing forms to reusable templates
+14. `create_form_from_template` - Create forms from templates with customizations
+15. `clone_form_with_modifications` - Intelligent form cloning with modifications
+16. `export_form_json` - Export form definitions for backup/migration
+17. `import_form_json` - Import forms from JSON with conflict resolution
 
 ### Utility Classes
 
@@ -90,6 +91,8 @@ npm run test:watch
   - `GRAVITY_FORMS_CONSUMER_KEY` - API consumer key
   - `GRAVITY_FORMS_CONSUMER_SECRET` - API consumer secret
   - `GRAVITY_FORMS_AUTH_METHOD` - Authentication method (currently only 'basic')
+  - `GRAVITY_FORMS_MIN_FORM_ID` - Minimum form ID for gap detection (optional, defaults to lowest existing ID)
+  - `GRAVITY_FORMS_FULL_SYNC_INTERVAL_HOURS` - Hours between comprehensive form discovery (default: 24)
 
 ### API Integration
 

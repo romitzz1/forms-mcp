@@ -19,7 +19,9 @@
       "mcp__gravity-forms-enhanced__get_forms",
       "mcp__gravity-forms-enhanced__search_entries_by_name",
       "mcp__gravity-forms-enhanced__get_field_mappings",
-      "mcp__gravity-forms-enhanced__search_entries_universal"
+      "mcp__gravity-forms-enhanced__search_entries_universal",
+      "Read(///**)",
+      "Bash(rm:*)"
     ],
     "deny": [],
     "ask": []

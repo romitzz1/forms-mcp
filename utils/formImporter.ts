@@ -99,14 +99,22 @@ export class FormImporter {
         } catch (error) {
           // For consistency with resolveConflicts, fall back to API when cache fails
           // This provides more robust behavior than throwing errors
-          existingForms = await this.apiCall('/forms');
+          const apiResponse = await this.apiCall('/forms');
+          existingForms = Object.values(apiResponse);
         }
       } else if (useCompleteDiscovery && (!this.formCache?.isReady())) {
         // Fall back to API if complete discovery requested but cache unavailable
-        existingForms = await this.apiCall('/forms');
+        const apiResponse = await this.apiCall('/forms');
+        existingForms = Object.values(apiResponse);
       } else {
         // Use existing API-only behavior (backward compatibility)
-        existingForms = await this.apiCall('/forms');
+        const apiResponse = await this.apiCall('/forms');
+        existingForms = Object.values(apiResponse);
+      }
+      
+      // Ensure existingForms is always an array
+      if (!Array.isArray(existingForms)) {
+        existingForms = [];
       }
       
       // Check for title conflicts
@@ -164,11 +172,13 @@ export class FormImporter {
           }));
         } catch (error) {
           // Fall back to API if cache fails
-          forms = await this.apiCall('/forms');
+          const apiResponse = await this.apiCall('/forms');
+          forms = Object.values(apiResponse);
         }
       } else {
         // Use API-only behavior
-        forms = await this.apiCall('/forms');
+        const apiResponse = await this.apiCall('/forms');
+        forms = Object.values(apiResponse);
       }
       
       const baseTitle = importedForm.title;
@@ -327,7 +337,8 @@ export class FormImporter {
           // Auto-resolve conflicts by modifying the form
           // Only get existing forms for traditional resolution if not using complete discovery
           if (!useCompleteDiscovery) {
-            existingForms = await this.apiCall('/forms');
+            const apiResponse = await this.apiCall('/forms');
+          existingForms = Object.values(apiResponse);
           }
           
           resolvedForm = await this.resolveConflicts(importedForm, conflictInfo, useCompleteDiscovery, existingForms);

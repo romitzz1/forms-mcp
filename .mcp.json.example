@@ -8,6 +8,8 @@
         "GRAVITY_FORMS_CONSUMER_KEY": "ck_your_consumer_key_here", 
         "GRAVITY_FORMS_CONSUMER_SECRET": "cs_your_consumer_secret_here",
         "GRAVITY_FORMS_AUTH_METHOD": "basic",
+        "GRAVITY_FORMS_MIN_FORM_ID": "1",
+        "GRAVITY_FORMS_FULL_SYNC_INTERVAL_HOURS": "24",
         "GRAVITY_FORMS_CACHE_ENABLED": "true",
         "GRAVITY_FORMS_CACHE_DB_PATH": "/path/to/your/forms-mcp/data/forms-cache.db",
         "GRAVITY_FORMS_CACHE_MAX_AGE_SECONDS": "300",

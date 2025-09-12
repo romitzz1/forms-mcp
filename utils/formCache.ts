@@ -226,6 +226,7 @@ export interface ProbeProgress {
 export interface SyncOptions {
   forceFullSync?: boolean;
   maxProbeFailures?: number;
+  maxCacheAgeMs?: number;
   onProgress?: (status: SyncProgress) => void;
 }
 
@@ -574,6 +575,15 @@ export class FormCache {
       )
     `).run();
 
+    // Create sync metadata table for hybrid sync tracking
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS sync_metadata (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `).run();
+
     // Record initial schema version
     const versionExists = db.prepare(`
       SELECT 1 FROM schema_version WHERE version = ?
@@ -643,11 +653,27 @@ export class FormCache {
    * Gravity Forms API returns is_active as "1"/"0" strings
    */
   private transformApiFormToCache(apiForm: any): FormCacheInsert {
+    // Handle entry count - /forms API returns 'entries' as string count, not array
+    let entry_count = 0;
+    if (apiForm.entry_count !== undefined) {
+      entry_count = parseInt(apiForm.entry_count, 10) || 0;
+    } else if (apiForm.entries !== undefined) {
+      // Handle both string count (from /forms API) and array format (from individual form API)
+      if (Array.isArray(apiForm.entries)) {
+        entry_count = apiForm.entries.length;
+      } else {
+        entry_count = parseInt(apiForm.entries, 10) || 0;
+      }
+    }
+    
     return {
       id: parseInt(apiForm.id, 10),
       title: apiForm.title || '',
-      entry_count: parseInt(apiForm.entries?.length || '0', 10),
-      is_active: apiForm.is_active === '1' || apiForm.is_active === 1 || apiForm.is_active === true,
+      entry_count,
+      // /forms endpoint only returns active forms, so default to true if is_active field is missing
+      is_active: apiForm.is_active !== undefined 
+        ? (apiForm.is_active === '1' || apiForm.is_active === 1 || apiForm.is_active === true)
+        : true,
       form_data: JSON.stringify(apiForm)
     };
   }
@@ -907,22 +933,26 @@ export class FormCache {
 
       const response = await apiCall('/forms');
       
-      // Validate response format
+      // Validate response format - /forms endpoint returns object keyed by form ID, not array
       if (!this.validateApiResponse(response)) {
         throw new ApiError('Invalid API response format', undefined, false, {
           operation: 'fetchActiveForms',
           endpoint: '/forms',
           response_type: typeof response,
+          is_object: typeof response === 'object' && response !== null,
           is_array: Array.isArray(response)
         });
       }
+
+      // Convert object of forms to array for processing
+      const formsArray = Object.values(response);
 
       // Transform each API form to cache format
       const cacheRecords: FormCacheRecord[] = [];
       let hasTransformErrors = false;
       let lastTransformError: string | undefined;
       
-      for (const apiForm of response) {
+      for (const apiForm of formsArray) {
         try {
           // Individual form validation (null IDs will be caught in extractFormMetadata)
           const cacheRecord = this.transformApiForm(apiForm);
@@ -1012,20 +1042,22 @@ export class FormCache {
 
   /**
    * Validate API response format
+   * /forms endpoint returns object keyed by form ID, not array
    */
   validateApiResponse(response: any): boolean {
-    // Must be an array
-    if (!Array.isArray(response)) {
+    // Must be an object but not an array
+    if (typeof response !== 'object' || response === null || Array.isArray(response)) {
       return false;
     }
 
-    // Empty array is valid
-    if (response.length === 0) {
+    // Empty object is valid
+    const formValues = Object.values(response);
+    if (formValues.length === 0) {
       return true;
     }
 
-    // Check each element is an object and has basic structure
-    for (const form of response) {
+    // Check each form value is an object and has basic structure
+    for (const form of formValues) {
       if (typeof form !== 'object' || form === null) {
         return false;
       }
@@ -1036,7 +1068,7 @@ export class FormCache {
       }
 
       // Reject empty string IDs (null will be caught in individual validation)
-      if (form.id === '') {
+      if ((form as any).id === '') {
         return false;
       }
     }
@@ -1053,7 +1085,10 @@ export class FormCache {
       throw new Error(`Invalid form ID: ${form.id}`);
     }
     const title = form.title || '';
-    const is_active = form.is_active === '1' || form.is_active === 1 || form.is_active === true;
+    // /forms endpoint only returns active forms, so default to true if is_active field is missing
+    const is_active = form.is_active !== undefined 
+      ? (form.is_active === '1' || form.is_active === 1 || form.is_active === true)
+      : true;
     
     // Extract entry count - prefer direct entry_count field, then entries array length
     let entry_count = 0;
@@ -1082,7 +1117,8 @@ export class FormCache {
   // =====================================
 
   /**
-   * Find gaps in ID sequences from 1 to max ID
+   * Find gaps in ID sequences from min to max ID
+   * Uses GRAVITY_FORMS_MIN_FORM_ID environment variable or defaults to lowest existing ID
    */
   findIdGaps(existingIds: number[]): number[] {
     // Validate input
@@ -1099,13 +1135,33 @@ export class FormCache {
 
     // Remove duplicates and sort
     const uniqueIds = [...new Set(existingIds)].sort((a, b) => a - b);
+    const minId = uniqueIds[0];
     const maxId = uniqueIds[uniqueIds.length - 1];
+
+    // Determine starting ID - use environment variable or default to 1
+    const envMinId = process.env.GRAVITY_FORMS_MIN_FORM_ID;
+    let startId = 1; // Default
+    
+    if (envMinId) {
+      const parsed = parseInt(envMinId, 10);
+      if (!isNaN(parsed) && parsed > 0) {
+        startId = parsed;
+      } else {
+        this.logger.warn('Invalid GRAVITY_FORMS_MIN_FORM_ID environment variable, using default (1)', {
+          operation: 'findIdGaps',
+          env_value: envMinId,
+          fallback_id: 1
+        });
+      }
+    }
 
     // Find gaps efficiently using Set lookup
     const existingSet = new Set(uniqueIds);
     const gaps: number[] = [];
 
-    for (let id = 1; id <= maxId; id++) {
+    // Only check for gaps between configured start ID and max existing ID
+    const effectiveStartId = startId;
+    for (let id = effectiveStartId; id <= maxId; id++) {
       if (!existingSet.has(id)) {
         gaps.push(id);
       }
@@ -1272,7 +1328,7 @@ export class FormCache {
   /**
    * Probe multiple forms with rate limiting and statistics tracking
    */
-  async probeBatch(ids: number[], apiCall: ApiCallFunction): Promise<FormProbeResult[]> {
+  async probeBatch(ids: number[], apiCall: ApiCallFunction, circuitBreakerThreshold?: number): Promise<FormProbeResult[]> {
     // Validate all IDs upfront
     for (const id of ids) {
       if (!Number.isInteger(id) || id <= 0) {
@@ -1289,11 +1345,14 @@ export class FormCache {
     this.lastProbeStats = { attempted: 0, found: 0, failed: 0, errors: [] };
     const results: FormProbeResult[] = [];
 
+    // Use provided threshold or fall back to instance default
+    const effectiveThreshold = circuitBreakerThreshold ?? this.circuitBreakerThreshold;
+
     for (let i = 0; i < ids.length; i++) {
       const id = ids[i];
       
       // Check circuit breaker
-      if (this.consecutiveFailures >= this.circuitBreakerThreshold) {
+      if (this.consecutiveFailures >= effectiveThreshold) {
         const circuitBreakerError = 'Circuit breaker open - too many consecutive failures';
         const remainingIds = ids.slice(i);
         for (const remainingId of remainingIds) {
@@ -1577,6 +1636,7 @@ export class FormCache {
     // Set default options
     const maxProbeFailures = options.maxProbeFailures ?? 10;
     const forceFullSync = options.forceFullSync ?? false;
+    const maxCacheAgeMs = options.maxCacheAgeMs ?? (5 * 60 * 1000); // Default 5 minutes
     const onProgress = options.onProgress;
 
     // Helper to report progress
@@ -1596,13 +1656,12 @@ export class FormCache {
         return true; // Force update regardless of cache age
       }
       
-      // Check if cache is stale (more than 1 hour old)
-      const maxCacheAge = 60 * 60 * 1000; // 1 hour in milliseconds
+      // Check if individual form is stale (use configured cache age)
       const lastSync = new Date(existing.last_synced).getTime();
       const now = Date.now();
       const cacheAge = now - lastSync;
       
-      return cacheAge > maxCacheAge;
+      return cacheAge > maxCacheAgeMs;
     };
 
     try {
@@ -1674,7 +1733,7 @@ export class FormCache {
         
         if (gapIds.length > 0) {
           try {
-            const gapResults = await this.probeBatch(gapIds, apiCall);
+            const gapResults = await this.probeBatch(gapIds, apiCall, maxProbeFailures);
             
             for (const result of gapResults) {
               if (result.found && result.form) {
@@ -1736,6 +1795,11 @@ export class FormCache {
       // Phase 6: Mark completion
       reportProgress('completed', discovered, discovered);
 
+      // Record full sync timestamp if this was a comprehensive sync
+      if (forceFullSync) {
+        this.recordLastFullSync();
+      }
+
       const endTime = Date.now();
       return {
         discovered,
@@ -1794,21 +1858,46 @@ export class FormCache {
   /**
    * Perform initial comprehensive sync (first-time setup)
    */
-  async performInitialSync(apiCall: ApiCallFunction): Promise<SyncResult> {
+  async performInitialSync(apiCall: ApiCallFunction, maxCacheAgeMs?: number): Promise<SyncResult> {
     return this.syncAllForms(apiCall, { 
       forceFullSync: true,
-      maxProbeFailures: 10
+      maxProbeFailures: 10,
+      maxCacheAgeMs
     });
   }
 
   /**
    * Perform incremental sync (update existing cache)
    */
-  async performIncrementalSync(apiCall: ApiCallFunction): Promise<SyncResult> {
+  async performIncrementalSync(apiCall: ApiCallFunction, maxCacheAgeMs?: number): Promise<SyncResult> {
     return this.syncAllForms(apiCall, { 
       forceFullSync: false,
-      maxProbeFailures: 5 // Less aggressive for incremental
+      maxProbeFailures: 5, // Less aggressive for incremental
+      maxCacheAgeMs
     });
+  }
+
+  /**
+   * Perform hybrid sync - intelligently chooses incremental vs full sync
+   */
+  async performHybridSync(apiCall: ApiCallFunction, fullSyncIntervalHours = 24, maxCacheAgeMs?: number): Promise<SyncResult> {
+    const needsFull = this.needsFullSync(fullSyncIntervalHours);
+    
+    if (needsFull) {
+      const lastFullSync = this.getLastFullSync();
+      this.logger.info('Performing full sync due to interval', {
+        operation: 'performHybridSync',
+        fullSyncIntervalHours,
+        lastFullSync
+      });
+      return this.performInitialSync(apiCall, maxCacheAgeMs);
+    } else {
+      this.logger.debug('Performing incremental sync', {
+        operation: 'performHybridSync',
+        fullSyncIntervalHours
+      });
+      return this.performIncrementalSync(apiCall, maxCacheAgeMs);
+    }
   }
 
   /**
@@ -1968,5 +2057,71 @@ export class FormCache {
     `).run(cutoffTime);
 
     return result.changes;
+  }
+
+  // =====================================
+  // Step 10: Hybrid Sync Metadata Methods
+  // =====================================
+
+  /**
+   * Set sync metadata value
+   */
+  private setSyncMetadata(key: string, value: string): void {
+    if (!this.isReady()) {
+      throw new Error('FormCache not initialized');
+    }
+
+    const db = this.getDatabase();
+    db.prepare(`
+      INSERT OR REPLACE INTO sync_metadata (key, value, updated_at)
+      VALUES (?, ?, CURRENT_TIMESTAMP)
+    `).run(key, value);
+  }
+
+  /**
+   * Get sync metadata value
+   */
+  private getSyncMetadata(key: string): string | null {
+    if (!this.isReady()) {
+      throw new Error('FormCache not initialized');
+    }
+
+    const db = this.getDatabase();
+    const result = db.prepare(`
+      SELECT value FROM sync_metadata WHERE key = ?
+    `).get(key) as { value: string } | undefined;
+
+    return result ? result.value : null;
+  }
+
+  /**
+   * Record last full sync timestamp
+   */
+  recordLastFullSync(): void {
+    this.setSyncMetadata('last_full_sync', new Date().toISOString());
+  }
+
+  /**
+   * Get last full sync timestamp
+   */
+  getLastFullSync(): Date | null {
+    const timestamp = this.getSyncMetadata('last_full_sync');
+    return timestamp ? new Date(timestamp) : null;
+  }
+
+  /**
+   * Check if full sync is needed based on interval
+   */
+  needsFullSync(intervalHours: number): boolean {
+    const lastFullSync = this.getLastFullSync();
+    if (!lastFullSync) {
+      return true; // No full sync recorded, need one
+    }
+
+    const now = Date.now();
+    const intervalMs = intervalHours * 60 * 60 * 1000;
+    const timeSinceFullSync = now - lastFullSync.getTime();
+
+    return timeSinceFullSync > intervalMs;
   }
 }
