@@ -7,8 +7,7 @@ import {
   SearchMatch,
   OutputMode,
   FormattedResult,
-  MatchHighlight,
-  ResultSummary
+  MatchHighlight
 } from '../../utils/searchResultsFormatter';
 import { FieldTypeInfo, DetectedFieldType } from '../../utils/fieldTypeDetector';
 
@@ -474,6 +473,87 @@ describe('SearchResultsFormatter', () => {
       expect(result.metadata.apiCalls).toBe(1);
       expect(result.metadata.fieldsSearched).toEqual(["52"]);
       expect(result.metadata.outputMode).toBe('detailed');
+    });
+  });
+
+  describe('input validation', () => {
+    it('should throw error for null searchResult', () => {
+      expect(() => {
+        formatter.formatSearchResults(null as any, 'detailed', mockFormInfo);
+      }).toThrow('SearchResultsFormatter: searchResult and formInfo are required');
+    });
+
+    it('should throw error for null formInfo', () => {
+      expect(() => {
+        formatter.formatSearchResults(singleMatchResult, 'detailed', null as any);
+      }).toThrow('SearchResultsFormatter: searchResult and formInfo are required');
+    });
+
+    it('should throw error for invalid matches array', () => {
+      const invalidResult = { ...singleMatchResult, matches: null };
+      expect(() => {
+        formatter.formatSearchResults(invalidResult as any, 'detailed', mockFormInfo);
+      }).toThrow('SearchResultsFormatter: searchResult.matches must be an array');
+    });
+
+    it('should throw error for missing searchMetadata', () => {
+      const invalidResult = { ...singleMatchResult, searchMetadata: null };
+      expect(() => {
+        formatter.formatSearchResults(invalidResult as any, 'detailed', mockFormInfo);
+      }).toThrow('SearchResultsFormatter: searchResult.searchMetadata is required');
+    });
+  });
+
+  describe('recursion prevention', () => {
+    it('should not cause infinite recursion and handle edge cases gracefully', () => {
+      // Test that auto-switching stops at minimal and doesn't recurse infinitely
+      const largeResult: SearchResult = {
+        matches: Array.from({ length: 200 }, (_, i) => ({
+          entryId: `large${i}`,
+          matchedFields: { "52": `Large Name ${i}` },
+          confidence: 0.8,
+          entryData: {
+            "id": `large${i}`,
+            "52": `Large Name ${i}`
+          }
+        })),
+        totalFound: 200,
+        searchMetadata: {
+          searchText: "Name",
+          executionTime: 5000,
+          apiCalls: 1,
+          fieldsSearched: ["52"]
+        }
+      };
+
+      // This should switch from auto to minimal without infinite recursion
+      const result = formatter.formatSearchResults(largeResult, 'auto', mockFormInfo);
+      
+      // Should use minimal mode and complete successfully
+      expect(result.metadata.outputMode).toBe('minimal');
+      expect(result.tokenCount).toBeLessThan(25000);
+      expect(result.content).toContain('200 matches found:');
+    });
+
+    it('should truncate extremely large content that exceeds limits even in minimal mode', () => {
+      // Mock an extremely large minimal view response that would exceed token limits
+      const originalCreateMinimalView = formatter.createMinimalView;
+      formatter.createMinimalView = jest.fn().mockReturnValue('A'.repeat(110000)); // 110k chars = ~27.5k tokens
+      
+      const hugeResult: SearchResult = {
+        matches: [{ entryId: "1", matchedFields: { "52": "Name" }, confidence: 1, entryData: { "id": "1" } }],
+        totalFound: 1,
+        searchMetadata: { searchText: "Name", executionTime: 1000, apiCalls: 1, fieldsSearched: ["52"] }
+      };
+
+      const result = formatter.formatSearchResults(hugeResult, 'minimal', mockFormInfo);
+      
+      // Should truncate and add truncation notice
+      expect(result.content).toContain('[Results truncated due to size limits]');
+      expect(result.tokenCount).toBeLessThan(25000);
+      
+      // Restore original method
+      formatter.createMinimalView = originalCreateMinimalView;
     });
   });
 });

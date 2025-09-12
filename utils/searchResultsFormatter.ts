@@ -44,12 +44,7 @@ export interface MatchHighlight {
   confidence: number;
 }
 
-export interface ResultSummary {
-  entryId: string;
-  primaryName: string;
-  email: string;
-  highlights: MatchHighlight[];
-}
+// Note: ResultSummary interface removed as it was unused
 
 export interface FormInfo {
   id: string;
@@ -60,6 +55,12 @@ export interface FormInfo {
 export class SearchResultsFormatter {
   private readonly TOKEN_RATIO = 4; // Approximate characters per token
   private readonly MAX_TOKEN_LIMIT = 25000;
+  
+  // Common Gravity Forms field ID patterns (configurable for different forms)
+  private readonly COMMON_NAME_FIELDS = ['52', '55', '1.3', '1.6', '2', '3'];
+  private readonly COMMON_EMAIL_FIELDS = ['50', '54', '4', '5'];
+  private readonly COMMON_FIRST_NAME_FIELDS = ['1.3', '2.3'];
+  private readonly COMMON_LAST_NAME_FIELDS = ['1.6', '2.6'];
 
   constructor() {}
 
@@ -71,6 +72,17 @@ export class SearchResultsFormatter {
     outputMode: OutputMode,
     formInfo: FormInfo
   ): FormattedResult {
+    // Input validation
+    if (!searchResult || !formInfo) {
+      throw new Error('SearchResultsFormatter: searchResult and formInfo are required');
+    }
+    if (!searchResult.matches || !Array.isArray(searchResult.matches)) {
+      throw new Error('SearchResultsFormatter: searchResult.matches must be an array');
+    }
+    if (!searchResult.searchMetadata) {
+      throw new Error('SearchResultsFormatter: searchResult.searchMetadata is required');
+    }
+
     const actualMode = outputMode === 'auto' 
       ? this.selectAutoMode(searchResult.matches.length) 
       : outputMode;
@@ -98,14 +110,21 @@ export class SearchResultsFormatter {
     const tokenCount = this.estimateResponseSize(content);
     
     // Auto-switch to more compact mode if we exceed token limits
-    if (tokenCount > this.MAX_TOKEN_LIMIT && actualMode !== 'minimal') {
+    // Add recursion guard to prevent infinite loops
+    if (tokenCount > this.MAX_TOKEN_LIMIT && actualMode !== 'minimal' && outputMode !== 'minimal') {
       const compactMode = actualMode === 'detailed' ? 'summary' : 'minimal';
       return this.formatSearchResults(searchResult, compactMode, formInfo);
+    }
+    
+    // If minimal mode still exceeds limits, truncate the content
+    if (tokenCount > this.MAX_TOKEN_LIMIT && actualMode === 'minimal') {
+      const maxChars = this.MAX_TOKEN_LIMIT * this.TOKEN_RATIO * 0.9; // Use 90% of limit for safety
+      content = content.substring(0, maxChars) + '\n\n[Results truncated due to size limits]';
     }
 
     return {
       content,
-      tokenCount,
+      tokenCount: this.estimateResponseSize(content),
       resultCount: searchResult.matches.length,
       metadata: {
         ...searchResult.searchMetadata,
@@ -132,6 +151,14 @@ export class SearchResultsFormatter {
   ): MatchHighlight[] {
     const highlights: MatchHighlight[] = [];
 
+    // Create reverse lookup map for efficiency (O(1) instead of O(n) per comparison)
+    const labelToFieldId = new Map<string, string>();
+    Object.entries(fieldMapping).forEach(([fieldId, info]) => {
+      if (info?.label) {
+        labelToFieldId.set(info.label, fieldId);
+      }
+    });
+
     Object.entries(matchedFields).forEach(([fieldId, matchedValue]) => {
       const fieldInfo = fieldMapping[fieldId];
       const fieldLabel = fieldInfo?.label || `Field ${fieldId}`;
@@ -146,16 +173,12 @@ export class SearchResultsFormatter {
       });
     });
 
-    // Sort by field type priority first, then by confidence
+    // Sort by field type priority first, then by confidence (now O(n log n))
     return highlights.sort((a, b) => {
-      const aFieldId = Object.keys(matchedFields).find(id => {
-        const info = fieldMapping[id];
-        return info?.label === a.fieldLabel;
-      });
-      const bFieldId = Object.keys(matchedFields).find(id => {
-        const info = fieldMapping[id];
-        return info?.label === b.fieldLabel;
-      });
+      const aFieldId = labelToFieldId.get(a.fieldLabel) || 
+                      Object.keys(matchedFields).find(id => fieldMapping[id]?.label === a.fieldLabel);
+      const bFieldId = labelToFieldId.get(b.fieldLabel) || 
+                      Object.keys(matchedFields).find(id => fieldMapping[id]?.label === b.fieldLabel);
       
       const aFieldType = aFieldId ? fieldMapping[aFieldId]?.fieldType : 'unknown';
       const bFieldType = bFieldId ? fieldMapping[bFieldId]?.fieldType : 'unknown';
@@ -324,9 +347,8 @@ export class SearchResultsFormatter {
   private extractKeyFields(entry: { [key: string]: any }): Array<{ label: string; value: string }> {
     const keyFields: Array<{ label: string; value: string }> = [];
     
-    // Extract name fields (common field IDs: 52, 55, 1.3/1.6 for first/last name)
-    const nameFields = ['52', '55', '1.3', '1.6', '2', '3'];
-    nameFields.forEach(fieldId => {
+    // Extract name fields using configurable field ID patterns
+    this.COMMON_NAME_FIELDS.forEach(fieldId => {
       if (entry[fieldId]) {
         const label = fieldId.includes('.') ? 
           (fieldId.endsWith('.3') ? 'First Name' : 'Last Name') : 'Name';
@@ -334,9 +356,8 @@ export class SearchResultsFormatter {
       }
     });
     
-    // Extract email fields (common field IDs: 50, 54)
-    const emailFields = ['50', '54', '4', '5'];
-    emailFields.forEach(fieldId => {
+    // Extract email fields using configurable patterns
+    this.COMMON_EMAIL_FIELDS.forEach(fieldId => {
       if (entry[fieldId] && entry[fieldId].includes('@')) {
         keyFields.push({ label: 'Email', value: `${entry[fieldId]} (field ${fieldId})` });
       }
@@ -361,17 +382,19 @@ export class SearchResultsFormatter {
   }
 
   private extractPrimaryName(entry: { [key: string]: any }): string {
-    // Try common name field IDs in order of preference
-    const nameFields = ['52', '55', '2', '3'];
-    for (const fieldId of nameFields) {
-      if (entry[fieldId]) {
+    // Try common name field IDs in order of preference using configurable patterns
+    for (const fieldId of this.COMMON_NAME_FIELDS) {
+      if (entry[fieldId] && !fieldId.includes('.')) { // Skip composite fields in first pass
         return entry[fieldId];
       }
     }
     
-    // Try composite name from first/last name fields
-    const firstName = entry['1.3'] || entry['2.3'];
-    const lastName = entry['1.6'] || entry['2.6'];
+    // Try composite name from first/last name fields using configurable patterns
+    const firstName = this.COMMON_FIRST_NAME_FIELDS.find(id => entry[id]) ? 
+                      entry[this.COMMON_FIRST_NAME_FIELDS.find(id => entry[id]) as string] : null;
+    const lastName = this.COMMON_LAST_NAME_FIELDS.find(id => entry[id]) ? 
+                     entry[this.COMMON_LAST_NAME_FIELDS.find(id => entry[id]) as string] : null;
+    
     if (firstName || lastName) {
       return [firstName, lastName].filter(Boolean).join(' ');
     }
@@ -380,9 +403,8 @@ export class SearchResultsFormatter {
   }
 
   private extractPrimaryEmail(entry: { [key: string]: any }): string | null {
-    // Try common email field IDs
-    const emailFields = ['54', '50', '4', '5'];
-    for (const fieldId of emailFields) {
+    // Try common email field IDs using configurable patterns
+    for (const fieldId of this.COMMON_EMAIL_FIELDS) {
       if (entry[fieldId] && entry[fieldId].includes('@')) {
         return entry[fieldId];
       }
