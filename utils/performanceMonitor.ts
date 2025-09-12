@@ -171,7 +171,7 @@ export class PerformanceMonitor {
         totalOperations: number;
         averageResponseTime: number;
         cacheHitRate: number;
-        memoryUsage: MemoryUsage;
+        memoryUsage: IMemoryUsage;
         topOperations: Array<{ operation: string; averageTime: number; count: number }>;
     } {
         const operationCount = Object.keys(this.stats).length;

@@ -30,9 +30,12 @@ export class SearchResultsCache {
     private readonly cache: Map<string, ICachedSearchResult>;
     private accessOrder: string[];
     public readonly options: ISearchResultsCacheOptions;
+    private readonly effectiveMaxSize: number;
     private hitCount = 0;
     private missCount = 0;
     private evictionCount = 0;
+    private cachedMemoryUsage = 0;
+    private lastMemoryCalculation = 0;
 
     constructor(options: ISearchResultsCacheOptions = {}) {
         this.options = {
@@ -41,13 +44,11 @@ export class SearchResultsCache {
             enableLogging: options.enableLogging ?? false
         };
         
+        // Check if caching is disabled via environment (don't mutate options)
+        this.effectiveMaxSize = process.env.SEARCH_CACHE_ENABLED === 'false' ? 0 : this.options.maxSize;
+        
         this.cache = new Map();
         this.accessOrder = [];
-        
-        // Check if caching is disabled via environment
-        if (process.env.SEARCH_CACHE_ENABLED === 'false') {
-            this.options.maxSize = 0; // Disable caching
-        }
     }
 
     /**
@@ -86,9 +87,17 @@ export class SearchResultsCache {
      * Evict least recently used entries if over size limit
      */
     private evictIfNeeded(): void {
-        while (this.cache.size > (this.options.maxSize ?? 100)) {
+        while (this.cache.size > this.effectiveMaxSize) {
             const lruKey = this.accessOrder.shift();
-            if (lruKey && this.cache.has(lruKey)) {
+            if (!lruKey) {
+                // If no keys in accessOrder but cache has entries, rebuild access order
+                if (this.cache.size > 0) {
+                    this.rebuildAccessOrder();
+                }
+                break;
+            }
+            
+            if (this.cache.has(lruKey)) {
                 this.cache.delete(lruKey);
                 this.evictionCount++;
                 
@@ -96,6 +105,18 @@ export class SearchResultsCache {
                     console.log(`SearchResultsCache: Evicted LRU entry: ${lruKey}`);
                 }
             }
+            // If key was in accessOrder but not in cache, continue to next key
+        }
+    }
+
+    /**
+     * Rebuild access order from cache keys (emergency recovery)
+     */
+    private rebuildAccessOrder(): void {
+        this.accessOrder = Array.from(this.cache.keys());
+        
+        if (this.options.enableLogging) {
+            console.warn(`SearchResultsCache: Rebuilt access order with ${this.accessOrder.length} entries`);
         }
     }
 
@@ -129,7 +150,7 @@ export class SearchResultsCache {
      */
     get(formId: string, searchText: string, strategy?: string): SearchResult | null {
         // If caching disabled, always return null
-        if (this.options.maxSize === 0) {
+        if (this.effectiveMaxSize === 0) {
             return null;
         }
 
@@ -168,7 +189,7 @@ export class SearchResultsCache {
      */
     set(formId: string, searchText: string, results: SearchResult, strategy?: string): void {
         // If caching disabled, don't store
-        if (this.options.maxSize === 0) {
+        if (this.effectiveMaxSize === 0) {
             return;
         }
 
@@ -233,7 +254,19 @@ export class SearchResultsCache {
     }
 
     /**
-     * Get cache statistics
+     * Update cached memory usage calculation (done periodically to avoid performance hit)
+     */
+    private updateMemoryUsage(): void {
+        const now = Date.now();
+        // Only recalculate memory every 30 seconds to avoid performance impact
+        if (now - this.lastMemoryCalculation > 30000) {
+            this.cachedMemoryUsage = this.cache.size * 1000; // Rough estimate: 1KB per entry
+            this.lastMemoryCalculation = now;
+        }
+    }
+
+    /**
+     * Get cache statistics (includes cleanup for accurate counts)
      */
     getCacheStats(): ICacheStats {
         // Clean up expired entries before calculating stats
@@ -242,18 +275,35 @@ export class SearchResultsCache {
         const totalRequests = this.hitCount + this.missCount;
         const hitRate = totalRequests > 0 ? this.hitCount / totalRequests : 0;
 
-        // Estimate memory usage (rough calculation)
-        let memoryUsage = 0;
-        this.cache.forEach(entry => {
-            memoryUsage += JSON.stringify(entry).length * 2; // Rough bytes estimate
-        });
+        // Update memory usage periodically
+        this.updateMemoryUsage();
 
         return {
             hitCount: this.hitCount,
             missCount: this.missCount,
             hitRate,
             entryCount: this.cache.size,
-            memoryUsage,
+            memoryUsage: this.cachedMemoryUsage,
+            evictionCount: this.evictionCount
+        };
+    }
+
+    /**
+     * Get cache statistics without side effects (no cleanup)
+     */
+    getCacheStatsRaw(): ICacheStats {
+        const totalRequests = this.hitCount + this.missCount;
+        const hitRate = totalRequests > 0 ? this.hitCount / totalRequests : 0;
+
+        // Update memory usage periodically
+        this.updateMemoryUsage();
+
+        return {
+            hitCount: this.hitCount,
+            missCount: this.missCount,
+            hitRate,
+            entryCount: this.cache.size,
+            memoryUsage: this.cachedMemoryUsage,
             evictionCount: this.evictionCount
         };
     }
