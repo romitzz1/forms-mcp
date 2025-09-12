@@ -85,7 +85,7 @@ describe('Process Entries Bulk Tool', () => {
   });
 
   describe('Tool Execution - Delete Operations', () => {
-    test('should execute bulk delete operation successfully', async () => {
+    it('should execute bulk delete operation successfully', async () => {
       const mockResult = {
         operation_type: 'delete' as const,
         total_requested: 2,
@@ -118,7 +118,7 @@ describe('Process Entries Bulk Tool', () => {
       });
     });
 
-    test('should handle partial failures in delete operations', async () => {
+    it('should handle partial failures in delete operations', async () => {
       const mockResult = {
         operation_type: 'delete' as const,
         total_requested: 3,
@@ -148,7 +148,7 @@ describe('Process Entries Bulk Tool', () => {
   });
 
   describe('Tool Execution - Update Operations', () => {
-    test('should execute bulk update_status operation', async () => {
+    it('should execute bulk update_status operation', async () => {
       const mockResult = {
         operation_type: 'update_status' as const,
         total_requested: 2,
@@ -182,7 +182,7 @@ describe('Process Entries Bulk Tool', () => {
       expect(result.content[0].text).toContain('2 entries can be restored');
     });
 
-    test('should execute bulk update_fields operation', async () => {
+    it('should execute bulk update_fields operation', async () => {
       const mockResult = {
         operation_type: 'update_fields' as const,
         total_requested: 1,
@@ -221,7 +221,7 @@ describe('Process Entries Bulk Tool', () => {
   });
 
   describe('Safety Mechanisms', () => {
-    test('should refuse operations without confirmation', async () => {
+    it('should refuse operations without confirmation', async () => {
       mockBulkManager.validateOperation.mockReturnValue({
         isValid: false,
         errors: ['Bulk operations require explicit confirmation (confirm: true)']
@@ -240,7 +240,7 @@ describe('Process Entries Bulk Tool', () => {
       }
     });
 
-    test('should enforce maximum entry limit', async () => {
+    it('should enforce maximum entry limit', async () => {
       const manyEntries = new Array(101).fill(0).map((_, i) => String(i));
       
       mockBulkManager.validateOperation.mockReturnValue({
@@ -260,7 +260,7 @@ describe('Process Entries Bulk Tool', () => {
       }
     });
 
-    test('should require data for update operations', async () => {
+    it('should require data for update operations', async () => {
       mockBulkManager.validateOperation.mockReturnValue({
         isValid: false,
         errors: ['Data is required for update operations']
@@ -278,7 +278,7 @@ describe('Process Entries Bulk Tool', () => {
       }
     });
 
-    test('should validate operation types', async () => {
+    it('should validate operation types', async () => {
       mockBulkManager.validateOperation.mockReturnValue({
         isValid: false,
         errors: ['Invalid operation type. Must be delete, update_status, or update_fields']
@@ -298,7 +298,7 @@ describe('Process Entries Bulk Tool', () => {
   });
 
   describe('Error Handling', () => {
-    test('should handle network failures gracefully', async () => {
+    it('should handle network failures gracefully', async () => {
       mockBulkManager.validateOperation.mockReturnValue({ isValid: true, errors: [] });
       mockBulkManager.executeOperation.mockRejectedValue(new Error('Network timeout'));
 
@@ -314,7 +314,7 @@ describe('Process Entries Bulk Tool', () => {
       }
     });
 
-    test('should provide helpful error messages for validation failures', async () => {
+    it('should provide helpful error messages for validation failures', async () => {
       mockBulkManager.validateOperation.mockReturnValue({
         isValid: false,
         errors: ['Entry ID "invalid" must be numeric', 'Too many entries']
@@ -335,7 +335,7 @@ describe('Process Entries Bulk Tool', () => {
   });
 
   describe('Audit Trail and Reporting', () => {
-    test('should include audit trail information in successful operations', async () => {
+    it('should include audit trail information in successful operations', async () => {
       const mockResult = {
         operation_type: 'delete' as const,
         total_requested: 2,
@@ -371,7 +371,7 @@ describe('Process Entries Bulk Tool', () => {
       expect(result.content[0].text).toContain('Timestamp: 2024-01-01T12:00:00Z');
     });
 
-    test('should include detailed failure information', async () => {
+    it('should include detailed failure information', async () => {
       const mockResult = {
         operation_type: 'delete' as const,
         total_requested: 3,
@@ -400,7 +400,7 @@ describe('Process Entries Bulk Tool', () => {
       expect(result.content[0].text).toContain('789: Permission denied (FORBIDDEN)');
     });
 
-    test('should handle operations without audit trail gracefully', async () => {
+    it('should handle operations without audit trail gracefully', async () => {
       const mockResult = {
         operation_type: 'delete' as const,
         total_requested: 1,
@@ -428,7 +428,7 @@ describe('Process Entries Bulk Tool', () => {
   });
 
   describe('Integration with BulkOperationsManager', () => {
-    test('should properly initialize BulkOperationsManager with correct parameters when first used', async () => {
+    it('should properly initialize BulkOperationsManager with correct parameters when first used', async () => {
       const mockResult = {
         operation_type: 'delete' as const,
         total_requested: 1,
@@ -459,7 +459,7 @@ describe('Process Entries Bulk Tool', () => {
       );
     });
 
-    test('should pass all parameters correctly to BulkOperationsManager', async () => {
+    it('should pass all parameters correctly to BulkOperationsManager', async () => {
       const mockResult = {
         operation_type: 'update_status' as const,
         total_requested: 1,

@@ -1,7 +1,7 @@
 // ABOUTME: Intelligent field type detection for Gravity Forms - identifies name, email, phone, team fields automatically
 // ABOUTME: Uses pattern matching on field labels and types with confidence scoring for universal search capabilities
 
-import { FieldMappingCache } from './fieldMappingCache';
+import type { FieldMappingCache } from './fieldMappingCache.js';
 
 export type DetectedFieldType = 'name' | 'email' | 'phone' | 'team' | 'text' | 'unknown';
 
@@ -12,9 +12,7 @@ export interface FieldTypeInfo {
     label: string;
 }
 
-export interface FormFieldMapping {
-    [fieldId: string]: FieldTypeInfo;
-}
+export type FormFieldMapping = Record<string, FieldTypeInfo>;
 
 export interface CacheStatus {
     hit: boolean;
@@ -36,7 +34,7 @@ interface GravityFormField {
 interface GravityForm {
     id: string;
     title?: string;
-    fields: (GravityFormField | null | undefined)[];
+    fields: Array<GravityFormField | null | undefined>;
 }
 
 export class FieldTypeDetector {
@@ -47,7 +45,7 @@ export class FieldTypeDetector {
     private static readonly CAPTAIN_CONFIDENCE = 0.85;
     private static readonly USERNAME_CONFIDENCE = 0.6;
 
-    private cache?: FieldMappingCache;
+    private readonly cache?: FieldMappingCache;
 
     constructor(cache?: FieldMappingCache) {
         this.cache = cache;
@@ -80,12 +78,12 @@ export class FieldTypeDetector {
      * Detects field type for a single form field
      */
     public detectFieldType(field: GravityFormField | null | undefined): FieldTypeInfo {
-        if (!field || !field.id) {
+        if (!field?.id) {
             return {
                 fieldId: field?.id || 'unknown',
                 fieldType: 'unknown',
                 confidence: 0,
-                label: (field?.label ?? '') as string
+                label: (field?.label ?? '')
             };
         }
 
@@ -211,7 +209,7 @@ export class FieldTypeDetector {
         }
 
         // Third pass: partial matches with priority order (team > name to avoid conflicts)
-        const priorityOrder: (keyof typeof this.patterns)[] = ['team', 'email', 'phone', 'name'];
+        const priorityOrder: Array<keyof typeof this.patterns> = ['team', 'email', 'phone', 'name'];
         
         for (const type of priorityOrder) {
             const config = this.patterns[type];

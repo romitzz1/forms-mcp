@@ -43,7 +43,7 @@ describe('search_entries_universal Tool Components', () => {
         searchText: "John",
         strategy: "contains",
         fieldsSearched: 2,
-        executionTimeMs: 500,
+        executionTime: 500,
         cacheStatus: {
           hit: false,
           source: 'analysis',
@@ -258,7 +258,7 @@ describe('search_entries_universal Tool Components', () => {
         includeContext: true
       });
 
-      expect(result.matches.length).toBe(2);
+      expect(result.matches).toHaveLength(2);
       // Verify that results include proper metadata for sorting
       result.matches.forEach(match => {
         expect(match.confidence).toBeDefined();
@@ -315,7 +315,7 @@ describe('search_entries_universal Tool Components', () => {
         includeContext: true
       });
 
-      expect(nameResult.matches.length).toBe(2); // John Smith and John Doe
+      expect(nameResult.matches).toHaveLength(2); // John Smith and John Doe
       nameResult.matches.forEach(match => {
         expect(match.matchedFields["52"]).toContain("John");
       });
@@ -473,7 +473,7 @@ describe('search_entries_universal Tool Components', () => {
           searchText: "NonexistentName",
           strategy: "exact",
           fieldsSearched: 1,
-          executionTimeMs: 300,
+          executionTime: 300,
           cacheStatus: {
             hit: false,
             source: 'analysis',

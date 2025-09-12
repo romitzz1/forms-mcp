@@ -1,15 +1,15 @@
 // ABOUTME: SearchResultsFormatter - Consistent, optimized formatting for all search results
 // ABOUTME: Handles multiple output modes, token management, and match highlighting for universal search
 
-import { FieldTypeInfo } from './fieldTypeDetector';
+import type { FieldTypeInfo } from './fieldTypeDetector.js';
 
 export type OutputMode = 'detailed' | 'summary' | 'minimal' | 'auto';
 
 export interface SearchMatch {
   entryId: string;
-  matchedFields: { [fieldId: string]: string };
+  matchedFields: Record<string, string>;
   confidence: number;
-  entryData: { [key: string]: any };
+  entryData: Record<string, any>;
 }
 
 export interface SearchResult {
@@ -50,6 +50,7 @@ export interface FormInfo {
   id: string;
   title: string;
   fields: Array<{ id: string; label: string; [key: string]: any }>;
+  fieldCount?: number;
 }
 
 export class SearchResultsFormatter {
@@ -144,10 +145,10 @@ export class SearchResultsFormatter {
    * Highlight matched fields in entry data
    */
   highlightMatches(
-    entry: { [key: string]: any },
+    entry: Record<string, any>,
     searchText: string,
-    matchedFields: { [fieldId: string]: string },
-    fieldMapping: { [fieldId: string]: FieldTypeInfo }
+    matchedFields: Record<string, string>,
+    fieldMapping: Record<string, FieldTypeInfo>
   ): MatchHighlight[] {
     const highlights: MatchHighlight[] = [];
 
@@ -184,7 +185,7 @@ export class SearchResultsFormatter {
       const bFieldType = bFieldId ? fieldMapping[bFieldId]?.fieldType : 'unknown';
       
       // Priority: name > email > team > others
-      const typePriority: { [key: string]: number } = {
+      const typePriority: Record<string, number> = {
         'name': 4,
         'email': 3,
         'team': 2,
@@ -207,7 +208,7 @@ export class SearchResultsFormatter {
   /**
    * Create detailed view with full entry information
    */
-  createDetailedView(matches: SearchMatch[], fieldMapping: { [fieldId: string]: FieldTypeInfo } = {}): string {
+  createDetailedView(matches: SearchMatch[], fieldMapping: Record<string, FieldTypeInfo> = {}): string {
     return matches.map((match, index) => {
       const entry = match.entryData;
       const confidenceLabel = this.getConfidenceLabel(match.confidence);
@@ -344,7 +345,7 @@ export class SearchResultsFormatter {
     return 0.3; // Low confidence for weak matches
   }
 
-  private extractKeyFields(entry: { [key: string]: any }): Array<{ label: string; value: string }> {
+  private extractKeyFields(entry: Record<string, any>): Array<{ label: string; value: string }> {
     const keyFields: Array<{ label: string; value: string }> = [];
     
     // Extract name fields using configurable field ID patterns
@@ -358,7 +359,7 @@ export class SearchResultsFormatter {
     
     // Extract email fields using configurable patterns
     this.COMMON_EMAIL_FIELDS.forEach(fieldId => {
-      if (entry[fieldId] && entry[fieldId].includes('@')) {
+      if (entry[fieldId]?.includes('@')) {
         keyFields.push({ label: 'Email', value: `${entry[fieldId]} (field ${fieldId})` });
       }
     });
@@ -381,7 +382,7 @@ export class SearchResultsFormatter {
     return keyFields;
   }
 
-  private extractPrimaryName(entry: { [key: string]: any }): string {
+  private extractPrimaryName(entry: Record<string, any>): string {
     // Try common name field IDs in order of preference using configurable patterns
     for (const fieldId of this.COMMON_NAME_FIELDS) {
       if (entry[fieldId] && !fieldId.includes('.')) { // Skip composite fields in first pass
@@ -402,10 +403,10 @@ export class SearchResultsFormatter {
     return 'Unknown';
   }
 
-  private extractPrimaryEmail(entry: { [key: string]: any }): string | null {
+  private extractPrimaryEmail(entry: Record<string, any>): string | null {
     // Try common email field IDs using configurable patterns
     for (const fieldId of this.COMMON_EMAIL_FIELDS) {
-      if (entry[fieldId] && entry[fieldId].includes('@')) {
+      if (entry[fieldId]?.includes('@')) {
         return entry[fieldId];
       }
     }

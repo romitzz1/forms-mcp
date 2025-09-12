@@ -1385,10 +1385,13 @@ Consider using form templates or cloning for management.`;
     const queryString = params.toString();
     const fullEndpoint = queryString ? `${endpoint}?${queryString}` : endpoint;
     
-    const entries = await this.makeRequest(fullEndpoint);
+    const response = await this.makeRequest(fullEndpoint);
+    
+    // Extract entries array from API response
+    const entries = response?.entries || response || [];
     
     // Handle empty results
-    if (!entries || entries.length === 0) {
+    if (!entries || !Array.isArray(entries) || entries.length === 0) {
       return {
         content: [
           {
@@ -1480,6 +1483,7 @@ Consider using form templates or cloning for management.`;
     const formInfo: FormInfo = {
       id: form_id,
       title: `Form ${form_id}`, // We could enhance this by fetching actual form title
+      fields: [], // This will be populated by field detection
       fieldCount: 0 // This will be populated by field detection
     };
 
@@ -2585,10 +2589,27 @@ ${exportResult.base64Data}`
       // Create ApiClient interface implementation
       const apiClient = {
         getFormDefinition: async (formId: string) => {
-          return this.makeRequest('GET', `/forms/${formId}`);
+          return this.makeRequest(`/forms/${formId}`);
         },
         searchEntries: async (formId: string, searchParams: any) => {
-          const response = await this.makeRequest('GET', `/forms/${formId}/entries`, searchParams);
+          // Build query string for search parameters with pagination to get all entries
+          let endpoint = `/forms/${formId}/entries`;
+          const params = new URLSearchParams();
+          
+          // Set large page size to get all entries in one request (max 100 per Gravity Forms docs)
+          params.append('paging[page_size]', '100');
+          
+          // Add search parameters if provided
+          if (searchParams && Object.keys(searchParams).length > 0) {
+            Object.entries(searchParams).forEach(([key, value]) => {
+              if (value !== undefined && value !== null) {
+                params.append(key, String(value));
+              }
+            });
+          }
+          
+          endpoint += `?${params.toString()}`;
+          const response = await this.makeRequest(endpoint, 'GET');
           return response.entries || [];
         }
       };
@@ -2664,7 +2685,7 @@ ${exportResult.base64Data}`
       );
 
       // Get form data for formatting context  
-      const formData = await this.makeRequest('GET', `/forms/${form_id}`);
+      const formData = await this.makeRequest(`/forms/${form_id}`);
 
       // Transform UniversalSearchManager result to SearchResultsFormatter format
       const transformedResult: FormattedSearchResult = {
@@ -2679,7 +2700,7 @@ ${exportResult.base64Data}`
         totalFound: searchResult.totalFound,
         searchMetadata: {
           searchText: searchResult.searchMetadata.searchText,
-          executionTime: searchResult.searchMetadata.executionTimeMs,
+          executionTime: searchResult.searchMetadata.executionTime,
           apiCalls: 1, // Default for now
           fieldsSearched: [`${searchResult.searchMetadata.fieldsSearched} fields`] // Convert number to array
         }
@@ -3020,7 +3041,7 @@ ${exportResult.base64Data}`
       }
 
       // Get form data for formatting context
-      const formData = await this.makeRequest('GET', `/forms/${form_id}`);
+      const formData = await this.makeRequest(`/forms/${form_id}`);
       
       // Calculate execution time
       const executionTimeMs = Date.now() - searchStartTime;
@@ -3160,7 +3181,7 @@ ${exportResult.base64Data}`
       }
 
       // Get form definition
-      const formData = await this.makeRequest('GET', `/forms/${form_id}`);
+      const formData = await this.makeRequest(`/forms/${form_id}`);
       
       if (!formData?.id) {
         throw new McpError(ErrorCode.InvalidRequest, `Form ${form_id} not found or inaccessible`);

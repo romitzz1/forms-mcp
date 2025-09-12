@@ -2,7 +2,8 @@
 // ABOUTME: Tests search strategies, field detection integration, confidence scoring, and API integration
 
 import { UniversalSearchManager } from '../../utils/universalSearchManager';
-import { FieldTypeDetector, FormFieldMapping, DetectedFieldType } from '../../utils/fieldTypeDetector';
+import type { DetectedFieldType, FormFieldMapping } from '../../utils/fieldTypeDetector';
+import { FieldTypeDetector } from '../../utils/fieldTypeDetector';
 import { FieldMappingCache } from '../../utils/fieldMappingCache';
 
 // Mock dependencies
@@ -371,13 +372,14 @@ describe('UniversalSearchManager', () => {
             expect(result.searchMetadata.formId).toBe('193');
             expect(result.searchMetadata.searchText).toBe('John Smith');
             expect(result.searchMetadata.strategy).toBe('contains'); // Now correctly reports resolved strategy
-            expect(result.searchMetadata.fieldsSearched).toBeGreaterThan(0);
+            expect(result.searchMetadata.fieldsSearched).toEqual(expect.any(Array));
+            expect(result.searchMetadata.fieldsSearched.length).toBeGreaterThan(0);
         });
 
         it('should track execution time', async () => {
             const result = await searchManager.searchByName('193', 'John Smith');
             
-            expect(result.searchMetadata.executionTimeMs).toBeGreaterThan(0);
+            expect(result.searchMetadata.executionTime).toBeGreaterThan(0);
         });
 
         it('should include cache status information', async () => {

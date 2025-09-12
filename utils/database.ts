@@ -7,7 +7,7 @@ import path from 'path';
 
 export class DatabaseManager {
   private db: Database.Database | null = null;
-  private dbPath: string;
+  private readonly dbPath: string;
 
   constructor(dbPath?: string) {
     // Check for empty string explicitly to catch configuration errors

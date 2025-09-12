@@ -18,7 +18,7 @@ describe('Export Entries Logic', () => {
   });
 
   describe('Parameter Validation', () => {
-    test('should validate export entries parameters correctly', () => {
+    it('should validate export entries parameters correctly', () => {
       const validParams = {
         form_id: '123',
         format: 'csv',
@@ -31,7 +31,7 @@ describe('Export Entries Logic', () => {
       expect(result.errors).toHaveLength(0);
     });
 
-    test('should reject invalid form ID', () => {
+    it('should reject invalid form ID', () => {
       const invalidParams = {
         form_id: 'invalid',
         format: 'csv'
@@ -42,7 +42,7 @@ describe('Export Entries Logic', () => {
       expect(result.errors).toContain('Form ID must be numeric');
     });
 
-    test('should reject invalid export format', () => {
+    it('should reject invalid export format', () => {
       const invalidParams = {
         form_id: '123',
         format: 'xml'
@@ -53,7 +53,7 @@ describe('Export Entries Logic', () => {
       expect(result.errors).toContain('Export format must be "csv" or "json"');
     });
 
-    test('should reject dangerous filenames', () => {
+    it('should reject dangerous filenames', () => {
       const invalidParams = {
         form_id: '123',
         format: 'csv',
@@ -67,7 +67,7 @@ describe('Export Entries Logic', () => {
   });
 
   describe('Data Export Integration', () => {
-    test('should export entries to CSV format', async () => {
+    it('should export entries to CSV format', async () => {
       const entries = GravityFormsMocks.getMockEntries();
 
       const result = await dataExporter.export(entries, 'csv', {
@@ -82,7 +82,7 @@ describe('Export Entries Logic', () => {
       expect(result.base64Data).toBeDefined();
     });
 
-    test('should export entries to JSON format', async () => {
+    it('should export entries to JSON format', async () => {
       const entries = GravityFormsMocks.getMockEntries();
 
       const result = await dataExporter.export(entries, 'json', {
@@ -96,7 +96,7 @@ describe('Export Entries Logic', () => {
       expect(result.base64Data).toBeDefined();
     });
 
-    test('should handle empty entries array', async () => {
+    it('should handle empty entries array', async () => {
       const result = await dataExporter.export([], 'csv');
 
       expect(result.data).toBe('');
@@ -104,7 +104,7 @@ describe('Export Entries Logic', () => {
       expect(result.filename).toMatch(/\.csv$/);
     });
 
-    test('should apply custom date formatting', async () => {
+    it('should apply custom date formatting', async () => {
       const entries = [
         { id: '1', '1': 'John', 'date_created': '2024-01-15 10:30:00' }
       ];
@@ -118,7 +118,7 @@ describe('Export Entries Logic', () => {
   });
 
   describe('URL Construction Logic', () => {
-    test('should construct basic API URL', () => {
+    it('should construct basic API URL', () => {
       const baseUrl = 'https://test.example.com';
       const formId = '123';
       const expectedUrl = `${baseUrl}/wp-json/gf/v2/forms/${formId}/entries`;
@@ -126,7 +126,7 @@ describe('Export Entries Logic', () => {
       expect(`${baseUrl}/wp-json/gf/v2/forms/${formId}/entries`).toBe(expectedUrl);
     });
 
-    test('should construct URL with JSON search parameters', () => {
+    it('should construct URL with JSON search parameters', () => {
       const baseUrl = 'https://test.example.com';
       const formId = '123';
       const params = new URLSearchParams();
@@ -151,7 +151,7 @@ describe('Export Entries Logic', () => {
       expect(parsedSearch).toEqual(searchObject);
     });
 
-    test('should handle date range parameters in JSON format', () => {
+    it('should handle date range parameters in JSON format', () => {
       const params = new URLSearchParams();
       
       // New JSON format
@@ -171,7 +171,7 @@ describe('Export Entries Logic', () => {
   });
 
   describe('Error Handling Scenarios', () => {
-    test('should handle malformed entries gracefully', async () => {
+    it('should handle malformed entries gracefully', async () => {
       const malformedEntries = [
         { id: '1', '1': 'John' },
         null,
@@ -187,7 +187,7 @@ describe('Export Entries Logic', () => {
       expect(result.data.split('\n').filter(line => line.trim())).toHaveLength(3); // header + 2 valid entries
     });
 
-    test('should validate complex search parameters', () => {
+    it('should validate complex search parameters', () => {
       const complexParams = {
         form_id: '123',
         format: 'csv',
@@ -205,7 +205,7 @@ describe('Export Entries Logic', () => {
       expect(result.isValid).toBe(true);
     });
 
-    test('should reject invalid date ranges', () => {
+    it('should reject invalid date ranges', () => {
       const invalidParams = {
         form_id: '123',
         format: 'csv',
@@ -219,7 +219,7 @@ describe('Export Entries Logic', () => {
       expect(result.errors).toContain('Date range start must be before end date');
     });
 
-    test('should reject malformed date strings', () => {
+    it('should reject malformed date strings', () => {
       const invalidParams = {
         form_id: '123',
         format: 'csv',
@@ -235,7 +235,7 @@ describe('Export Entries Logic', () => {
   });
 
   describe('Response Format', () => {
-    test('should format successful export response correctly', () => {
+    it('should format successful export response correctly', () => {
       const exportResult = {
         data: 'id,name\n1,John',
         base64Data: 'aWQsbmFtZQoxLEpvaG4=',
@@ -268,7 +268,7 @@ ${exportResult.base64Data}`
       expect(response.content[0].text).toContain('Base64 encoded data for download:');
     });
 
-    test('should format empty results response correctly', () => {
+    it('should format empty results response correctly', () => {
       const response = {
         content: [
           {

@@ -1,7 +1,7 @@
 // ABOUTME: Performance caching system for field type mappings with LRU eviction and expiration handling
 // ABOUTME: Thread-safe operations with cache statistics and configurable options for optimal memory usage
 
-import { FormFieldMapping } from './fieldTypeDetector';
+import type { FormFieldMapping } from './fieldTypeDetector.js';
 
 export interface CachedFieldMapping {
     formId: string;
@@ -26,14 +26,14 @@ export interface CacheStats {
 }
 
 export class FieldMappingCache {
-    private cache: Map<string, CachedFieldMapping>;
+    private readonly cache: Map<string, CachedFieldMapping>;
     private options: CacheOptions;
     private accessOrder: string[]; // For LRU tracking
-    private hitCount: number = 0;
-    private missCount: number = 0;
-    private expiredCount: number = 0;
-    private corruptionCount: number = 0;
-    private enableLogging: boolean;
+    private hitCount = 0;
+    private missCount = 0;
+    private expiredCount = 0;
+    private corruptionCount = 0;
+    private readonly enableLogging: boolean;
 
     // Default configuration
     private static readonly DEFAULT_OPTIONS: CacheOptions = {

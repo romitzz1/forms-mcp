@@ -18,7 +18,7 @@ export interface ExportResult {
 }
 
 export class DataExporter {
-  private formatDate(dateString: string, format: string = 'YYYY-MM-DD HH:mm:ss'): string {
+  private formatDate(dateString: string, format = 'YYYY-MM-DD HH:mm:ss'): string {
     const date = new Date(dateString);
     if (isNaN(date.getTime())) {
       return dateString; // Return original if not a valid date
@@ -41,7 +41,7 @@ export class DataExporter {
       .replace('ss', seconds);
   }
 
-  private sanitizeEntry(entry: any, dateFormat?: string, forCSV: boolean = false): any {
+  private sanitizeEntry(entry: any, dateFormat?: string, forCSV = false): any {
     if (!entry || typeof entry !== 'object') {
       return null;
     }

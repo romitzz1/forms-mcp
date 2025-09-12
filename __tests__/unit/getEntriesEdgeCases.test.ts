@@ -73,7 +73,7 @@ describe('getEntries Edge Cases', () => {
     });
 
     // Act - search for entries with empty field value
-    await (server as any).getEntries({
+    await (server).getEntries({
       form_id: '193',
       search: {
         field_filters: [
@@ -101,7 +101,7 @@ describe('getEntries Edge Cases', () => {
     });
 
     // Act - search for entries with zero value
-    await (server as any).getEntries({
+    await (server).getEntries({
       form_id: '193',
       search: {
         field_filters: [
@@ -129,7 +129,7 @@ describe('getEntries Edge Cases', () => {
     });
 
     // Act - search for entries with false value
-    await (server as any).getEntries({
+    await (server).getEntries({
       form_id: '193',
       search: {
         field_filters: [
@@ -157,7 +157,7 @@ describe('getEntries Edge Cases', () => {
     });
 
     // Act - filter with missing key should be ignored
-    await (server as any).getEntries({
+    await (server).getEntries({
       form_id: '193',
       search: {
         field_filters: [
@@ -186,7 +186,7 @@ describe('getEntries Edge Cases', () => {
     });
 
     // Act - filter with missing value should be ignored
-    await (server as any).getEntries({
+    await (server).getEntries({
       form_id: '193',
       search: {
         field_filters: [

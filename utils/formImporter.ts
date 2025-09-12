@@ -1,7 +1,7 @@
 // ABOUTME: Form import utilities for importing Gravity Forms from JSON with conflict resolution
 // ABOUTME: Handles JSON validation, ID mapping, conflict detection, and reference updates
 
-import { FormCache } from './formCache.js';
+import type { FormCache } from './formCache.js';
 
 export interface ImportOptions {
   force_import?: boolean;
@@ -19,9 +19,7 @@ export interface ConflictInfo {
   };
 }
 
-export interface IdMapping {
-  [oldId: string]: string;
-}
+export type IdMapping = Record<string, string>;
 
 export interface ImportResult {
   success: boolean;
@@ -39,8 +37,8 @@ export interface ImportResult {
 
 export class FormImporter {
   constructor(
-    private apiCall: (endpoint: string, method?: string, body?: any) => Promise<any>,
-    private formCache?: FormCache
+    private readonly apiCall: (endpoint: string, method?: string, body?: any) => Promise<any>,
+    private readonly formCache?: FormCache
   ) {}
 
   /**
@@ -78,12 +76,12 @@ export class FormImporter {
   /**
    * Detects conflicts with existing forms
    */
-  async detectConflicts(importedForm: any, useCompleteDiscovery: boolean = false): Promise<ConflictInfo> {
+  async detectConflicts(importedForm: any, useCompleteDiscovery = false): Promise<ConflictInfo> {
     try {
       let existingForms: any[];
 
       // Use cache if available and complete discovery requested
-      if (useCompleteDiscovery && this.formCache && this.formCache.isReady()) {
+      if (useCompleteDiscovery && this.formCache?.isReady()) {
         try {
           // Check if cache is stale and auto-sync if needed
           const isStale = await this.formCache.isStale();
@@ -103,7 +101,7 @@ export class FormImporter {
           // This provides more robust behavior than throwing errors
           existingForms = await this.apiCall('/forms');
         }
-      } else if (useCompleteDiscovery && (!this.formCache || !this.formCache.isReady())) {
+      } else if (useCompleteDiscovery && (!this.formCache?.isReady())) {
         // Fall back to API if complete discovery requested but cache unavailable
         existingForms = await this.apiCall('/forms');
       } else {
@@ -142,7 +140,7 @@ export class FormImporter {
   /**
    * Resolves conflicts by modifying the imported form
    */
-  async resolveConflicts(importedForm: any, conflictInfo: ConflictInfo, useCompleteDiscovery: boolean = false, existingForms?: any[]): Promise<any> {
+  async resolveConflicts(importedForm: any, conflictInfo: ConflictInfo, useCompleteDiscovery = false, existingForms?: any[]): Promise<any> {
     if (!conflictInfo.hasConflict) {
       return importedForm;
     }
@@ -155,7 +153,7 @@ export class FormImporter {
       // Use provided forms list to avoid duplicate API call
       if (existingForms) {
         forms = existingForms;
-      } else if (useCompleteDiscovery && this.formCache && this.formCache.isReady()) {
+      } else if (useCompleteDiscovery && this.formCache?.isReady()) {
         try {
           // Get all forms from cache for complete conflict resolution
           const cachedForms = await this.formCache.getAllForms();
@@ -194,7 +192,7 @@ export class FormImporter {
   /**
    * Updates field IDs to avoid conflicts and returns mapping
    */
-  updateFieldIds(form: any, startingId: number = 1): { updatedForm: any; idMapping: IdMapping } {
+  updateFieldIds(form: any, startingId = 1): { updatedForm: any; idMapping: IdMapping } {
     const idMapping: IdMapping = {};
     let currentId = startingId;
     
@@ -217,7 +215,7 @@ export class FormImporter {
    */
   updateConditionalLogicReferences(form: any, idMapping: IdMapping): any {
     const updatedFields = form.fields.map((field: any) => {
-      if (field.conditionalLogic && field.conditionalLogic.rules) {
+      if (field.conditionalLogic?.rules) {
         const updatedRules = field.conditionalLogic.rules.map((rule: any) => {
           if (rule.fieldId && idMapping[rule.fieldId]) {
             return { ...rule, fieldId: idMapping[rule.fieldId] };

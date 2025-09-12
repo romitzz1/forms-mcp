@@ -130,7 +130,7 @@ export class GravityFormsMocks {
     };
   }
 
-  static getMockValidationResponse(isValid: boolean = true) {
+  static getMockValidationResponse(isValid = true) {
     return {
       is_valid: isValid,
       validation_messages: isValid ? {} : {
@@ -140,7 +140,7 @@ export class GravityFormsMocks {
     };
   }
 
-  static getMockApiError(status: number = 404, message: string = 'Not Found') {
+  static getMockApiError(status = 404, message = 'Not Found') {
     return {
       status,
       statusText: message,
@@ -153,7 +153,7 @@ export class GravityFormsMocks {
     };
   }
 
-  static createMockFetch(responses: Map<string, any> = new Map()) {
+  static createMockFetch(responses = new Map<string, any>()) {
     return jest.fn().mockImplementation((url: string, options?: any) => {
       const key = `${options?.method || 'GET'} ${url}`;
       

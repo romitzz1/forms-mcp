@@ -86,7 +86,7 @@ describe('getEntries Response Size Management', () => {
       
       // Test the token estimation utility directly
       const testText = 'This is a test string with exactly 49 characters!';
-      const estimatedTokens = (server as any).estimateTokenCount(testText);
+      const estimatedTokens = (server).estimateTokenCount(testText);
       
       // 49 characters / 4 = 12.25 tokens, should round up to 13
       expect(estimatedTokens).toBe(13);
@@ -96,7 +96,7 @@ describe('getEntries Response Size Management', () => {
       const server = createServer();
       const entry = createLargeEntry('1', 'large');
       const entryJson = JSON.stringify(entry);
-      const estimatedTokens = (server as any).estimateTokenCount(entryJson);
+      const estimatedTokens = (server).estimateTokenCount(entryJson);
       
       // Should be roughly entryJson.length / 4
       const expectedTokens = Math.ceil(entryJson.length / 4);
@@ -106,9 +106,9 @@ describe('getEntries Response Size Management', () => {
 
     it('should handle empty content correctly', async () => {
       const server = createServer();
-      expect((server as any).estimateTokenCount('')).toBe(0);
-      expect((server as any).estimateTokenCount(null)).toBe(0);
-      expect((server as any).estimateTokenCount(undefined)).toBe(0);
+      expect((server).estimateTokenCount('')).toBe(0);
+      expect((server).estimateTokenCount(null)).toBe(0);
+      expect((server).estimateTokenCount(undefined)).toBe(0);
     });
   });
 
@@ -117,7 +117,7 @@ describe('getEntries Response Size Management', () => {
       const server = createServer();
       const entry = createLargeEntry('12345', 'huge');
       
-      const summary = (server as any).createEntrySummary(entry);
+      const summary = (server).createEntrySummary(entry);
       
       // Should contain essential fields
       expect(summary.id).toBe('12345');
@@ -143,7 +143,7 @@ describe('getEntries Response Size Management', () => {
       const server = createServer();
       const entry = createLargeEntry('123', 'normal');
       
-      const summary = (server as any).createEntrySummary(entry);
+      const summary = (server).createEntrySummary(entry);
       
       // For normal-sized entries, summary should include more fields
       expect(Object.keys(summary).length).toBeGreaterThan(5);
@@ -161,7 +161,7 @@ describe('getEntries Response Size Management', () => {
         '99': 'Some other field'
       };
       
-      const summary = (server as any).createEntrySummary(entry);
+      const summary = (server).createEntrySummary(entry);
       
       expect(summary.id).toBe('999');
       expect(summary.form_id).toBe('193');
@@ -179,10 +179,10 @@ describe('getEntries Response Size Management', () => {
 
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve(smallEntries)
+        json: () => Promise.resolve({ entries: smallEntries })
       });
 
-      const result = await (server as any).getEntries({
+      const result = await (server).getEntries({
         form_id: '193'
         // No response_mode specified - should default to 'auto' which uses 'full' for small responses
       });
@@ -197,10 +197,10 @@ describe('getEntries Response Size Management', () => {
 
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve(entries)
+        json: () => Promise.resolve({ entries: entries })
       });
 
-      const result = await (server as any).getEntries({
+      const result = await (server).getEntries({
         form_id: '193',
         response_mode: 'summary'
       });
@@ -215,10 +215,10 @@ describe('getEntries Response Size Management', () => {
 
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve(largeEntries)
+        json: () => Promise.resolve({ entries: largeEntries })
       });
 
-      const result = await (server as any).getEntries({
+      const result = await (server).getEntries({
         form_id: '193',
         response_mode: 'full'
       });
@@ -237,10 +237,10 @@ describe('getEntries Response Size Management', () => {
 
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve(hugeEntries)
+        json: () => Promise.resolve({ entries: hugeEntries })
       });
 
-      const result = await (server as any).getEntries({
+      const result = await (server).getEntries({
         form_id: '193',
         response_mode: 'auto' // Should auto-detect and summarize
       });
@@ -259,10 +259,10 @@ describe('getEntries Response Size Management', () => {
 
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve([massiveEntry])
+        json: () => Promise.resolve({ entries: [massiveEntry] })
       });
 
-      const result = await (server as any).getEntries({
+      const result = await (server).getEntries({
         form_id: '193',
         response_mode: 'auto'
       });
@@ -284,10 +284,10 @@ describe('getEntries Response Size Management', () => {
 
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve([])
+        json: () => Promise.resolve({ entries: [] })
       });
 
-      const result = await (server as any).getEntries({
+      const result = await (server).getEntries({
         form_id: '193',
         response_mode: 'auto'
       });
@@ -310,10 +310,10 @@ describe('getEntries Response Size Management', () => {
 
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve(mixedEntries)
+        json: () => Promise.resolve({ entries: mixedEntries })
       });
 
-      const result = await (server as any).getEntries({
+      const result = await (server).getEntries({
         form_id: '193',
         response_mode: 'auto'
       });
@@ -334,11 +334,11 @@ describe('getEntries Response Size Management', () => {
 
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve(normalEntries)
+        json: () => Promise.resolve({ entries: normalEntries })
       });
 
       // Existing call format - should work exactly as before
-      const result = await (server as any).getEntries({
+      const result = await (server).getEntries({
         form_id: '193',
         search: { status: 'active' },
         paging: { current_page: 1, page_size: 20 },

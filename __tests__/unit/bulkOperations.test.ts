@@ -2,11 +2,12 @@
 // ABOUTME: Tests bulk operations with safety mechanisms, confirmation, and error handling
 
 import { BulkOperationsManager } from '../../utils/bulkOperations';
-import { 
-  BulkOperationType, 
+import type { 
   BulkOperationParams, 
-  BulkOperationResult,
-  BulkOperationPreview 
+  BulkOperationType} from '../../utils/bulkOperations';
+import { 
+  BulkOperationPreview,
+  BulkOperationResult 
 } from '../../utils/bulkOperations';
 import { GravityFormsMocks } from '../mocks/gravityFormsMocks';
 
@@ -28,19 +29,19 @@ describe('BulkOperationsManager', () => {
   });
 
   describe('Constructor and Initial State', () => {
-    test('should create BulkOperationsManager with correct base URL and headers', () => {
+    it('should create BulkOperationsManager with correct base URL and headers', () => {
       expect(bulkManager).toBeInstanceOf(BulkOperationsManager);
       expect(bulkManager.getBaseUrl()).toBe(baseUrl);
       expect(bulkManager.getAuthHeaders()).toEqual(authHeaders);
     });
 
-    test('should have maximum entry limit set to 100', () => {
+    it('should have maximum entry limit set to 100', () => {
       expect(bulkManager.getMaxEntryLimit()).toBe(100);
     });
   });
 
   describe('Operation Validation', () => {
-    test('should validate bulk delete operation', () => {
+    it('should validate bulk delete operation', () => {
       const params: BulkOperationParams = {
         entry_ids: ['123', '456'],
         operation_type: 'delete',
@@ -52,7 +53,7 @@ describe('BulkOperationsManager', () => {
       expect(result.errors).toHaveLength(0);
     });
 
-    test('should validate bulk update_status operation', () => {
+    it('should validate bulk update_status operation', () => {
       const params: BulkOperationParams = {
         entry_ids: ['123', '456'],
         operation_type: 'update_status',
@@ -64,7 +65,7 @@ describe('BulkOperationsManager', () => {
       expect(result.isValid).toBe(true);
     });
 
-    test('should validate bulk update_fields operation', () => {
+    it('should validate bulk update_fields operation', () => {
       const params: BulkOperationParams = {
         entry_ids: ['123', '456'],
         operation_type: 'update_fields',
@@ -76,7 +77,7 @@ describe('BulkOperationsManager', () => {
       expect(result.isValid).toBe(true);
     });
 
-    test('should require explicit confirmation', () => {
+    it('should require explicit confirmation', () => {
       const params: BulkOperationParams = {
         entry_ids: ['123'],
         operation_type: 'delete',
@@ -88,7 +89,7 @@ describe('BulkOperationsManager', () => {
       expect(result.errors).toContain('Bulk operations require explicit confirmation (confirm: true)');
     });
 
-    test('should enforce maximum entry limit', () => {
+    it('should enforce maximum entry limit', () => {
       const manyEntries = new Array(101).fill(0).map((_, i) => String(i));
       const params: BulkOperationParams = {
         entry_ids: manyEntries,
@@ -101,7 +102,7 @@ describe('BulkOperationsManager', () => {
       expect(result.errors).toContain('Bulk operations limited to 100 entries maximum');
     });
 
-    test('should require data for update operations', () => {
+    it('should require data for update operations', () => {
       const params: BulkOperationParams = {
         entry_ids: ['123'],
         operation_type: 'update_fields',
@@ -113,7 +114,7 @@ describe('BulkOperationsManager', () => {
       expect(result.errors).toContain('Data is required for update operations');
     });
 
-    test('should validate operation types', () => {
+    it('should validate operation types', () => {
       const params: BulkOperationParams = {
         entry_ids: ['123'],
         operation_type: 'invalid_operation' as BulkOperationType,
@@ -125,7 +126,7 @@ describe('BulkOperationsManager', () => {
       expect(result.errors).toContain('Invalid operation type. Must be delete, update_status, or update_fields');
     });
 
-    test('should reject empty entry ID arrays', () => {
+    it('should reject empty entry ID arrays', () => {
       const params: BulkOperationParams = {
         entry_ids: [],
         operation_type: 'delete',
@@ -139,7 +140,7 @@ describe('BulkOperationsManager', () => {
   });
 
   describe('Operation Preview', () => {
-    test('should generate preview for delete operation', async () => {
+    it('should generate preview for delete operation', async () => {
       const params: BulkOperationParams = {
         entry_ids: ['123', '456'],
         operation_type: 'delete',
@@ -160,12 +161,12 @@ describe('BulkOperationsManager', () => {
       
       expect(preview.operation_type).toBe('delete');
       expect(preview.total_entries).toBe(2);
-      expect(preview.entries_found.length).toBe(2);
-      expect(preview.entries_not_found.length).toBe(0);
+      expect(preview.entries_found).toHaveLength(2);
+      expect(preview.entries_not_found).toHaveLength(0);
       expect(preview.description).toContain('DELETE 2 entries permanently');
     });
 
-    test('should handle missing entries in preview', async () => {
+    it('should handle missing entries in preview', async () => {
       const params: BulkOperationParams = {
         entry_ids: ['123', '999'],
         operation_type: 'delete',
@@ -185,12 +186,12 @@ describe('BulkOperationsManager', () => {
 
       const preview = await bulkManager.getOperationPreview(params);
       
-      expect(preview.entries_found.length).toBe(1);
+      expect(preview.entries_found).toHaveLength(1);
       expect(preview.entries_not_found).toContain('999');
       expect(preview.warnings).toContain('Entry 999 not found and will be skipped');
     });
 
-    test('should generate preview for update_status operation', async () => {
+    it('should generate preview for update_status operation', async () => {
       const params: BulkOperationParams = {
         entry_ids: ['123'],
         operation_type: 'update_status',
@@ -209,7 +210,7 @@ describe('BulkOperationsManager', () => {
       expect(preview.description).toContain('UPDATE STATUS to "spam" for 1 entries');
     });
 
-    test('should generate preview for update_fields operation', async () => {
+    it('should generate preview for update_fields operation', async () => {
       const params: BulkOperationParams = {
         entry_ids: ['123'],
         operation_type: 'update_fields',
@@ -231,7 +232,7 @@ describe('BulkOperationsManager', () => {
   });
 
   describe('Bulk Operation Execution', () => {
-    test('should execute bulk delete operation successfully', async () => {
+    it('should execute bulk delete operation successfully', async () => {
       const params: BulkOperationParams = {
         entry_ids: ['123', '456'],
         operation_type: 'delete',
@@ -259,7 +260,7 @@ describe('BulkOperationsManager', () => {
       expect(result.failed_entries).toHaveLength(0);
     });
 
-    test('should handle partial failures in bulk operations', async () => {
+    it('should handle partial failures in bulk operations', async () => {
       const params: BulkOperationParams = {
         entry_ids: ['123', '456', '789'],
         operation_type: 'delete',
@@ -291,7 +292,7 @@ describe('BulkOperationsManager', () => {
       expect(result.failed_entries[0].error).toContain('Entry not found');
     });
 
-    test('should execute bulk update_status operation', async () => {
+    it('should execute bulk update_status operation', async () => {
       const params: BulkOperationParams = {
         entry_ids: ['123', '456'],
         operation_type: 'update_status',
@@ -326,7 +327,7 @@ describe('BulkOperationsManager', () => {
       expect(result.failed).toBe(0);
     });
 
-    test('should execute bulk update_fields operation', async () => {
+    it('should execute bulk update_fields operation', async () => {
       const params: BulkOperationParams = {
         entry_ids: ['123'],
         operation_type: 'update_fields',
@@ -357,7 +358,7 @@ describe('BulkOperationsManager', () => {
       expect(result.success_ids).toContain('123');
     });
 
-    test('should track operation progress', async () => {
+    it('should track operation progress', async () => {
       const params: BulkOperationParams = {
         entry_ids: ['123', '456', '789'],
         operation_type: 'delete',
@@ -402,7 +403,7 @@ describe('BulkOperationsManager', () => {
   });
 
   describe('Error Handling and Safety', () => {
-    test('should refuse operations without confirmation', async () => {
+    it('should refuse operations without confirmation', async () => {
       const params: BulkOperationParams = {
         entry_ids: ['123'],
         operation_type: 'delete',
@@ -414,7 +415,7 @@ describe('BulkOperationsManager', () => {
         .toThrow('Bulk operations require explicit confirmation');
     });
 
-    test('should handle network failures gracefully', async () => {
+    it('should handle network failures gracefully', async () => {
       const params: BulkOperationParams = {
         entry_ids: ['123'],
         operation_type: 'delete',
@@ -430,7 +431,7 @@ describe('BulkOperationsManager', () => {
       expect(result.failed_entries[0].error).toContain('Network error');
     });
 
-    test('should handle API errors correctly', async () => {
+    it('should handle API errors correctly', async () => {
       const params: BulkOperationParams = {
         entry_ids: ['123'],
         operation_type: 'delete',
@@ -449,7 +450,7 @@ describe('BulkOperationsManager', () => {
       expect(result.failed_entries[0].error).toContain('Internal server error');
     });
 
-    test('should provide operation rollback capabilities for supported operations', async () => {
+    it('should provide operation rollback capabilities for supported operations', async () => {
       const params: BulkOperationParams = {
         entry_ids: ['123', '456'],
         operation_type: 'update_status',
@@ -490,7 +491,7 @@ describe('BulkOperationsManager', () => {
       expect(result.can_rollback).toBe(true);
     });
 
-    test('should not allow rollback for delete operations', async () => {
+    it('should not allow rollback for delete operations', async () => {
       const params: BulkOperationParams = {
         entry_ids: ['123'],
         operation_type: 'delete',
@@ -510,7 +511,7 @@ describe('BulkOperationsManager', () => {
   });
 
   describe('Audit Trail', () => {
-    test('should generate audit trail for operations', async () => {
+    it('should generate audit trail for operations', async () => {
       const params: BulkOperationParams = {
         entry_ids: ['123', '456'],
         operation_type: 'delete',
@@ -536,7 +537,7 @@ describe('BulkOperationsManager', () => {
       expect(result.audit_trail?.affected_entries).toEqual(['123', '456']);
     });
 
-    test('should include operation timing in audit trail', async () => {
+    it('should include operation timing in audit trail', async () => {
       const params: BulkOperationParams = {
         entry_ids: ['123'],
         operation_type: 'delete',

@@ -7,4 +7,4 @@ import { GravityFormsMocks } from './mocks/gravityFormsMocks';
 global.fetch = GravityFormsMocks.createMockFetch();
 
 // Mock console.error to avoid noise in tests
-global.console.error = jest.fn();
+jest.spyOn(global.console, 'error').mockImplementation();

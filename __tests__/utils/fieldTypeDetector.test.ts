@@ -1,7 +1,8 @@
 // ABOUTME: Comprehensive tests for FieldTypeDetector class that identifies field types in Gravity Forms
 // ABOUTME: Tests automatic detection of name, email, phone, team fields with confidence scoring
 
-import { FieldTypeDetector, FieldTypeInfo, DetectedFieldType, FormFieldMapping } from '../../utils/fieldTypeDetector';
+import type { FormFieldMapping } from '../../utils/fieldTypeDetector';
+import { DetectedFieldType, FieldTypeDetector, FieldTypeInfo } from '../../utils/fieldTypeDetector';
 import { FieldMappingCache } from '../../utils/fieldMappingCache';
 
 describe('FieldTypeDetector', () => {
@@ -13,7 +14,7 @@ describe('FieldTypeDetector', () => {
 
     describe('Field Type Detection by Labels', () => {
         describe('Name Field Detection', () => {
-            test('should detect standard name fields with high confidence', () => {
+            it('should detect standard name fields with high confidence', () => {
                 const testFields = [
                     { id: '1', label: 'Name', type: 'text' },
                     { id: '2', label: 'Full Name', type: 'text' },
@@ -33,7 +34,7 @@ describe('FieldTypeDetector', () => {
                 });
             });
 
-            test('should detect Gravity Forms name field type', () => {
+            it('should detect Gravity Forms name field type', () => {
                 const field = { id: '52', label: 'Contact Name', type: 'name' };
                 const result = detector.detectFieldType(field);
                 
@@ -41,7 +42,7 @@ describe('FieldTypeDetector', () => {
                 expect(result.confidence).toBe(1.0);
             });
 
-            test('should handle case-insensitive name detection', () => {
+            it('should handle case-insensitive name detection', () => {
                 const testFields = [
                     { id: '1', label: 'NAME', type: 'text' },
                     { id: '2', label: 'First name', type: 'text' },
@@ -57,7 +58,7 @@ describe('FieldTypeDetector', () => {
         });
 
         describe('Email Field Detection', () => {
-            test('should detect email fields with high confidence', () => {
+            it('should detect email fields with high confidence', () => {
                 const testFields = [
                     { id: '50', label: 'Email', type: 'text' },
                     { id: '54', label: 'Email Address', type: 'text' },
@@ -73,7 +74,7 @@ describe('FieldTypeDetector', () => {
                 });
             });
 
-            test('should detect Gravity Forms email field type', () => {
+            it('should detect Gravity Forms email field type', () => {
                 const field = { id: '54', label: 'Contact Email', type: 'email' };
                 const result = detector.detectFieldType(field);
                 
@@ -83,7 +84,7 @@ describe('FieldTypeDetector', () => {
         });
 
         describe('Phone Field Detection', () => {
-            test('should detect phone fields with high confidence', () => {
+            it('should detect phone fields with high confidence', () => {
                 const testFields = [
                     { id: '10', label: 'Phone', type: 'text' },
                     { id: '11', label: 'Phone Number', type: 'text' },
@@ -100,7 +101,7 @@ describe('FieldTypeDetector', () => {
                 });
             });
 
-            test('should detect Gravity Forms phone field type', () => {
+            it('should detect Gravity Forms phone field type', () => {
                 const field = { id: '15', label: 'Contact Phone', type: 'phone' };
                 const result = detector.detectFieldType(field);
                 
@@ -110,7 +111,7 @@ describe('FieldTypeDetector', () => {
         });
 
         describe('Team/Group Field Detection', () => {
-            test('should detect team and group fields', () => {
+            it('should detect team and group fields', () => {
                 const testFields = [
                     { id: '17', label: 'Team', type: 'text' },
                     { id: '18', label: 'Team Name', type: 'text' },
@@ -130,7 +131,7 @@ describe('FieldTypeDetector', () => {
         });
 
         describe('Text Field Detection', () => {
-            test('should detect generic text fields with low confidence', () => {
+            it('should detect generic text fields with low confidence', () => {
                 const testFields = [
                     { id: '30', label: 'Comments', type: 'text' },
                     { id: '31', label: 'Notes', type: 'textarea' },
@@ -146,7 +147,7 @@ describe('FieldTypeDetector', () => {
         });
 
         describe('Unknown Field Detection', () => {
-            test('should mark unsupported fields as unknown', () => {
+            it('should mark unsupported fields as unknown', () => {
                 const testFields = [
                     { id: '40', label: 'File Upload', type: 'fileupload' },
                     { id: '41', label: 'Hidden Field', type: 'hidden' },
@@ -163,7 +164,7 @@ describe('FieldTypeDetector', () => {
     });
 
     describe('Form Field Analysis', () => {
-        test('should analyze complete form field mapping', () => {
+        it('should analyze complete form field mapping', () => {
             const mockForm = {
                 id: '193',
                 title: 'League Sign up 25-26',
@@ -195,7 +196,7 @@ describe('FieldTypeDetector', () => {
             expect(mapping['32'].fieldType).toBe('text'); // Comments are generic text
         });
 
-        test('should handle forms with no fields', () => {
+        it('should handle forms with no fields', () => {
             const emptyForm = {
                 id: '999',
                 title: 'Empty Form',
@@ -206,7 +207,7 @@ describe('FieldTypeDetector', () => {
             expect(Object.keys(mapping)).toHaveLength(0);
         });
 
-        test('should handle malformed form fields', () => {
+        it('should handle malformed form fields', () => {
             const malformedForm = {
                 id: '888',
                 title: 'Malformed Form',
@@ -248,7 +249,7 @@ describe('FieldTypeDetector', () => {
             };
         });
 
-        test('should filter name fields', () => {
+        it('should filter name fields', () => {
             const nameFields = detector.getNameFields(sampleMapping);
             
             expect(nameFields).toHaveLength(2);
@@ -257,7 +258,7 @@ describe('FieldTypeDetector', () => {
             expect(nameFields.every(field => field.fieldType === 'name')).toBe(true);
         });
 
-        test('should filter email fields', () => {
+        it('should filter email fields', () => {
             const emailFields = detector.getEmailFields(sampleMapping);
             
             expect(emailFields).toHaveLength(1);
@@ -265,7 +266,7 @@ describe('FieldTypeDetector', () => {
             expect(emailFields[0].fieldType).toBe('email');
         });
 
-        test('should filter all text fields (including generic text)', () => {
+        it('should filter all text fields (including generic text)', () => {
             const textFields = detector.getAllTextFields(sampleMapping);
             
             // Should include name, email, phone, team, and text fields
@@ -273,7 +274,7 @@ describe('FieldTypeDetector', () => {
             expect(textFields.some(field => field.fieldType === 'text')).toBe(true);
         });
 
-        test('should return empty arrays for missing field types', () => {
+        it('should return empty arrays for missing field types', () => {
             const emptyMapping: FormFieldMapping = {};
             
             expect(detector.getNameFields(emptyMapping)).toHaveLength(0);
@@ -283,7 +284,7 @@ describe('FieldTypeDetector', () => {
     });
 
     describe('Confidence Scoring', () => {
-        test('should assign high confidence to exact keyword matches', () => {
+        it('should assign high confidence to exact keyword matches', () => {
             const exactMatches = [
                 { id: '1', label: 'Name', type: 'text' },
                 { id: '2', label: 'Email', type: 'text' },
@@ -296,7 +297,7 @@ describe('FieldTypeDetector', () => {
             });
         });
 
-        test('should assign medium confidence to partial matches', () => {
+        it('should assign medium confidence to partial matches', () => {
             const partialMatches = [
                 { id: '1', label: 'Contact Name Field', type: 'text' },
                 { id: '2', label: 'Team Member List', type: 'text' }
@@ -309,7 +310,7 @@ describe('FieldTypeDetector', () => {
             });
         });
 
-        test('should assign low confidence to weak indicators', () => {
+        it('should assign low confidence to weak indicators', () => {
             const weakMatches = [
                 { id: '1', label: 'User Info', type: 'text' },
                 { id: '2', label: 'Contact Details', type: 'text' }
@@ -321,7 +322,7 @@ describe('FieldTypeDetector', () => {
             });
         });
 
-        test('should assign perfect confidence to Gravity Forms field types', () => {
+        it('should assign perfect confidence to Gravity Forms field types', () => {
             const nativeFields = [
                 { id: '1', label: 'Contact Name', type: 'name' },
                 { id: '2', label: 'Contact Email', type: 'email' },
@@ -336,7 +337,7 @@ describe('FieldTypeDetector', () => {
     });
 
     describe('Special Case Logic Verification', () => {
-        test('should correctly handle captain/team field conflicts', () => {
+        it('should correctly handle captain/team field conflicts', () => {
             const conflictFields = [
                 { id: '1', label: 'Team Captain', type: 'text' },      // Should be name
                 { id: '2', label: 'Captain', type: 'text' },          // Should be name  
@@ -364,7 +365,7 @@ describe('FieldTypeDetector', () => {
             expect(results[2].result.confidence).toBe(0.8);  // SPECIAL_CASE_CONFIDENCE
         });
 
-        test('should handle compound phrase detection correctly', () => {
+        it('should handle compound phrase detection correctly', () => {
             const compoundFields = [
                 { id: '1', label: 'Contact Name Field', type: 'text' },
                 { id: '2', label: 'Contact Name', type: 'text' },
@@ -386,7 +387,7 @@ describe('FieldTypeDetector', () => {
     });
 
     describe('Edge Cases and Error Handling', () => {
-        test('should handle fields with empty or null labels', () => {
+        it('should handle fields with empty or null labels', () => {
             const edgeCaseFields = [
                 { id: '1', label: '', type: 'text' },
                 { id: '2', label: null, type: 'text' },
@@ -400,7 +401,7 @@ describe('FieldTypeDetector', () => {
             });
         });
 
-        test('should handle fields with special characters in labels', () => {
+        it('should handle fields with special characters in labels', () => {
             const specialCharFields = [
                 { id: '1', label: 'Name (Required)', type: 'text' },
                 { id: '2', label: 'E-mail *', type: 'text' },
@@ -414,7 +415,7 @@ describe('FieldTypeDetector', () => {
             });
         });
 
-        test('should handle very long field labels', () => {
+        it('should handle very long field labels', () => {
             const longLabel = 'This is a very long field label that contains the word name somewhere in the middle of the text to test how the detection works';
             const field = { id: '1', label: longLabel, type: 'text' };
             
@@ -423,7 +424,7 @@ describe('FieldTypeDetector', () => {
             expect(result.confidence).toBeGreaterThan(0);
         });
 
-        test('should handle international characters', () => {
+        it('should handle international characters', () => {
             const internationalFields = [
                 { id: '1', label: 'Nom (Français)', type: 'text' },
                 { id: '2', label: 'Correo Electrónico', type: 'text' },
@@ -440,7 +441,7 @@ describe('FieldTypeDetector', () => {
     });
 
     describe('Real-world Form Scenarios', () => {
-        test('should analyze standard contact form', () => {
+        it('should analyze standard contact form', () => {
             const contactForm = {
                 id: '1',
                 title: 'Contact Form',
@@ -462,7 +463,7 @@ describe('FieldTypeDetector', () => {
             expect(mapping['4'].fieldType).toBe('text');
         });
 
-        test('should analyze event registration form', () => {
+        it('should analyze event registration form', () => {
             const eventForm = {
                 id: '193',
                 title: 'Event Registration',
@@ -484,7 +485,7 @@ describe('FieldTypeDetector', () => {
             expect(mapping['25'].fieldType).toBe('text');
         });
 
-        test('should analyze complex multi-step form', () => {
+        it('should analyze complex multi-step form', () => {
             const complexForm = {
                 id: '500',
                 title: 'Complex Registration Form',
@@ -532,7 +533,7 @@ describe('FieldTypeDetector', () => {
     });
 
     describe('Cache Integration', () => {
-        test('should use cache when available for form analysis', () => {
+        it('should use cache when available for form analysis', () => {
             const cache = new FieldMappingCache();
             const detectorWithCache = new FieldTypeDetector(cache);
 
@@ -563,7 +564,7 @@ describe('FieldTypeDetector', () => {
             expect(stats2.hitRate).toBeGreaterThan(0);
         });
 
-        test('should fallback to analysis when cache miss', () => {
+        it('should fallback to analysis when cache miss', () => {
             const cache = new FieldMappingCache();
             const detectorWithCache = new FieldTypeDetector(cache);
 
@@ -588,7 +589,7 @@ describe('FieldTypeDetector', () => {
             expect(cache.getCacheStats().entryCount).toBe(2);
         });
 
-        test('should work without cache (backward compatibility)', () => {
+        it('should work without cache (backward compatibility)', () => {
             const detectorWithoutCache = new FieldTypeDetector();
 
             const mockForm = {
@@ -601,7 +602,7 @@ describe('FieldTypeDetector', () => {
             expect(result['1'].fieldType).toBe('phone');
         });
 
-        test('should handle cache errors gracefully', () => {
+        it('should handle cache errors gracefully', () => {
             // Create a cache that will throw errors
             const failingCache = new FieldMappingCache();
             const originalGet = failingCache.get.bind(failingCache);
@@ -622,7 +623,7 @@ describe('FieldTypeDetector', () => {
             }).not.toThrow();
         });
 
-        test('should return cache status in analysis results', () => {
+        it('should return cache status in analysis results', () => {
             const cache = new FieldMappingCache();
             const detectorWithCache = new FieldTypeDetector(cache);
 
@@ -645,7 +646,7 @@ describe('FieldTypeDetector', () => {
             expect(result2.cacheStatus.source).toBe('cache');
         });
 
-        test('should respect cache invalidation', () => {
+        it('should respect cache invalidation', () => {
             const cache = new FieldMappingCache();
             const detectorWithCache = new FieldTypeDetector(cache);
 

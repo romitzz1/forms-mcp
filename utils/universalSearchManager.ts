@@ -1,9 +1,9 @@
 // ABOUTME: Universal search manager for intelligent multi-field searching across Gravity Forms
 // ABOUTME: Coordinates field detection, search strategies, confidence scoring, and result optimization
 
-import { FieldTypeDetector, FormFieldMapping, DetectedFieldType, FieldTypeInfo, AnalysisResult } from './fieldTypeDetector';
-import { SearchResultsCache } from './searchResultsCache';
-import { PerformanceMonitor } from './performanceMonitor';
+import type { AnalysisResult, DetectedFieldType, FieldTypeDetector, FieldTypeInfo, FormFieldMapping } from './fieldTypeDetector.js';
+import { SearchResultsCache } from './searchResultsCache.js';
+import { PerformanceMonitor } from './performanceMonitor.js';
 
 export type SearchStrategy = 'exact' | 'contains' | 'fuzzy' | 'auto';
 
@@ -15,8 +15,9 @@ export interface SearchOptions {
 
 export interface SearchMatch {
     entryId: string;
-    matchedFields: { [fieldId: string]: string };
+    matchedFields: Record<string, string>;
     confidence: number;
+    entryData: Record<string, any>;  // Full entry data for formatting
 }
 
 export interface SearchResult {
@@ -29,8 +30,9 @@ export interface SearchMetadata {
     formId: string;
     searchText: string;
     strategy: SearchStrategy;
-    fieldsSearched: number;
-    executionTimeMs: number;
+    fieldsSearched: string[];   // Array of field IDs for SearchResultsFormatter compatibility
+    executionTime: number;      // Renamed from executionTimeMs for compatibility
+    apiCalls: number;           // Required by SearchResultsFormatter
     cacheStatus: {
         hit: boolean;
         source: 'cache' | 'analysis';
@@ -50,11 +52,11 @@ export interface ApiClient {
 }
 
 export class UniversalSearchManager {
-    private fieldDetector: FieldTypeDetector;
-    private apiClient: ApiClient;
-    private defaultOptions: SearchOptions;
-    private searchCache: SearchResultsCache;
-    private performanceMonitor: PerformanceMonitor;
+    private readonly fieldDetector: FieldTypeDetector;
+    private readonly apiClient: ApiClient;
+    private readonly defaultOptions: SearchOptions;
+    private readonly searchCache: SearchResultsCache;
+    private readonly performanceMonitor: PerformanceMonitor;
 
     // Constants for better maintainability
     private static readonly EXACT_SEARCH_MAX_LENGTH = 3;
@@ -75,9 +77,9 @@ export class UniversalSearchManager {
         
         // Initialize performance optimization components
         this.searchCache = new SearchResultsCache({
-            maxAge: Math.max(1000, parseInt(process.env.SEARCH_CACHE_MAX_AGE_MS || '900000') || 900000), // 15 minutes default, min 1 second
-            maxSize: Math.max(1, parseInt(process.env.SEARCH_CACHE_MAX_SIZE || '100') || 100), // default 100, min 1
-            enableLogging: process.env.NODE_ENV === 'development'
+            maxAge: Math.max(1000, parseInt(process.env['SEARCH_CACHE_MAX_AGE_MS'] || '900000') || 900000), // 15 minutes default, min 1 second
+            maxSize: Math.max(1, parseInt(process.env['SEARCH_CACHE_MAX_SIZE'] || '100') || 100), // default 100, min 1
+            enableLogging: process.env['NODE_ENV'] === 'development'
         });
         this.performanceMonitor = new PerformanceMonitor();
     }
@@ -229,7 +231,7 @@ export class UniversalSearchManager {
     /**
      * Calculate match confidence based on matched fields and search context
      */
-    public calculateMatchConfidence(entry: any, searchText: string, matchedFields: { [fieldId: string]: string }, fieldMapping?: FormFieldMapping): number {
+    public calculateMatchConfidence(entry: any, searchText: string, matchedFields: Record<string, string>, fieldMapping?: FormFieldMapping): number {
         if (!matchedFields || Object.keys(matchedFields).length === 0) {
             return 0;
         }
@@ -266,7 +268,7 @@ export class UniversalSearchManager {
             }
 
             // Boost confidence based on actual detected field type (not heuristics)
-            if (fieldMapping && fieldMapping[fieldId]) {
+            if (fieldMapping?.[fieldId]) {
                 const fieldType = fieldMapping[fieldId].fieldType;
                 if (fieldType === 'name') {
                     fieldConfidence *= UniversalSearchManager.NAME_FIELD_CONFIDENCE_BOOST;
@@ -325,8 +327,9 @@ export class UniversalSearchManager {
             formId,
             searchText,
             strategy: strategy, // Use resolved strategy for accurate reporting
-            fieldsSearched: fields.length,
-            executionTimeMs,
+            fieldsSearched: fields.map(f => f.fieldId), // Array of field IDs for SearchResultsFormatter compatibility
+            executionTime: executionTimeMs, // Renamed for compatibility
+            apiCalls: 1, // Single API call per search
             cacheStatus: {
                 hit: analysisResult.cacheStatus.hit,
                 source: analysisResult.cacheStatus.source,
@@ -354,7 +357,7 @@ export class UniversalSearchManager {
 
         for (const entry of entries) {
             // Find which fields actually matched the search
-            const matchedFields: { [fieldId: string]: string } = {};
+            const matchedFields: Record<string, string> = {};
             
             for (const field of fields) {
                 const fieldValue = entry[field.fieldId];
@@ -374,7 +377,8 @@ export class UniversalSearchManager {
                 matches.push({
                     entryId: entry.id || entry.entry_id || 'unknown',
                     matchedFields,
-                    confidence
+                    confidence,
+                    entryData: entry  // Add full entry data for SearchResultsFormatter compatibility
                 });
             }
         }
@@ -440,8 +444,9 @@ export class UniversalSearchManager {
                 formId,
                 searchText,
                 strategy,
-                fieldsSearched: 0,
-                executionTimeMs,
+                fieldsSearched: [],
+                executionTime: executionTimeMs,
+                apiCalls: 0,
                 cacheStatus: {
                     hit: analysisResult.cacheStatus.hit,
                     source: analysisResult.cacheStatus.source,

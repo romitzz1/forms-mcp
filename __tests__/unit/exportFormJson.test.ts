@@ -136,7 +136,7 @@ describe('export_form_json tool logic', () => {
         exportForm.notifications = exportForm.notifications.map((notification: any) => {
           const cleanNotification = { ...notification };
           // Remove sensitive email addresses and API keys
-          if (cleanNotification.to && cleanNotification.to.includes('@') && cleanNotification.to !== '{admin_email}') {
+          if (cleanNotification.to?.includes('@') && cleanNotification.to !== '{admin_email}') {
             cleanNotification.to = '{admin_email}'; // Use placeholder
           }
           delete cleanNotification.apiKey;
@@ -287,7 +287,7 @@ describe('export_form_json tool logic', () => {
           const clean = { ...notification };
           
           // Replace sensitive email addresses with placeholders
-          if (clean.to && clean.to.includes('@') && clean.to !== '{admin_email}') {
+          if (clean.to?.includes('@') && clean.to !== '{admin_email}') {
             clean.to = '{admin_email}';
           }
           

@@ -74,7 +74,7 @@ describe('getEntries Parameter Duplication Prevention', () => {
     });
 
     // Act
-    await (server as any).getEntries({
+    await (server).getEntries({
       form_id: '193',
       search: {
         status: 'active',
@@ -121,7 +121,7 @@ describe('getEntries Parameter Duplication Prevention', () => {
     });
 
     // Act - try to trigger potential duplication with field_filters
-    await (server as any).getEntries({
+    await (server).getEntries({
       form_id: '193',
       search: {
         field_filters: [{ key: '52', value: 'John' }],
@@ -156,7 +156,7 @@ describe('getEntries Parameter Duplication Prevention', () => {
     });
 
     // Act
-    await (server as any).getEntries({
+    await (server).getEntries({
       form_id: '193',
       search: {
         date_range: { start: '2024-01-01', end: '2024-12-31' },

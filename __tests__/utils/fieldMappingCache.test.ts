@@ -1,8 +1,9 @@
 // ABOUTME: Comprehensive tests for FieldMappingCache class that provides performance caching for field type mappings
 // ABOUTME: Tests LRU eviction, expiration handling, concurrent access, and cache statistics with thread safety
 
-import { FieldMappingCache, CachedFieldMapping, CacheOptions, CacheStats } from '../../utils/fieldMappingCache';
-import { FormFieldMapping, DetectedFieldType } from '../../utils/fieldTypeDetector';
+import type { CachedFieldMapping, CacheOptions} from '../../utils/fieldMappingCache';
+import { CacheStats, FieldMappingCache } from '../../utils/fieldMappingCache';
+import type { DetectedFieldType, FormFieldMapping } from '../../utils/fieldTypeDetector';
 
 describe('FieldMappingCache', () => {
     let cache: FieldMappingCache;
@@ -18,7 +19,7 @@ describe('FieldMappingCache', () => {
     });
 
     describe('Basic Cache Operations', () => {
-        test('should store and retrieve field mappings', () => {
+        it('should store and retrieve field mappings', () => {
             const formId = '193';
             
             // Initially empty
@@ -32,11 +33,11 @@ describe('FieldMappingCache', () => {
             expect(retrieved).toEqual(mockMapping);
         });
 
-        test('should return null for non-existent cache entries', () => {
+        it('should return null for non-existent cache entries', () => {
             expect(cache.get('nonexistent')).toBeNull();
         });
 
-        test('should handle multiple form mappings', () => {
+        it('should handle multiple form mappings', () => {
             const mapping1 = mockMapping;
             const mapping2: FormFieldMapping = {
                 '1': { fieldId: '1', fieldType: 'name' as DetectedFieldType, confidence: 0.9, label: 'Full Name' },
@@ -52,7 +53,7 @@ describe('FieldMappingCache', () => {
     });
 
     describe('Cache Expiration', () => {
-        test('should respect default expiration time (1 hour)', () => {
+        it('should respect default expiration time (1 hour)', () => {
             const formId = '193';
             cache.set(formId, mockMapping);
             
@@ -67,7 +68,7 @@ describe('FieldMappingCache', () => {
             expect(cache.get(formId)).toBeNull();
         });
 
-        test('should handle custom expiration times', () => {
+        it('should handle custom expiration times', () => {
             const shortExpiryCache = new FieldMappingCache({ 
                 maxAge: 1000, // 1 second
                 maxSize: 100,
@@ -87,7 +88,7 @@ describe('FieldMappingCache', () => {
             expect(shortExpiryCache.get(formId)).toBeNull();
         });
 
-        test('should update lastAccessed on cache hits', () => {
+        it('should update lastAccessed on cache hits', () => {
             const formId = '193';
             cache.set(formId, mockMapping);
             
@@ -100,7 +101,7 @@ describe('FieldMappingCache', () => {
     });
 
     describe('LRU Eviction', () => {
-        test('should evict least recently used entries when cache is full', () => {
+        it('should evict least recently used entries when cache is full', () => {
             const smallCache = new FieldMappingCache({ 
                 maxAge: 3600000, 
                 maxSize: 2,
@@ -130,7 +131,7 @@ describe('FieldMappingCache', () => {
             expect(smallCache.get('form3')).toEqual(mapping3); // Newly added
         });
 
-        test('should handle cache size of 1 correctly', () => {
+        it('should handle cache size of 1 correctly', () => {
             const tinyCache = new FieldMappingCache({ 
                 maxAge: 3600000, 
                 maxSize: 1,
@@ -151,7 +152,7 @@ describe('FieldMappingCache', () => {
     });
 
     describe('Cache Invalidation', () => {
-        test('should invalidate specific form cache', () => {
+        it('should invalidate specific form cache', () => {
             cache.set('form1', mockMapping);
             cache.set('form2', mockMapping);
 
@@ -165,7 +166,7 @@ describe('FieldMappingCache', () => {
             expect(cache.get('form2')).toEqual(mockMapping);
         });
 
-        test('should invalidate all cache entries', () => {
+        it('should invalidate all cache entries', () => {
             cache.set('form1', mockMapping);
             cache.set('form2', mockMapping);
             cache.set('form3', mockMapping);
@@ -183,7 +184,7 @@ describe('FieldMappingCache', () => {
             expect(cache.get('form3')).toBeNull();
         });
 
-        test('should handle invalidation of non-existent entries', () => {
+        it('should handle invalidation of non-existent entries', () => {
             cache.set('form1', mockMapping);
             
             // Should not throw error
@@ -195,7 +196,7 @@ describe('FieldMappingCache', () => {
     });
 
     describe('Cache Statistics', () => {
-        test('should track cache hit and miss rates', () => {
+        it('should track cache hit and miss rates', () => {
             // Initial stats
             let stats = cache.getCacheStats();
             expect(stats.hitRate).toBe(0); // No operations yet
@@ -213,7 +214,7 @@ describe('FieldMappingCache', () => {
             expect(stats.entryCount).toBe(1);
         });
 
-        test('should provide memory usage estimates', () => {
+        it('should provide memory usage estimates', () => {
             const stats1 = cache.getCacheStats();
             const initialMemory = stats1.memoryUsage;
 
@@ -226,7 +227,7 @@ describe('FieldMappingCache', () => {
             expect(stats2.entryCount).toBe(2);
         });
 
-        test('should handle division by zero in hit rate calculation', () => {
+        it('should handle division by zero in hit rate calculation', () => {
             const stats = cache.getCacheStats();
             expect(stats.hitRate).toBe(0); // No operations should result in 0, not NaN
             expect(stats.expiredCount).toBe(0);
@@ -235,7 +236,7 @@ describe('FieldMappingCache', () => {
     });
 
     describe('Cache Cleanup', () => {
-        test('should remove expired entries during cleanup', () => {
+        it('should remove expired entries during cleanup', () => {
             cache.set('form1', mockMapping);
             cache.set('form2', mockMapping);
 
@@ -254,7 +255,7 @@ describe('FieldMappingCache', () => {
             expect((cache as any).cache.size).toBe(1);
         });
 
-        test('should perform LRU eviction during cleanup if over capacity', () => {
+        it('should perform LRU eviction during cleanup if over capacity', () => {
             const smallCache = new FieldMappingCache({ 
                 maxAge: 3600000, 
                 maxSize: 2,
@@ -272,7 +273,7 @@ describe('FieldMappingCache', () => {
     });
 
     describe('Concurrent Access Safety', () => {
-        test('should handle rapid successive operations safely', () => {
+        it('should handle rapid successive operations safely', () => {
             const operations = [];
 
             // Simulate concurrent access
@@ -287,7 +288,7 @@ describe('FieldMappingCache', () => {
 
             return Promise.all(operations).then(results => {
                 // Should complete without errors
-                expect(results.length).toBe(100);
+                expect(results).toHaveLength(100);
                 // All successful gets should return the mapping
                 results.forEach(result => {
                     if (result !== null) {
@@ -297,7 +298,7 @@ describe('FieldMappingCache', () => {
             });
         });
 
-        test('should maintain consistency during cleanup operations', () => {
+        it('should maintain consistency during cleanup operations', () => {
             // Add entries
             for (let i = 0; i < 10; i++) {
                 cache.set(`form${i}`, mockMapping);
@@ -320,7 +321,7 @@ describe('FieldMappingCache', () => {
     });
 
     describe('Configuration Options', () => {
-        test('should accept custom configuration options', () => {
+        it('should accept custom configuration options', () => {
             const customOptions: CacheOptions = {
                 maxAge: 1800000, // 30 minutes
                 maxSize: 50,
@@ -334,7 +335,7 @@ describe('FieldMappingCache', () => {
             expect(customCache.get('test')).toEqual(mockMapping);
         });
 
-        test('should use default options when none provided', () => {
+        it('should use default options when none provided', () => {
             const defaultCache = new FieldMappingCache();
             
             // Should work with defaults
@@ -347,7 +348,7 @@ describe('FieldMappingCache', () => {
             expect((defaultCache as any).options.enablePersistence).toBe(false);
         });
 
-        test('should disable caching when maxSize is 0', () => {
+        it('should disable caching when maxSize is 0', () => {
             const disabledCache = new FieldMappingCache({ 
                 maxAge: 3600000, 
                 maxSize: 0,
@@ -361,30 +362,30 @@ describe('FieldMappingCache', () => {
     });
 
     describe('Edge Cases and Error Handling', () => {
-        test('should handle null and undefined form IDs', () => {
+        it('should handle null and undefined form IDs', () => {
             expect(() => cache.get(null as any)).toThrow();
             expect(() => cache.get(undefined as any)).toThrow();
             expect(() => cache.set(null as any, mockMapping)).toThrow();
             expect(() => cache.set(undefined as any, mockMapping)).toThrow();
         });
 
-        test('should handle empty form IDs', () => {
+        it('should handle empty form IDs', () => {
             expect(() => cache.get('')).toThrow();
             expect(() => cache.set('', mockMapping)).toThrow();
         });
 
-        test('should handle excessively long form IDs', () => {
+        it('should handle excessively long form IDs', () => {
             const longFormId = 'a'.repeat(2000); // Over the 1000 character limit
             expect(() => cache.get(longFormId)).toThrow('Form ID exceeds maximum length');
             expect(() => cache.set(longFormId, mockMapping)).toThrow('Form ID exceeds maximum length');
         });
 
-        test('should handle null mappings', () => {
+        it('should handle null mappings', () => {
             expect(() => cache.set('test', null as any)).toThrow();
             expect(() => cache.set('test', undefined as any)).toThrow();
         });
 
-        test('should handle very large mappings', () => {
+        it('should handle very large mappings', () => {
             // Create a large mapping
             const largeMapping: FormFieldMapping = {};
             for (let i = 0; i < 1000; i++) {
@@ -403,7 +404,7 @@ describe('FieldMappingCache', () => {
     });
 
     describe('Corruption Detection and Recovery', () => {
-        test('should detect and recover from access order corruption', () => {
+        it('should detect and recover from access order corruption', () => {
             const loggingCache = new FieldMappingCache({ 
                 maxSize: 3, 
                 maxAge: 3600000,
@@ -430,7 +431,7 @@ describe('FieldMappingCache', () => {
             expect(loggingCache.get('form3')).toEqual(mockMapping);
         });
 
-        test('should handle expired entries tracking separately', () => {
+        it('should handle expired entries tracking separately', () => {
             const shortCache = new FieldMappingCache({ 
                 maxAge: 100, // Very short expiry
                 maxSize: 10,
@@ -451,7 +452,7 @@ describe('FieldMappingCache', () => {
             expect(stats.hitRate).toBe(0); // No successful hits
         });
 
-        test('should prevent infinite loops in enforceSizeLimit', () => {
+        it('should prevent infinite loops in enforceSizeLimit', () => {
             const smallCache = new FieldMappingCache({ 
                 maxSize: 2,
                 maxAge: 3600000,
@@ -474,7 +475,7 @@ describe('FieldMappingCache', () => {
             expect(stats.entryCount).toBeLessThanOrEqual(2); // Should respect size limit
         });
 
-        test('should reset all stats including new counters', () => {
+        it('should reset all stats including new counters', () => {
             // Create some activity to generate stats
             cache.set('test', mockMapping);
             cache.get('test'); // hit
@@ -500,7 +501,7 @@ describe('FieldMappingCache', () => {
     });
 
     describe('Configurable Logging', () => {
-        test('should respect enableLogging option', () => {
+        it('should respect enableLogging option', () => {
             const quietCache = new FieldMappingCache({ 
                 maxSize: 10,
                 maxAge: 3600000,
@@ -520,7 +521,7 @@ describe('FieldMappingCache', () => {
             expect((verboseCache as any).enableLogging).toBe(true);
         });
 
-        test('should default to logging disabled', () => {
+        it('should default to logging disabled', () => {
             const defaultCache = new FieldMappingCache();
             expect((defaultCache as any).enableLogging).toBe(false);
         });

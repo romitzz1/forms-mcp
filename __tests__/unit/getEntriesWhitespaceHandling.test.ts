@@ -73,7 +73,7 @@ describe('getEntries Whitespace Handling', () => {
     });
 
     // Act - keys and values with whitespace
-    await (server as any).getEntries({
+    await (server).getEntries({
       form_id: '193',
       search: {
         field_filters: [
@@ -101,7 +101,7 @@ describe('getEntries Whitespace Handling', () => {
     });
 
     // Act - filters with whitespace-only keys should be ignored, empty values allowed
-    await (server as any).getEntries({
+    await (server).getEntries({
       form_id: '193',
       search: {
         field_filters: [
@@ -134,7 +134,7 @@ describe('getEntries Whitespace Handling', () => {
     });
 
     // Act - mix of valid, invalid, and trimmed filters
-    await (server as any).getEntries({
+    await (server).getEntries({
       form_id: '193',
       search: {
         field_filters: [

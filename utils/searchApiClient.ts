@@ -1,12 +1,12 @@
 // ABOUTME: API client adapter for UniversalSearchManager to integrate with GravityFormsMCPServer
 // ABOUTME: Provides clean interface for form definition retrieval and entry searching with error handling
 
-import { ApiClient } from './universalSearchManager';
+import type { ApiClient } from './universalSearchManager.js';
 
 export class SearchApiClient implements ApiClient {
-    private baseUrl: string;
-    private consumerKey: string;
-    private consumerSecret: string;
+    private readonly baseUrl: string;
+    private readonly consumerKey: string;
+    private readonly consumerSecret: string;
 
     constructor(baseUrl: string, consumerKey: string, consumerSecret: string) {
         this.baseUrl = baseUrl.replace(/\/$/, ''); // Remove trailing slash
@@ -71,7 +71,7 @@ export class SearchApiClient implements ApiClient {
                 // Handle field_filters (primary search mechanism)
                 if (searchParams.field_filters && Array.isArray(searchParams.field_filters)) {
                     const validFilters = searchParams.field_filters
-                        .filter((filter: any) => filter && filter.key != null && filter.value != null)
+                        .filter((filter: any) => filter?.key != null && filter.value != null)
                         .map((filter: any) => {
                             const sanitizedKey = String(filter.key).trim();
                             const sanitizedValue = String(filter.value).trim();

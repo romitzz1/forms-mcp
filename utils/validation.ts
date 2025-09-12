@@ -212,7 +212,7 @@ export class ValidationHelper {
     }
 
     // Validate search parameters
-    if (params.search && params.search.date_range) {
+    if (params.search?.date_range) {
       const { start, end } = params.search.date_range;
       if (start && end) {
         const startDate = new Date(start);
@@ -268,7 +268,7 @@ export class ValidationHelper {
     }
 
     // Validate data for update operations
-    if (params.operation_type && params.operation_type.startsWith('update_') && !params.data) {
+    if (params.operation_type?.startsWith('update_') && !params.data) {
       result.isValid = false;
       result.errors.push('Data is required for update operations');
     }

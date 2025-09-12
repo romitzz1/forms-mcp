@@ -74,15 +74,15 @@ describe('Server Initialization and Configuration', () => {
     
     // Reset mock FormCache to default successful behavior
     if (mockFormCacheInstance) {
-      mockFormCacheInstance.init = jest.fn().mockResolvedValue(undefined);
-      mockFormCacheInstance.close = jest.fn().mockResolvedValue(undefined);
-      mockFormCacheInstance.isReady = jest.fn().mockReturnValue(true);
-      mockFormCacheInstance.getCacheStats = jest.fn().mockResolvedValue({
+      jest.spyOn(mockFormCacheInstance, 'init').mockImplementation().mockResolvedValue(undefined);
+      jest.spyOn(mockFormCacheInstance, 'close').mockImplementation().mockResolvedValue(undefined);
+      jest.spyOn(mockFormCacheInstance, 'isReady').mockImplementation().mockReturnValue(true);
+      jest.spyOn(mockFormCacheInstance, 'getCacheStats').mockImplementation().mockResolvedValue({
         totalForms: 5,
         activeCount: 3,
         lastSync: new Date()
       });
-      mockFormCacheInstance.getSyncStatus = jest.fn().mockResolvedValue({
+      jest.spyOn(mockFormCacheInstance, 'getSyncStatus').mockImplementation().mockResolvedValue({
         lastSync: new Date(),
         isStale: false
       });
@@ -170,7 +170,7 @@ describe('Server Initialization and Configuration', () => {
     it('should handle FormCache initialization failures gracefully', async () => {
       // Use a mock that fails initialization
       if (mockFormCacheInstance) {
-        mockFormCacheInstance.init = jest.fn().mockRejectedValue(new Error('Permission denied'));
+        jest.spyOn(mockFormCacheInstance, 'init').mockImplementation().mockRejectedValue(new Error('Permission denied'));
       }
 
       process.env.GRAVITY_FORMS_CACHE_ENABLED = 'true';
@@ -253,7 +253,7 @@ describe('Server Initialization and Configuration', () => {
       const importer = (server as any).getFormImporter();
       
       // Verify FormImporter was initialized with cache
-      const hasCache = (importer as any).formCache !== undefined;
+      const hasCache = (importer).formCache !== undefined;
       expect(hasCache).toBe(true);
     });
 

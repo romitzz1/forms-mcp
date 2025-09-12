@@ -1,7 +1,8 @@
 // ABOUTME: Tests for create_form_from_template tool functionality and integration
 // ABOUTME: Tests tool logic with TemplateCreator utility, field renames, and error handling
 
-import { TemplateCreator, FieldRename, TemplateModification } from '../../utils/templateCreator.js';
+import type { TemplateModification } from '../../utils/templateCreator.js';
+import { FieldRename, TemplateCreator } from '../../utils/templateCreator.js';
 
 describe('create_form_from_template tool logic', () => {
   let templateCreator: TemplateCreator;

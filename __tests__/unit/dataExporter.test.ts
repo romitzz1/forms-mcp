@@ -1,7 +1,8 @@
 // ABOUTME: Unit tests for DataExporter class
 // ABOUTME: Tests CSV/JSON export functionality with various data types and edge cases
 
-import { DataExporter, ExportFormat, ExportOptions, ExportResult } from '../../utils/dataExporter';
+import type { ExportFormat, ExportOptions} from '../../utils/dataExporter';
+import { DataExporter, ExportResult } from '../../utils/dataExporter';
 
 describe('DataExporter', () => {
   let dataExporter: DataExporter;
@@ -11,7 +12,7 @@ describe('DataExporter', () => {
   });
 
   describe('Interfaces and Types', () => {
-    test('should define ExportFormat type correctly', () => {
+    it('should define ExportFormat type correctly', () => {
       const csvFormat: ExportFormat = 'csv';
       const jsonFormat: ExportFormat = 'json';
       
@@ -19,7 +20,7 @@ describe('DataExporter', () => {
       expect(jsonFormat).toBe('json');
     });
 
-    test('should accept valid ExportOptions', () => {
+    it('should accept valid ExportOptions', () => {
       const options: ExportOptions = {
         dateFormat: 'YYYY-MM-DD',
         includeHeaders: true,
@@ -33,7 +34,7 @@ describe('DataExporter', () => {
   });
 
   describe('CSV Export', () => {
-    test('should export simple entries to CSV format', async () => {
+    it('should export simple entries to CSV format', async () => {
       const entries = [
         { id: '1', '1': 'John', '2': 'Doe', '3': 'john@example.com' },
         { id: '2', '1': 'Jane', '2': 'Smith', '3': 'jane@example.com' }
@@ -49,7 +50,7 @@ describe('DataExporter', () => {
       expect(result.data).toContain('2,Jane,Smith,jane@example.com');
     });
 
-    test('should export CSV without headers when option is false', async () => {
+    it('should export CSV without headers when option is false', async () => {
       const entries = [
         { id: '1', '1': 'John', '2': 'Doe' }
       ];
@@ -60,7 +61,7 @@ describe('DataExporter', () => {
       expect(result.data).toContain('1,John,Doe');
     });
 
-    test('should handle special characters in CSV', async () => {
+    it('should handle special characters in CSV', async () => {
       const entries = [
         { id: '1', '1': 'John, Jr.', '2': 'O\'Connor', '3': '"Special"' }
       ];
@@ -72,7 +73,7 @@ describe('DataExporter', () => {
       expect(result.data).toContain('"""Special"""'); // Double quotes are escaped
     });
 
-    test('should handle complex field types in CSV', async () => {
+    it('should handle complex field types in CSV', async () => {
       const entries = [
         { 
           id: '1', 
@@ -95,7 +96,7 @@ describe('DataExporter', () => {
   });
 
   describe('JSON Export', () => {
-    test('should export entries to JSON format', async () => {
+    it('should export entries to JSON format', async () => {
       const entries = [
         { id: '1', '1': 'John', '2': 'Doe', '3': 'john@example.com' },
         { id: '2', '1': 'Jane', '2': 'Smith', '3': 'jane@example.com' }
@@ -112,7 +113,7 @@ describe('DataExporter', () => {
       expect(parsedData[0]).toEqual({ id: '1', '1': 'John', '2': 'Doe', '3': 'john@example.com' });
     });
 
-    test('should export JSON with clean structure and formatting', async () => {
+    it('should export JSON with clean structure and formatting', async () => {
       const entries = [
         { id: '1', '1': 'John', '2': 'Doe' }
       ];
@@ -127,7 +128,7 @@ describe('DataExporter', () => {
       expect(() => JSON.parse(result.data)).not.toThrow();
     });
 
-    test('should handle complex field types in JSON', async () => {
+    it('should handle complex field types in JSON', async () => {
       const entries = [
         { 
           id: '1', 
@@ -147,7 +148,7 @@ describe('DataExporter', () => {
   });
 
   describe('Date Formatting', () => {
-    test('should format dates according to dateFormat option', async () => {
+    it('should format dates according to dateFormat option', async () => {
       const entries = [
         { id: '1', '1': 'John', 'date_created': '2024-01-15 10:30:00' }
       ];
@@ -159,7 +160,7 @@ describe('DataExporter', () => {
       expect(result.data).toContain('01/15/2024');
     });
 
-    test('should handle various date formats', async () => {
+    it('should handle various date formats', async () => {
       const entries = [
         { id: '1', 'date_created': '2024-01-15 10:30:00' }
       ];
@@ -177,7 +178,7 @@ describe('DataExporter', () => {
   });
 
   describe('Base64 Encoding', () => {
-    test('should return base64 encoded data for file download', async () => {
+    it('should return base64 encoded data for file download', async () => {
       const entries = [
         { id: '1', '1': 'John', '2': 'Doe' }
       ];
@@ -196,7 +197,7 @@ describe('DataExporter', () => {
       expect(decoded).toBe(result.data);
     });
 
-    test('should encode both CSV and JSON data', async () => {
+    it('should encode both CSV and JSON data', async () => {
       const entries = [{ id: '1', '1': 'test' }];
 
       const csvResult = await dataExporter.export(entries, 'csv');
@@ -214,7 +215,7 @@ describe('DataExporter', () => {
   });
 
   describe('Edge Cases', () => {
-    test('should handle empty entry array', async () => {
+    it('should handle empty entry array', async () => {
       const result = await dataExporter.export([], 'csv');
 
       expect(result.data).toBe('');
@@ -222,7 +223,7 @@ describe('DataExporter', () => {
       expect(result.filename).toMatch(/\.csv$/);
     });
 
-    test('should handle null and undefined values', async () => {
+    it('should handle null and undefined values', async () => {
       const entries = [
         { id: '1', '1': null, '2': undefined, '3': 'valid' }
       ];
@@ -236,7 +237,7 @@ describe('DataExporter', () => {
       expect(parsedData[0]['2']).toBeUndefined();
     });
 
-    test('should handle malformed entries gracefully', async () => {
+    it('should handle malformed entries gracefully', async () => {
       const entries = [
         { id: '1', '1': 'John' },
         null as any,
@@ -252,7 +253,7 @@ describe('DataExporter', () => {
       expect(result.data.split('\n').filter(line => line.trim())).toHaveLength(3); // header + 2 valid entries
     });
 
-    test('should handle entries with inconsistent fields', async () => {
+    it('should handle entries with inconsistent fields', async () => {
       const entries = [
         { id: '1', '1': 'John', '2': 'Doe' },
         { id: '2', '1': 'Jane', '3': 'jane@example.com' },
@@ -268,7 +269,7 @@ describe('DataExporter', () => {
       expect(csvResult.data.split('\n')).toHaveLength(4); // header + 3 entries
     });
 
-    test('should generate appropriate filenames', async () => {
+    it('should generate appropriate filenames', async () => {
       const entries = [{ id: '1' }];
 
       const csvResult = await dataExporter.export(entries, 'csv');
@@ -283,7 +284,7 @@ describe('DataExporter', () => {
       expect(customResult.filename).toBe('custom-export.csv');
     });
 
-    test('should handle very large field values', async () => {
+    it('should handle very large field values', async () => {
       const largeText = 'A'.repeat(10000);
       const entries = [
         { id: '1', '1': largeText }

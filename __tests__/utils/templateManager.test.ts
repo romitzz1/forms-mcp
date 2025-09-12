@@ -1,7 +1,7 @@
 // ABOUTME: Comprehensive tests for TemplateManager class with cache integration support
 // ABOUTME: Tests both API-only and cached forms scenarios for complete template discovery
 
-import { TemplateManager, TemplateInfo } from '../../utils/templateManager.js';
+import { TemplateInfo, TemplateManager } from '../../utils/templateManager.js';
 
 describe('TemplateManager', () => {
   describe('Basic template identification', () => {

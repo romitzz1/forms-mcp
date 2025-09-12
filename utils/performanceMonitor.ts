@@ -11,7 +11,7 @@ type PerformanceStats = Record<string, {
 
 type CounterStats = Record<string, number>;
 
-interface IMemoryUsage {
+export interface IMemoryUsage {
     heapUsed: number;
     heapTotal: number;
     external: number;
@@ -31,7 +31,7 @@ export class PerformanceMonitor {
 
     constructor() {
         // Check if performance monitoring is enabled
-        this.enabled = process.env.PERFORMANCE_MONITORING_ENABLED !== 'false';
+        this.enabled = process.env['PERFORMANCE_MONITORING_ENABLED'] !== 'false';
     }
 
     /**

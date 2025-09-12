@@ -49,7 +49,7 @@ export interface TemplateCreateOptions {
 type ApiCallFunction = (endpoint: string) => Promise<any>;
 
 export class TemplateManager {
-  private apiCall?: ApiCallFunction;
+  private readonly apiCall?: ApiCallFunction;
 
   constructor(apiCall?: ApiCallFunction) {
     this.apiCall = apiCall;

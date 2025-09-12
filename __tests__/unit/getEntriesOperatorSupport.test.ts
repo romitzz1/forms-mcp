@@ -73,7 +73,7 @@ describe('getEntries Operator Support', () => {
     });
 
     // Act
-    await (server as any).getEntries({
+    await (server).getEntries({
       form_id: '193',
       search: {
         field_filters: [
@@ -101,7 +101,7 @@ describe('getEntries Operator Support', () => {
     });
 
     // Act
-    await (server as any).getEntries({
+    await (server).getEntries({
       form_id: '193',
       search: {
         field_filters: [
@@ -134,7 +134,7 @@ describe('getEntries Operator Support', () => {
 
     // Act - test each operator
     for (const operator of supportedOperators) {
-      await (server as any).getEntries({
+      await (server).getEntries({
         form_id: '193',
         search: {
           field_filters: [
@@ -167,7 +167,7 @@ describe('getEntries Operator Support', () => {
     });
 
     // Act
-    await (server as any).getEntries({
+    await (server).getEntries({
       form_id: '193',
       search: {
         field_filters: [
@@ -201,7 +201,7 @@ describe('getEntries Operator Support', () => {
     });
 
     // Act
-    await (server as any).getEntries({
+    await (server).getEntries({
       form_id: '193',
       search: {
         field_filters: [
@@ -229,7 +229,7 @@ describe('getEntries Operator Support', () => {
     });
 
     // Act
-    await (server as any).getEntries({
+    await (server).getEntries({
       form_id: '193',
       search: {
         field_filters: [
@@ -257,7 +257,7 @@ describe('getEntries Operator Support', () => {
     });
 
     // Act
-    await (server as any).getEntries({
+    await (server).getEntries({
       form_id: '193',
       search: {
         field_filters: [

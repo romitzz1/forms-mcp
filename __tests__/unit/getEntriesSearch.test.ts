@@ -83,11 +83,11 @@ describe('getEntries Search Functionality', () => {
 
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve(mockEntries)
+        json: () => Promise.resolve({ entries: mockEntries })
       });
 
       // Act
-      const result = await (server as any).getEntries({
+      const result = await (server).getEntries({
         form_id: '193',
         search: {
           field_filters: [{ key: '52', value: 'John' }]
@@ -113,11 +113,11 @@ describe('getEntries Search Functionality', () => {
 
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve(mockEntries)
+        json: () => Promise.resolve({ entries: mockEntries })
       });
 
       // Act
-      await (server as any).getEntries({
+      await (server).getEntries({
         form_id: '193',
         search: {
           field_filters: [
@@ -146,11 +146,11 @@ describe('getEntries Search Functionality', () => {
 
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve(mockEntries)
+        json: () => Promise.resolve({ entries: mockEntries })
       });
 
       // Act
-      await (server as any).getEntries({
+      await (server).getEntries({
         form_id: '193',
         search: {
           field_filters: [{ key: '52', value: 'John' }]
@@ -175,11 +175,11 @@ describe('getEntries Search Functionality', () => {
 
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve(mockEntries)
+        json: () => Promise.resolve({ entries: mockEntries })
       });
 
       // Act & Assert - should not crash with malformed field_filters
-      await (server as any).getEntries({
+      await (server).getEntries({
         form_id: '193',
         search: {
           field_filters: [
@@ -202,11 +202,11 @@ describe('getEntries Search Functionality', () => {
 
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve(mockEntries)
+        json: () => Promise.resolve({ entries: mockEntries })
       });
 
       // Act
-      await (server as any).getEntries({
+      await (server).getEntries({
         form_id: '193',
         search: {
           status: 'active',
@@ -232,11 +232,11 @@ describe('getEntries Search Functionality', () => {
 
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve(mockEntries)
+        json: () => Promise.resolve({ entries: mockEntries })
       });
 
       // Act - using old flat object format
-      await (server as any).getEntries({
+      await (server).getEntries({
         form_id: '193',
         search: {
           status: 'active',
@@ -260,11 +260,11 @@ describe('getEntries Search Functionality', () => {
 
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve(mockEntries)
+        json: () => Promise.resolve({ entries: mockEntries })
       });
 
       // Act
-      await (server as any).getEntries({
+      await (server).getEntries({
         form_id: '193',
         search: {}
       });
@@ -283,11 +283,11 @@ describe('getEntries Search Functionality', () => {
 
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve(mockEntries)
+        json: () => Promise.resolve({ entries: mockEntries })
       });
 
       // Act
-      await (server as any).getEntries({
+      await (server).getEntries({
         form_id: '193',
         search: {
           field_filters: [

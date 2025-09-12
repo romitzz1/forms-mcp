@@ -62,7 +62,7 @@ describe('clone_form_with_modifications tool logic', () => {
           if (field) {
             field.label = rename.new_label;
             // Update placeholder if it matches the old label
-            if (field.placeholder && field.placeholder.includes(rename.original_label.toLowerCase())) {
+            if (field.placeholder?.includes(rename.original_label.toLowerCase())) {
               field.placeholder = field.placeholder.replace(
                 rename.original_label.toLowerCase(),
                 rename.new_label.toLowerCase()

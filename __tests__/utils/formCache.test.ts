@@ -1,7 +1,8 @@
 // ABOUTME: Test suite for FormCache class
 // ABOUTME: Tests form caching with SQLite schema management
 
-import { FormCache, FormCacheInsert, FormCacheUpdate, FormCacheRecord } from '../../utils/formCache.js';
+import type { FormCacheInsert, FormCacheUpdate} from '../../utils/formCache.js';
+import { FormCache, FormCacheRecord } from '../../utils/formCache.js';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -993,7 +994,7 @@ describe('FormCache', () => {
         const result = formCache.findIdGaps(largeArray);
         
         // Should find gaps efficiently without creating huge arrays
-        expect(result.length).toBe(997); // 1000 - 3 = 997 missing IDs
+        expect(result).toHaveLength(997); // 1000 - 3 = 997 missing IDs
         expect(result[0]).toBe(2);
         expect(result[result.length - 1]).toBe(999);
       });
@@ -1083,7 +1084,7 @@ describe('FormCache', () => {
         const activeIds = [1, 1000];
         const probeList = formCache.generateProbeList(activeIds);
         
-        expect(probeList.length).toBe(998);
+        expect(probeList).toHaveLength(998);
         expect(probeList[0]).toBe(2);
         expect(probeList[probeList.length - 1]).toBe(999);
       });
@@ -1964,7 +1965,7 @@ describe('FormCache', () => {
         // Verify mix of active and inactive
         const activeForms = allForms.filter(f => f.is_active);
         const inactiveForms = allForms.filter(f => !f.is_active);
-        expect(activeForms.length).toBe(2);
+        expect(activeForms).toHaveLength(2);
         expect(inactiveForms.length).toBeGreaterThanOrEqual(2);
       });
 

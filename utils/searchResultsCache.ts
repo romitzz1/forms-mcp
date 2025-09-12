@@ -1,7 +1,7 @@
 // ABOUTME: Level 2 caching for search results with LRU eviction and time-based expiration
 // ABOUTME: Provides performance optimization for repeated search queries
 
-import type { SearchResult } from './universalSearchManager';
+import type { SearchResult } from './universalSearchManager.js';
 
 interface ICachedSearchResult {
     formId: string;
@@ -17,7 +17,7 @@ interface ISearchResultsCacheOptions {
     enableLogging?: boolean; // Enable debug logging
 }
 
-interface ICacheStats {
+export interface ICacheStats {
     hitCount: number;
     missCount: number;
     hitRate: number;
@@ -45,7 +45,7 @@ export class SearchResultsCache {
         };
         
         // Check if caching is disabled via environment (don't mutate options)
-        this.effectiveMaxSize = process.env.SEARCH_CACHE_ENABLED === 'false' ? 0 : this.options.maxSize;
+        this.effectiveMaxSize = process.env['SEARCH_CACHE_ENABLED'] === 'false' ? 0 : (this.options.maxSize || 100);
         
         this.cache = new Map();
         this.accessOrder = [];

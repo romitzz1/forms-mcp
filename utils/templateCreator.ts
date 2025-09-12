@@ -25,7 +25,7 @@ export interface ModificationResult {
 type ApiCallFunction = (endpoint: string) => Promise<any>;
 
 export class TemplateCreator {
-  private apiCall?: ApiCallFunction;
+  private readonly apiCall?: ApiCallFunction;
 
   // Field type semantic categories for validation
   private readonly semanticCategories = {

@@ -2,7 +2,7 @@
 // ABOUTME: Manages SQLite schema, form storage, and database operations
 
 import { DatabaseManager } from './database.js';
-import Database from 'better-sqlite3';
+import type Database from 'better-sqlite3';
 
 const CURRENT_SCHEMA_VERSION = 1;
 
@@ -18,7 +18,7 @@ export class CacheError extends Error {
   public readonly context?: Record<string, any>;
   public readonly timestamp: Date;
 
-  constructor(message: string, errorCode: string = 'CACHE_ERROR', context?: Record<string, any>) {
+  constructor(message: string, errorCode = 'CACHE_ERROR', context?: Record<string, any>) {
     super(message);
     this.name = 'CacheError';
     this.errorCode = errorCode;
@@ -44,7 +44,7 @@ export class ApiError extends CacheError {
   public readonly httpStatus?: number;
   public readonly retryable: boolean;
 
-  constructor(message: string, httpStatus?: number, retryable: boolean = false, context?: Record<string, any>) {
+  constructor(message: string, httpStatus?: number, retryable = false, context?: Record<string, any>) {
     super(message, 'API_ERROR', context);
     this.name = 'ApiError';
     this.httpStatus = httpStatus;
@@ -310,8 +310,8 @@ export interface TableColumn {
 }
 
 export class FormCache {
-  private dbManager: DatabaseManager;
-  private logger: FormCacheLogger;
+  private readonly dbManager: DatabaseManager;
+  private readonly logger: FormCacheLogger;
 
   constructor(dbPath?: string) {
     this.dbManager = new DatabaseManager(dbPath);
@@ -1144,7 +1144,7 @@ export class FormCache {
       SELECT id FROM forms ORDER BY id
     `);
 
-    const results = stmt.all() as { id: number }[];
+    const results = stmt.all() as Array<{ id: number }>;
     return results.map(row => row.id);
   }
 
@@ -1176,8 +1176,8 @@ export class FormCache {
 
   private lastProbeStats: ProbeStats = { attempted: 0, found: 0, failed: 0, errors: [] };
   private consecutiveFailures = 0;
-  private circuitBreakerThreshold = FormCache.DEFAULT_CIRCUIT_BREAKER_THRESHOLD;
-  private maxErrorHistorySize = FormCache.DEFAULT_MAX_ERROR_HISTORY_SIZE;
+  private readonly circuitBreakerThreshold = FormCache.DEFAULT_CIRCUIT_BREAKER_THRESHOLD;
+  private readonly maxErrorHistorySize = FormCache.DEFAULT_MAX_ERROR_HISTORY_SIZE;
 
   /**
    * Add error to statistics with size limit management
@@ -1195,7 +1195,7 @@ export class FormCache {
   /**
    * Probe a single form by ID via API
    */
-  async probeFormById(id: number, apiCall: ApiCallFunction, updateStats: boolean = true): Promise<FormProbeResult> {
+  async probeFormById(id: number, apiCall: ApiCallFunction, updateStats = true): Promise<FormProbeResult> {
     // Validate form ID
     if (!Number.isInteger(id) || id <= 0) {
       throw new Error('Invalid form ID: must be positive integer');
@@ -1498,7 +1498,7 @@ export class FormCache {
    */
   async findHighestFormId(
     apiCall: ApiCallFunction, 
-    startId: number = 1, 
+    startId = 1, 
     options: { maxConsecutiveFailures?: number; maxSearchLimit?: number; probeDelayMs?: number } = {}
   ): Promise<number> {
     // Set configurable options with sensible defaults

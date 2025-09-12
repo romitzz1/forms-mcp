@@ -54,18 +54,18 @@ describe('GravityFormsMCPServer', () => {
   });
 
   describe('Server Instantiation', () => {
-    test('should create server instance with correct configuration', () => {
+    it('should create server instance with correct configuration', () => {
       const { GravityFormsMCPServer } = require('../../index');
       
       expect(() => new GravityFormsMCPServer()).not.toThrow();
     });
 
-    test('should load configuration from environment variables', () => {
+    it('should load configuration from environment variables', () => {
       const { GravityFormsMCPServer } = require('../../index');
       const server = new GravityFormsMCPServer();
       
       // Access private config through reflection for testing
-      const config = (server as any).config;
+      const config = (server).config;
       
       expect(config.baseUrl).toBe('https://test.example.com');
       expect(config.consumerKey).toBe('test_key');
@@ -73,7 +73,7 @@ describe('GravityFormsMCPServer', () => {
       expect(config.authMethod).toBe('basic');
     });
 
-    test('should use default values when environment variables are missing', () => {
+    it('should use default values when environment variables are missing', () => {
       // Clear environment variables
       delete process.env.GRAVITY_FORMS_BASE_URL;
       delete process.env.GRAVITY_FORMS_CONSUMER_KEY;
@@ -85,7 +85,7 @@ describe('GravityFormsMCPServer', () => {
       const { GravityFormsMCPServer } = require('../../index');
       const server = new GravityFormsMCPServer();
       
-      const config = (server as any).config;
+      const config = (server).config;
       
       expect(config.baseUrl).toBe('');
       expect(config.consumerKey).toBe('');
@@ -95,11 +95,11 @@ describe('GravityFormsMCPServer', () => {
   });
 
   describe('Authentication', () => {
-    test('should generate correct basic auth headers', () => {
+    it('should generate correct basic auth headers', () => {
       const { GravityFormsMCPServer } = require('../../index');
       const server = new GravityFormsMCPServer();
       
-      const headers = (server as any).getAuthHeaders();
+      const headers = (server).getAuthHeaders();
       
       expect(headers['Content-Type']).toBe('application/json');
       expect(headers['Authorization']).toMatch(/^Basic /);
@@ -110,14 +110,14 @@ describe('GravityFormsMCPServer', () => {
       expect(decoded).toBe('test_key:test_secret');
     });
 
-    test('should throw error for unsupported auth method', async () => {
+    it('should throw error for unsupported auth method', async () => {
       process.env.GRAVITY_FORMS_AUTH_METHOD = 'oauth';
       
       const { GravityFormsMCPServer } = require('../../index');
       const server = new GravityFormsMCPServer();
       
       // Should fail when trying to use bulk operations (lazy initialization)
-      await expect((server as any).processEntriesBulk({
+      await expect((server).processEntriesBulk({
         entry_ids: ['123'],
         operation_type: 'delete',
         confirm: true
@@ -126,7 +126,7 @@ describe('GravityFormsMCPServer', () => {
   });
 
   describe('API Request Methods', () => {
-    test('should make successful GET request', async () => {
+    it('should make successful GET request', async () => {
       const mockResponse = GravityFormsMocks.getMockForms();
       const mockFetch = GravityFormsMocks.createMockFetch(new Map([
         ['GET https://test.example.com/wp-json/gf/v2/forms', mockResponse]
@@ -136,7 +136,7 @@ describe('GravityFormsMCPServer', () => {
       const { GravityFormsMCPServer } = require('../../index');
       const server = new GravityFormsMCPServer();
       
-      const result = await (server as any).makeRequest('/forms');
+      const result = await (server).makeRequest('/forms');
       
       expect(result).toEqual(mockResponse);
       expect(mockFetch).toHaveBeenCalledWith(
@@ -151,7 +151,7 @@ describe('GravityFormsMCPServer', () => {
       );
     });
 
-    test('should make successful POST request with body', async () => {
+    it('should make successful POST request with body', async () => {
       const requestBody = { title: 'Test Form' };
       const mockResponse = { id: '1', ...requestBody };
       const mockFetch = GravityFormsMocks.createMockFetch(new Map([
@@ -162,7 +162,7 @@ describe('GravityFormsMCPServer', () => {
       const { GravityFormsMCPServer } = require('../../index');
       const server = new GravityFormsMCPServer();
       
-      const result = await (server as any).makeRequest('/forms', 'POST', requestBody);
+      const result = await (server).makeRequest('/forms', 'POST', requestBody);
       
       expect(result).toEqual(mockResponse);
       expect(mockFetch).toHaveBeenCalledWith(
@@ -178,7 +178,7 @@ describe('GravityFormsMCPServer', () => {
       );
     });
 
-    test('should handle API errors gracefully', async () => {
+    it('should handle API errors gracefully', async () => {
       const mockFetch = jest.fn().mockResolvedValue({
         ok: false,
         status: 404,
@@ -189,32 +189,32 @@ describe('GravityFormsMCPServer', () => {
       const { GravityFormsMCPServer } = require('../../index');
       const server = new GravityFormsMCPServer();
       
-      await expect((server as any).makeRequest('/invalid-endpoint'))
+      await expect((server).makeRequest('/invalid-endpoint'))
         .rejects
         .toThrow('API request failed: HTTP 404: Not Found');
     });
 
-    test('should handle network errors', async () => {
+    it('should handle network errors', async () => {
       const mockFetch = jest.fn().mockRejectedValue(new Error('Network error'));
       global.fetch = mockFetch;
 
       const { GravityFormsMCPServer } = require('../../index');
       const server = new GravityFormsMCPServer();
       
-      await expect((server as any).makeRequest('/forms'))
+      await expect((server).makeRequest('/forms'))
         .rejects
         .toThrow('API request failed: Network error');
     });
   });
 
   describe('Server Lifecycle', () => {
-    test('should run without errors', async () => {
+    it('should run without errors', async () => {
       const { GravityFormsMCPServer } = require('../../index');
       const server = new GravityFormsMCPServer();
       
       // Mock the run method dependencies
       const mockConnect = jest.fn().mockResolvedValue(undefined);
-      (server as any).server.connect = mockConnect;
+      (server).server.connect = mockConnect;
 
       await expect(server.run()).resolves.toBeUndefined();
       expect(mockConnect).toHaveBeenCalled();
@@ -233,7 +233,7 @@ describe('GravityFormsMCPServer', () => {
       server = new GravityFormsMCPServer();
       
       // Mock fetch for API calls
-      (global as any).fetch = jest.fn();
+      jest.spyOn((global as any, 'fetch').mockImplementation();
     });
 
     describe('backward compatibility', () => {

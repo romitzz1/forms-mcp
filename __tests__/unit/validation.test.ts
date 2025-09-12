@@ -1,12 +1,13 @@
 // ABOUTME: Unit tests for ValidationHelper class and validation schemas
 // ABOUTME: Tests input validation, security scenarios, and error handling
 
-import { 
-  ValidationHelper, 
-  ExportEntriesParams, 
+import type { 
   BulkProcessParams, 
-  TemplateParams, 
-  ImportExportParams,
+  ExportEntriesParams, 
+  ImportExportParams, 
+  TemplateParams} from '../../utils/validation';
+import { 
+  ValidationHelper,
   ValidationResult
 } from '../../utils/validation';
 
@@ -18,24 +19,24 @@ describe('ValidationHelper', () => {
   });
 
   describe('Form ID Validation', () => {
-    test('should validate valid numeric form IDs', () => {
+    it('should validate valid numeric form IDs', () => {
       const result = validator.validateFormId('123');
       expect(result.isValid).toBe(true);
       expect(result.errors).toHaveLength(0);
     });
 
-    test('should validate string numeric form IDs', () => {
+    it('should validate string numeric form IDs', () => {
       const result = validator.validateFormId('42');
       expect(result.isValid).toBe(true);
     });
 
-    test('should reject empty form IDs', () => {
+    it('should reject empty form IDs', () => {
       const result = validator.validateFormId('');
       expect(result.isValid).toBe(false);
       expect(result.errors).toContain('Form ID cannot be empty');
     });
 
-    test('should reject null or undefined form IDs', () => {
+    it('should reject null or undefined form IDs', () => {
       const nullResult = validator.validateFormId(null as any);
       const undefinedResult = validator.validateFormId(undefined as any);
       
@@ -45,13 +46,13 @@ describe('ValidationHelper', () => {
       expect(undefinedResult.errors).toContain('Form ID is required');
     });
 
-    test('should reject non-numeric form IDs', () => {
+    it('should reject non-numeric form IDs', () => {
       const result = validator.validateFormId('abc123');
       expect(result.isValid).toBe(false);
       expect(result.errors).toContain('Form ID must be numeric');
     });
 
-    test('should reject form IDs with special characters', () => {
+    it('should reject form IDs with special characters', () => {
       const result = validator.validateFormId('123; DROP TABLE forms;');
       expect(result.isValid).toBe(false);
       expect(result.errors).toContain('Form ID must be numeric');
@@ -59,38 +60,38 @@ describe('ValidationHelper', () => {
   });
 
   describe('Entry ID Validation', () => {
-    test('should validate single valid entry ID', () => {
+    it('should validate single valid entry ID', () => {
       const result = validator.validateEntryIds('456');
       expect(result.isValid).toBe(true);
       expect(result.sanitizedValue).toBe('456');
     });
 
-    test('should validate array of valid entry IDs', () => {
+    it('should validate array of valid entry IDs', () => {
       const result = validator.validateEntryIds(['123', '456', '789']);
       expect(result.isValid).toBe(true);
       expect(result.sanitizedValue).toEqual(['123', '456', '789']);
     });
 
-    test('should reject empty entry ID arrays', () => {
+    it('should reject empty entry ID arrays', () => {
       const result = validator.validateEntryIds([]);
       expect(result.isValid).toBe(false);
       expect(result.errors).toContain('At least one entry ID is required');
     });
 
-    test('should reject invalid entry IDs in array', () => {
+    it('should reject invalid entry IDs in array', () => {
       const result = validator.validateEntryIds(['123', 'invalid', '789']);
       expect(result.isValid).toBe(false);
       expect(result.errors).toContain('Entry ID "invalid" must be numeric');
     });
 
-    test('should limit entry ID array size for security', () => {
+    it('should limit entry ID array size for security', () => {
       const largeArray = new Array(1001).fill(0).map((_, i) => String(i));
       const result = validator.validateEntryIds(largeArray);
       expect(result.isValid).toBe(false);
       expect(result.errors).toContain('Too many entry IDs (max 1000 allowed)');
     });
 
-    test('should sanitize entry IDs to prevent injection', () => {
+    it('should sanitize entry IDs to prevent injection', () => {
       const result = validator.validateEntryIds('123; DROP TABLE entries;');
       expect(result.isValid).toBe(false);
       expect(result.errors).toContain('Entry ID "123; DROP TABLE entries;" must be numeric');
@@ -98,7 +99,7 @@ describe('ValidationHelper', () => {
   });
 
   describe('Export Format Validation', () => {
-    test('should validate supported export formats', () => {
+    it('should validate supported export formats', () => {
       const csvResult = validator.validateExportFormat('csv');
       const jsonResult = validator.validateExportFormat('json');
       
@@ -106,13 +107,13 @@ describe('ValidationHelper', () => {
       expect(jsonResult.isValid).toBe(true);
     });
 
-    test('should reject unsupported export formats', () => {
+    it('should reject unsupported export formats', () => {
       const result = validator.validateExportFormat('xml');
       expect(result.isValid).toBe(false);
       expect(result.errors).toContain('Export format must be "csv" or "json"');
     });
 
-    test('should reject null or undefined export formats', () => {
+    it('should reject null or undefined export formats', () => {
       const result = validator.validateExportFormat(undefined as any);
       expect(result.isValid).toBe(false);
       expect(result.errors).toContain('Export format is required');
@@ -120,7 +121,7 @@ describe('ValidationHelper', () => {
   });
 
   describe('Export Entries Parameters Validation', () => {
-    test('should validate complete export entries parameters', () => {
+    it('should validate complete export entries parameters', () => {
       const params: ExportEntriesParams = {
         form_id: '123',
         format: 'csv',
@@ -132,7 +133,7 @@ describe('ValidationHelper', () => {
       expect(result.isValid).toBe(true);
     });
 
-    test('should validate minimal export entries parameters', () => {
+    it('should validate minimal export entries parameters', () => {
       const params: ExportEntriesParams = {
         form_id: '123',
         format: 'json'
@@ -142,7 +143,7 @@ describe('ValidationHelper', () => {
       expect(result.isValid).toBe(true);
     });
 
-    test('should reject export entries with missing required fields', () => {
+    it('should reject export entries with missing required fields', () => {
       const params = {
         format: 'csv'
       } as ExportEntriesParams;
@@ -152,7 +153,7 @@ describe('ValidationHelper', () => {
       expect(result.errors).toContain('Form ID is required');
     });
 
-    test('should validate search parameters', () => {
+    it('should validate search parameters', () => {
       const params: ExportEntriesParams = {
         form_id: '123',
         format: 'csv',
@@ -166,7 +167,7 @@ describe('ValidationHelper', () => {
       expect(result.isValid).toBe(true);
     });
 
-    test('should reject invalid date formats', () => {
+    it('should reject invalid date formats', () => {
       const params: ExportEntriesParams = {
         form_id: '123',
         format: 'csv',
@@ -180,7 +181,7 @@ describe('ValidationHelper', () => {
   });
 
   describe('Bulk Process Parameters Validation', () => {
-    test('should validate bulk delete parameters', () => {
+    it('should validate bulk delete parameters', () => {
       const params: BulkProcessParams = {
         entry_ids: ['123', '456'],
         operation_type: 'delete',
@@ -191,7 +192,7 @@ describe('ValidationHelper', () => {
       expect(result.isValid).toBe(true);
     });
 
-    test('should validate bulk update parameters', () => {
+    it('should validate bulk update parameters', () => {
       const params: BulkProcessParams = {
         entry_ids: ['123', '456'],
         operation_type: 'update_status',
@@ -203,7 +204,7 @@ describe('ValidationHelper', () => {
       expect(result.isValid).toBe(true);
     });
 
-    test('should require confirmation for bulk operations', () => {
+    it('should require confirmation for bulk operations', () => {
       const params: BulkProcessParams = {
         entry_ids: ['123', '456'],
         operation_type: 'delete',
@@ -215,7 +216,7 @@ describe('ValidationHelper', () => {
       expect(result.errors).toContain('Bulk operations require explicit confirmation (confirm: true)');
     });
 
-    test('should validate operation types', () => {
+    it('should validate operation types', () => {
       const params: BulkProcessParams = {
         entry_ids: ['123'],
         operation_type: 'invalid_operation' as any,
@@ -227,7 +228,7 @@ describe('ValidationHelper', () => {
       expect(result.errors).toContain('Invalid operation type');
     });
 
-    test('should require data for update operations', () => {
+    it('should require data for update operations', () => {
       const params: BulkProcessParams = {
         entry_ids: ['123'],
         operation_type: 'update_fields',
@@ -239,7 +240,7 @@ describe('ValidationHelper', () => {
       expect(result.errors).toContain('Data is required for update operations');
     });
 
-    test('should enforce maximum entry limit', () => {
+    it('should enforce maximum entry limit', () => {
       const manyEntries = new Array(101).fill(0).map((_, i) => String(i));
       const params: BulkProcessParams = {
         entry_ids: manyEntries,
@@ -254,7 +255,7 @@ describe('ValidationHelper', () => {
   });
 
   describe('Template Parameters Validation', () => {
-    test('should validate template creation parameters', () => {
+    it('should validate template creation parameters', () => {
       const params: TemplateParams = {
         source_form_id: '123',
         template_name: 'Contact Form Template',
@@ -267,7 +268,7 @@ describe('ValidationHelper', () => {
       expect(result.isValid).toBe(true);
     });
 
-    test('should validate template name format', () => {
+    it('should validate template name format', () => {
       const params: TemplateParams = {
         source_form_id: '123',
         template_name: 'Valid Template Name'
@@ -277,7 +278,7 @@ describe('ValidationHelper', () => {
       expect(result.isValid).toBe(true);
     });
 
-    test('should reject invalid template names', () => {
+    it('should reject invalid template names', () => {
       const params: TemplateParams = {
         source_form_id: '123',
         template_name: ''
@@ -288,7 +289,7 @@ describe('ValidationHelper', () => {
       expect(result.errors).toContain('Template name cannot be empty');
     });
 
-    test('should validate field rename parameters', () => {
+    it('should validate field rename parameters', () => {
       const params: TemplateParams = {
         source_form_id: '123',
         template_name: 'Test Template',
@@ -302,7 +303,7 @@ describe('ValidationHelper', () => {
       expect(result.isValid).toBe(true);
     });
 
-    test('should reject dangerous field renames', () => {
+    it('should reject dangerous field renames', () => {
       const params: TemplateParams = {
         source_form_id: '123',
         template_name: 'Test Template',
@@ -318,7 +319,7 @@ describe('ValidationHelper', () => {
   });
 
   describe('Import/Export Parameters Validation', () => {
-    test('should validate form JSON import parameters', () => {
+    it('should validate form JSON import parameters', () => {
       const params: ImportExportParams = {
         form_json: '{"title": "Test Form", "fields": []}',
         force_import: false
@@ -328,7 +329,7 @@ describe('ValidationHelper', () => {
       expect(result.isValid).toBe(true);
     });
 
-    test('should validate JSON structure', () => {
+    it('should validate JSON structure', () => {
       const params: ImportExportParams = {
         form_json: 'invalid json',
         force_import: false
@@ -339,7 +340,7 @@ describe('ValidationHelper', () => {
       expect(result.errors).toContain('Invalid JSON format');
     });
 
-    test('should validate form JSON content', () => {
+    it('should validate form JSON content', () => {
       const params: ImportExportParams = {
         form_json: '{"invalid": "structure"}',
         force_import: false
@@ -352,14 +353,14 @@ describe('ValidationHelper', () => {
   });
 
   describe('Security and Edge Cases', () => {
-    test('should sanitize SQL injection attempts', () => {
+    it('should sanitize SQL injection attempts', () => {
       const formId = "1'; DROP TABLE forms; --";
       const result = validator.validateFormId(formId);
       expect(result.isValid).toBe(false);
       expect(result.errors).toContain('Form ID must be numeric');
     });
 
-    test('should sanitize XSS attempts in form names', () => {
+    it('should sanitize XSS attempts in form names', () => {
       const params: TemplateParams = {
         source_form_id: '123',
         template_name: '<script>alert("xss")</script>'
@@ -370,7 +371,7 @@ describe('ValidationHelper', () => {
       expect(result.errors).toContain('Template name contains invalid characters');
     });
 
-    test('should handle extremely large inputs', () => {
+    it('should handle extremely large inputs', () => {
       const largeString = 'a'.repeat(100000);
       const params: TemplateParams = {
         source_form_id: '123',
@@ -382,7 +383,7 @@ describe('ValidationHelper', () => {
       expect(result.errors).toContain('Template name too long (max 255 characters)');
     });
 
-    test('should handle null and undefined values gracefully', () => {
+    it('should handle null and undefined values gracefully', () => {
       const nullResult = validator.validateExportEntriesParams(null as any);
       expect(nullResult.isValid).toBe(false);
       expect(nullResult.errors).toContain('Parameters object is required');
@@ -392,7 +393,7 @@ describe('ValidationHelper', () => {
       expect(undefinedResult.errors).toContain('Parameters object is required');
     });
 
-    test('should validate parameter combinations for logical consistency', () => {
+    it('should validate parameter combinations for logical consistency', () => {
       const params: ExportEntriesParams = {
         form_id: '123',
         format: 'csv',
@@ -406,7 +407,7 @@ describe('ValidationHelper', () => {
       expect(result.errors).toContain('Date range start must be before end date');
     });
 
-    test('should reject invalid dates in date range', () => {
+    it('should reject invalid dates in date range', () => {
       const params: ExportEntriesParams = {
         form_id: '123',
         format: 'csv',
@@ -420,7 +421,7 @@ describe('ValidationHelper', () => {
       expect(result.errors).toContain('Invalid date format in date range');
     });
 
-    test('should validate bulk operations with both invalid IDs and too many entries', () => {
+    it('should validate bulk operations with both invalid IDs and too many entries', () => {
       const manyInvalidEntries = new Array(101).fill(0).map((_, i) => `invalid_${i}`);
       const params: BulkProcessParams = {
         entry_ids: manyInvalidEntries,
@@ -435,7 +436,7 @@ describe('ValidationHelper', () => {
       expect(result.errors).toContain('Bulk operations limited to 100 entries maximum');
     });
 
-    test('should prevent directory traversal attacks', () => {
+    it('should prevent directory traversal attacks', () => {
       const params: ExportEntriesParams = {
         form_id: '123',
         format: 'csv',

@@ -52,7 +52,7 @@ describe('search_entries_by_name Tool Components', () => {
           searchText: "John Smith",
           strategy: 'auto',
           fieldsSearched: 2,
-          executionTimeMs: 1200,
+          executionTime: 1200,
           cacheStatus: {
             hit: false,
             source: 'analysis',
@@ -156,7 +156,7 @@ describe('search_entries_by_name Tool Components', () => {
           searchText: "Nonexistent Person",
           strategy: 'auto',
           fieldsSearched: 1,
-          executionTimeMs: 500,
+          executionTime: 500,
           cacheStatus: {
             hit: false,
             source: 'analysis',

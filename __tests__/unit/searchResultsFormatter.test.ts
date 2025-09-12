@@ -2,14 +2,15 @@
 // ABOUTME: Tests formatting capabilities, token management, and various output modes
 
 import { SearchResultsFormatter } from '../../utils/searchResultsFormatter';
+import type {
+  SearchResult} from '../../utils/searchResultsFormatter';
 import {
-  SearchResult,
-  SearchMatch,
-  OutputMode,
   FormattedResult,
-  MatchHighlight
+  MatchHighlight,
+  OutputMode,
+  SearchMatch
 } from '../../utils/searchResultsFormatter';
-import { FieldTypeInfo, DetectedFieldType } from '../../utils/fieldTypeDetector';
+import type { DetectedFieldType, FieldTypeInfo } from '../../utils/fieldTypeDetector';
 
 describe('SearchResultsFormatter', () => {
   let formatter: SearchResultsFormatter;
@@ -295,7 +296,7 @@ describe('SearchResultsFormatter', () => {
       "17": "Team member: John Smith is the captain"
     };
 
-    const mockFieldMapping: { [fieldId: string]: FieldTypeInfo } = {
+    const mockFieldMapping: Record<string, FieldTypeInfo> = {
       "52": { fieldId: "52", fieldType: "name" as DetectedFieldType, confidence: 0.95, label: "Name" },
       "54": { fieldId: "54", fieldType: "email" as DetectedFieldType, confidence: 1.0, label: "Email" },
       "17": { fieldId: "17", fieldType: "team" as DetectedFieldType, confidence: 0.85, label: "Team Notes" }
@@ -538,7 +539,7 @@ describe('SearchResultsFormatter', () => {
     it('should truncate extremely large content that exceeds limits even in minimal mode', () => {
       // Mock an extremely large minimal view response that would exceed token limits
       const originalCreateMinimalView = formatter.createMinimalView;
-      formatter.createMinimalView = jest.fn().mockReturnValue('A'.repeat(110000)); // 110k chars = ~27.5k tokens
+      jest.spyOn(formatter, 'createMinimalView').mockImplementation().mockReturnValue('A'.repeat(110000)); // 110k chars = ~27.5k tokens
       
       const hugeResult: SearchResult = {
         matches: [{ entryId: "1", matchedFields: { "52": "Name" }, confidence: 1, entryData: { "id": "1" } }],

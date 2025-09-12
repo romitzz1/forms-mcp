@@ -2,14 +2,14 @@
   "mcpServers": {
     "gravity-forms-enhanced": {
       "command": "node",
-      "args": ["/Users/zachromitz/Documents/git/forms-mcp/dist/index.js"],
+      "args": ["/path/to/your/forms-mcp/dist/index.js"],
       "env": {
-        "GRAVITY_FORMS_BASE_URL": "https://yoursite.com",
+        "GRAVITY_FORMS_BASE_URL": "https://your-wordpress-site.com",
         "GRAVITY_FORMS_CONSUMER_KEY": "ck_your_consumer_key_here", 
         "GRAVITY_FORMS_CONSUMER_SECRET": "cs_your_consumer_secret_here",
         "GRAVITY_FORMS_AUTH_METHOD": "basic",
         "GRAVITY_FORMS_CACHE_ENABLED": "true",
-        "GRAVITY_FORMS_CACHE_DB_PATH": "./data/forms-cache.db",
+        "GRAVITY_FORMS_CACHE_DB_PATH": "/path/to/your/forms-mcp/data/forms-cache.db",
         "GRAVITY_FORMS_CACHE_MAX_AGE_SECONDS": "300",
         "SEARCH_CACHE_ENABLED": "true",
         "SEARCH_CACHE_MAX_AGE_MS": "900000",

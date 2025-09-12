@@ -14,7 +14,12 @@
       "mcp__gravity-forms-enhanced__get_entries",
       "Bash(npm run lint)",
       "Bash(npx lint-staged:*)",
-      "Bash(npx eslint:*)"
+      "Bash(npx eslint:*)",
+      "Bash(find:*)",
+      "mcp__gravity-forms-enhanced__get_forms",
+      "mcp__gravity-forms-enhanced__search_entries_by_name",
+      "mcp__gravity-forms-enhanced__get_field_mappings",
+      "mcp__gravity-forms-enhanced__search_entries_universal"
     ],
     "deny": [],
     "ask": []

@@ -326,7 +326,7 @@ describe('import_form_json tool logic', () => {
         ]
       };
 
-      function updateFieldIds(form: any, startingId: number = 1): { updatedForm: any; idMapping: Record<string, string> } {
+      function updateFieldIds(form: any, startingId = 1): { updatedForm: any; idMapping: Record<string, string> } {
         const idMapping: Record<string, string> = {};
         let currentId = startingId;
         
@@ -374,7 +374,7 @@ describe('import_form_json tool logic', () => {
 
       function updateConditionalLogicReferences(form: any, idMapping: Record<string, string>): any {
         const updatedFields = form.fields.map((field: any) => {
-          if (field.conditionalLogic && field.conditionalLogic.rules) {
+          if (field.conditionalLogic?.rules) {
             const updatedRules = field.conditionalLogic.rules.map((rule: any) => {
               if (rule.fieldId && idMapping[rule.fieldId]) {
                 return { ...rule, fieldId: idMapping[rule.fieldId] };
@@ -461,7 +461,7 @@ describe('import_form_json tool logic', () => {
 
       const existingForms: any[] = [];
 
-      function performImport(jsonString: string, existingForms: any[], forceImport: boolean = false): any {
+      function performImport(jsonString: string, existingForms: any[], forceImport = false): any {
         // Validate JSON
         const parsed = JSON.parse(jsonString);
         if (!parsed.title) throw new Error('Invalid form JSON');
@@ -506,7 +506,7 @@ describe('import_form_json tool logic', () => {
         { id: '5', title: 'Contact Form' }
       ];
 
-      function performImportWithConflictResolution(jsonString: string, existingForms: any[], forceImport: boolean = false): any {
+      function performImportWithConflictResolution(jsonString: string, existingForms: any[], forceImport = false): any {
         const parsed = JSON.parse(jsonString);
         
         const hasConflict = existingForms.some(form => form.title === parsed.title);

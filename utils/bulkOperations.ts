@@ -1,7 +1,7 @@
 // ABOUTME: Bulk operations manager for Gravity Forms entries
 // ABOUTME: Provides safe bulk operations with confirmation, validation, and audit trails
 
-import { BulkProcessParams, ValidationResult } from './validation';
+import type { BulkProcessParams, ValidationResult } from './validation.js';
 
 export type BulkOperationType = 'delete' | 'update_status' | 'update_fields';
 
@@ -66,9 +66,9 @@ export interface BulkOperationResult {
 export class BulkOperationsManager {
   private readonly MAX_ENTRY_LIMIT = 100;
   private readonly baseUrl: string;
-  private readonly authHeaders: { [key: string]: string };
+  private readonly authHeaders: Record<string, string>;
 
-  constructor(baseUrl: string, authHeaders: { [key: string]: string }) {
+  constructor(baseUrl: string, authHeaders: Record<string, string>) {
     this.baseUrl = baseUrl;
     this.authHeaders = authHeaders;
   }
@@ -77,7 +77,7 @@ export class BulkOperationsManager {
     return this.baseUrl;
   }
 
-  getAuthHeaders(): { [key: string]: string } {
+  getAuthHeaders(): Record<string, string> {
     return this.authHeaders;
   }
 

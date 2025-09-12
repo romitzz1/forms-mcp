@@ -1,8 +1,9 @@
 // ABOUTME: Test suite for FormCache comprehensive error handling and logging
 // ABOUTME: Tests error classification, recovery mechanisms, and logging framework
 
-import { FormCache, FormCacheInsert, FormCacheLogger } from '../../utils/formCache.js';
-import { CacheError, DatabaseError, ApiError, SyncError, ConfigurationError } from '../../utils/formCache.js';
+import type { FormCacheInsert} from '../../utils/formCache.js';
+import { FormCache, FormCacheLogger } from '../../utils/formCache.js';
+import { ApiError, CacheError, ConfigurationError, DatabaseError, SyncError } from '../../utils/formCache.js';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -57,9 +58,9 @@ describe('FormCache Error Handling and Logging', () => {
     FormCacheLogger.resetInstance();
 
     // Mock console methods to capture logs
-    console.log = jest.fn((...args) => logMessages.push(`LOG: ${args.join(' ')}`));
-    console.error = jest.fn((...args) => logMessages.push(`ERROR: ${args.join(' ')}`));
-    console.warn = jest.fn((...args) => logMessages.push(`WARN: ${args.join(' ')}`));
+    jest.spyOn(console, 'log').mockImplementation((...args) => logMessages.push(`LOG: ${args.join(' ')}`));
+    jest.spyOn(console, 'error').mockImplementation((...args) => logMessages.push(`ERROR: ${args.join(' ')}`));
+    jest.spyOn(console, 'warn').mockImplementation((...args) => logMessages.push(`WARN: ${args.join(' ')}`));
   });
 
   afterEach(async () => {
@@ -295,7 +296,7 @@ describe('FormCache Error Handling and Logging', () => {
     });
 
     it('should track comprehensive sync statistics and progress', async () => {
-      let progressReports: any[] = [];
+      const progressReports: any[] = [];
       
       const successApiCall = (endpoint: string) => {
         if (endpoint === '/forms') {
@@ -348,7 +349,7 @@ describe('FormCache Error Handling and Logging', () => {
       const sensitiveLogs = logMessages.filter(msg => 
         msg.includes('api_key') || msg.includes('secret') || msg.includes('password')
       );
-      expect(sensitiveLogs.length).toBe(0);
+      expect(sensitiveLogs).toHaveLength(0);
     });
 
     it('should use structured logging with context', async () => {
