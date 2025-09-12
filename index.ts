@@ -15,13 +15,15 @@ import { TemplateManager } from "./utils/templateManager.js";
 import { FormImporter } from "./utils/formImporter.js";
 import { FormCache } from "./utils/formCache.js";
 import { FieldTypeDetector } from "./utils/fieldTypeDetector.js";
-import { UniversalSearchManager, SearchStrategy } from "./utils/universalSearchManager.js";
-import { SearchResultsFormatter, OutputMode, SearchResult as FormattedSearchResult, FormInfo } from "./utils/searchResultsFormatter.js";
+import type { SearchStrategy } from "./utils/universalSearchManager.js";
+import { UniversalSearchManager } from "./utils/universalSearchManager.js";
+import type { SearchResult as FormattedSearchResult, FormInfo, OutputMode } from "./utils/searchResultsFormatter.js";
+import { SearchResultsFormatter } from "./utils/searchResultsFormatter.js";
 import * as fs from 'fs';
 import * as path from 'path';
 
 // Configuration interface
-interface GravityFormsConfig {
+interface IGravityFormsConfig {
   baseUrl: string;
   consumerKey: string;
   consumerSecret: string;
@@ -29,7 +31,7 @@ interface GravityFormsConfig {
 }
 
 // Cache configuration interface  
-interface CacheConfig {
+interface ICacheConfig {
   enabled: boolean;
   dbPath: string;
   maxAgeSeconds: number;
@@ -38,29 +40,29 @@ interface CacheConfig {
 }
 
 // Cache status interface
-interface CacheStatus {
+interface ICacheStatus {
   enabled: boolean;
   ready: boolean;
   dbPath: string;
   totalForms: number;
   activeForms: number;
   lastSync: Date | null;
-  config: CacheConfig;
+  config: ICacheConfig;
 }
 
 export class GravityFormsMCPServer {
-  private server: Server;
-  private config: GravityFormsConfig;
-  private cacheConfig: CacheConfig;
-  private dataExporter: DataExporter;
-  private validator: ValidationHelper;
+  private readonly server: Server;
+  private readonly config: IGravityFormsConfig;
+  private readonly cacheConfig: ICacheConfig;
+  private readonly dataExporter: DataExporter;
+  private readonly validator: ValidationHelper;
   private bulkOperationsManager?: BulkOperationsManager;
   private templateManager?: TemplateManager;
   private formImporter?: FormImporter;
   private formCache?: FormCache | null;
-  private fieldTypeDetector: FieldTypeDetector;
+  private readonly fieldTypeDetector: FieldTypeDetector;
   private universalSearchManager?: UniversalSearchManager;
-  private searchResultsFormatter: SearchResultsFormatter;
+  private readonly searchResultsFormatter: SearchResultsFormatter;
 
   constructor() {
     this.server = new Server(
@@ -72,10 +74,10 @@ export class GravityFormsMCPServer {
 
     // Load configuration from environment variables
     this.config = {
-      baseUrl: process.env.GRAVITY_FORMS_BASE_URL || '',
-      consumerKey: process.env.GRAVITY_FORMS_CONSUMER_KEY || '',
-      consumerSecret: process.env.GRAVITY_FORMS_CONSUMER_SECRET || '',
-      authMethod: (process.env.GRAVITY_FORMS_AUTH_METHOD as 'basic' | 'oauth') || 'basic'
+      baseUrl: process.env.GRAVITY_FORMS_BASE_URL ?? '',
+      consumerKey: process.env.GRAVITY_FORMS_CONSUMER_KEY ?? '',
+      consumerSecret: process.env.GRAVITY_FORMS_CONSUMER_SECRET ?? '',
+      authMethod: (process.env.GRAVITY_FORMS_AUTH_METHOD as 'basic' | 'oauth') ?? 'basic'
     };
 
     // Load cache configuration
@@ -100,9 +102,9 @@ export class GravityFormsMCPServer {
   /**
    * Load cache configuration from environment variables with defaults
    */
-  private loadCacheConfig(): CacheConfig {
+  private loadCacheConfig(): ICacheConfig {
     const enabled = this.parseBooleanEnv('GRAVITY_FORMS_CACHE_ENABLED', true);
-    const dbPath = process.env.GRAVITY_FORMS_CACHE_DB_PATH || './data/forms-cache.db';
+    const dbPath = process.env.GRAVITY_FORMS_CACHE_DB_PATH ?? './data/forms-cache.db';
     const maxAgeSeconds = this.parseIntEnv('GRAVITY_FORMS_CACHE_MAX_AGE_SECONDS', 3600, 60, 86400);
     const maxProbeFailures = this.parseIntEnv('GRAVITY_FORMS_CACHE_MAX_PROBE_FAILURES', 10, 1, 50);
     const autoSync = this.parseBooleanEnv('GRAVITY_FORMS_CACHE_AUTO_SYNC', true);
@@ -150,7 +152,7 @@ export class GravityFormsMCPServer {
   /**
    * Get current cache configuration
    */
-  private getCacheConfig(): CacheConfig {
+  private getCacheConfig(): ICacheConfig {
     return { ...this.cacheConfig };
   }
 
@@ -206,11 +208,11 @@ export class GravityFormsMCPServer {
   /**
    * Get comprehensive cache status for monitoring
    */
-  private async getCacheStatus(): Promise<CacheStatus> {
+  private async getCacheStatus(): Promise<ICacheStatus> {
     // Cache is enabled if configured AND actually initialized
     const actuallyEnabled = this.cacheConfig.enabled && this.formCache !== null;
     
-    const baseStatus: CacheStatus = {
+    const baseStatus: ICacheStatus = {
       enabled: actuallyEnabled,
       ready: false,
       dbPath: this.cacheConfig.dbPath,
@@ -259,7 +261,7 @@ export class GravityFormsMCPServer {
     );
   }
 
-  private async makeRequest(endpoint: string, method: string = 'GET', body?: any): Promise<any> {
+  private async makeRequest(endpoint: string, method = 'GET', body?: any): Promise<any> {
     const url = `${this.config.baseUrl}/wp-json/gf/v2${endpoint}`;
     const headers = this.getAuthHeaders();
 
@@ -1001,9 +1003,9 @@ export class GravityFormsMCPServer {
       try {
         const entryJson = JSON.stringify(entries[i]);
         totalSampleSize += entryJson.length;
-      } catch (error) {
+      } catch {
         // Fallback: estimate by field count and typical values
-        const fieldCount = Object.keys(entries[i] || {}).length;
+        const fieldCount = Object.keys(entries[i] ?? {}).length;
         totalSampleSize += fieldCount * 50; // Rough average per field
       }
     }
@@ -1058,7 +1060,7 @@ export class GravityFormsMCPServer {
     try {
       const entryJson = JSON.stringify(entry);
       entrySize = entryJson.length;
-    } catch (error) {
+    } catch {
       // If JSON.stringify fails (circular references, etc.), estimate size by field count
       entrySize = Object.keys(entry).length * 100; // Conservative estimate
     }
@@ -1323,7 +1325,7 @@ Consider using form templates or cloning for management.`;
       
       if (search.field_filters && Array.isArray(search.field_filters)) {
         const validFilters = search.field_filters
-          .filter((filter: any) => filter && filter.key != null && filter.value != null)
+          .filter((filter: any) => filter?.key != null && filter.value != null)
           .map((filter: any) => {
             const sanitizedKey = String(filter.key).trim();
             const sanitizedValue = String(filter.value).trim();
@@ -1694,7 +1696,7 @@ Consider using form templates or cloning for management.`;
         
         if (search.field_filters && Array.isArray(search.field_filters)) {
           const validFilters = search.field_filters
-            .filter((filter: any) => filter && filter.key != null && filter.value != null)
+            .filter((filter: any) => filter?.key != null && filter.value != null)
             .map((filter: any) => {
               const sanitizedKey = String(filter.key).trim();
               const sanitizedValue = String(filter.value).trim();
@@ -2253,7 +2255,7 @@ ${exportResult.base64Data}`
           const cleanNotification = { ...notification };
           
           // Replace sensitive email addresses with placeholders
-          if (cleanNotification.to && cleanNotification.to.includes('@') && cleanNotification.to !== '{admin_email}') {
+          if (cleanNotification.to?.includes('@') && cleanNotification.to !== '{admin_email}') {
             cleanNotification.to = '{admin_email}';
           }
           
@@ -2583,7 +2585,7 @@ ${exportResult.base64Data}`
       // Create ApiClient interface implementation
       const apiClient = {
         getFormDefinition: async (formId: string) => {
-          return await this.makeRequest('GET', `/forms/${formId}`);
+          return this.makeRequest('GET', `/forms/${formId}`);
         },
         searchEntries: async (formId: string, searchParams: any) => {
           const response = await this.makeRequest('GET', `/forms/${formId}/entries`, searchParams);
@@ -3160,7 +3162,7 @@ ${exportResult.base64Data}`
       // Get form definition
       const formData = await this.makeRequest('GET', `/forms/${form_id}`);
       
-      if (!formData || !formData.id) {
+      if (!formData?.id) {
         throw new McpError(ErrorCode.InvalidRequest, `Form ${form_id} not found or inaccessible`);
       }
 
