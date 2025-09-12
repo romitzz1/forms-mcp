@@ -52,6 +52,14 @@ export class UniversalSearchManager {
     private apiClient: ApiClient;
     private defaultOptions: SearchOptions;
 
+    // Constants for better maintainability
+    private static readonly EXACT_SEARCH_MAX_LENGTH = 3;
+    private static readonly NAME_FIELD_CONFIDENCE_BOOST = 1.2;
+    private static readonly EMAIL_FIELD_CONFIDENCE_BOOST = 1.1;
+    private static readonly MULTI_FIELD_BOOST_INCREMENT = 0.05;
+    private static readonly MAX_MULTI_FIELD_BOOST = 0.1;
+    private static readonly MIN_WORD_LENGTH_FOR_MATCHING = 2;
+
     constructor(fieldDetector: FieldTypeDetector, apiClient: ApiClient) {
         this.fieldDetector = fieldDetector;
         this.apiClient = apiClient;
@@ -66,14 +74,14 @@ export class UniversalSearchManager {
      * Search for names across all detected name fields
      */
     public async searchByName(formId: string, searchText: string, options?: Partial<SearchOptions>): Promise<SearchResult> {
-        this.validateInput(formId, searchText);
+        const { cleanFormId, cleanSearchText } = this.validateInput(formId, searchText);
         
         const startTime = Date.now();
         const searchOptions = { ...this.defaultOptions, ...options };
 
         try {
             // Get form definition and analyze fields
-            const formDefinition = await this.apiClient.getFormDefinition(formId);
+            const formDefinition = await this.apiClient.getFormDefinition(cleanFormId);
             const analysisResult = this.fieldDetector.analyzeFormFieldsWithStatus(formDefinition);
             
             // Get name fields for searching
@@ -85,12 +93,12 @@ export class UniversalSearchManager {
             if (fieldsToSearch.length === 0) {
                 // Fallback to all text fields if no name or team fields detected
                 const allTextFields = this.fieldDetector.getAllTextFields(analysisResult.mapping);
-                return await this.executeSearch(formId, searchText, allTextFields, searchOptions, analysisResult, startTime);
+                return await this.executeSearch(cleanFormId, cleanSearchText, allTextFields, searchOptions, analysisResult, startTime);
             }
 
-            return await this.executeSearch(formId, searchText, fieldsToSearch, searchOptions, analysisResult, startTime);
+            return await this.executeSearch(cleanFormId, cleanSearchText, fieldsToSearch, searchOptions, analysisResult, startTime);
         } catch (error) {
-            throw new Error(`Name search failed for form ${formId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            throw new Error(`Name search failed for form ${cleanFormId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
     }
 
@@ -98,14 +106,14 @@ export class UniversalSearchManager {
      * Search for emails across all detected email fields
      */
     public async searchByEmail(formId: string, searchText: string, options?: Partial<SearchOptions>): Promise<SearchResult> {
-        this.validateInput(formId, searchText);
+        const { cleanFormId, cleanSearchText } = this.validateInput(formId, searchText);
         
         const startTime = Date.now();
         const searchOptions = { ...this.defaultOptions, ...options };
 
         try {
             // Get form definition and analyze fields
-            const formDefinition = await this.apiClient.getFormDefinition(formId);
+            const formDefinition = await this.apiClient.getFormDefinition(cleanFormId);
             const analysisResult = this.fieldDetector.analyzeFormFieldsWithStatus(formDefinition);
             
             // Get email fields for searching
@@ -113,12 +121,12 @@ export class UniversalSearchManager {
             
             if (emailFields.length === 0) {
                 // No email fields detected - return empty result
-                return this.createEmptyResult(formId, searchText, searchOptions.strategy, analysisResult, startTime);
+                return this.createEmptyResult(cleanFormId, cleanSearchText, searchOptions.strategy, analysisResult, startTime);
             }
 
-            return await this.executeSearch(formId, searchText, emailFields, searchOptions, analysisResult, startTime);
+            return await this.executeSearch(cleanFormId, cleanSearchText, emailFields, searchOptions, analysisResult, startTime);
         } catch (error) {
-            throw new Error(`Email search failed for form ${formId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            throw new Error(`Email search failed for form ${cleanFormId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
     }
 
@@ -126,33 +134,39 @@ export class UniversalSearchManager {
      * Universal search across specified field types
      */
     public async searchUniversal(formId: string, searchText: string, fieldTypes: DetectedFieldType[], options?: Partial<SearchOptions>): Promise<SearchResult> {
-        this.validateInput(formId, searchText);
+        const { cleanFormId, cleanSearchText } = this.validateInput(formId, searchText);
         
         const startTime = Date.now();
         const searchOptions = { ...this.defaultOptions, ...options };
 
         try {
             // Get form definition and analyze fields
-            const formDefinition = await this.apiClient.getFormDefinition(formId);
+            const formDefinition = await this.apiClient.getFormDefinition(cleanFormId);
             const analysisResult = this.fieldDetector.analyzeFormFieldsWithStatus(formDefinition);
             
-            // Get fields by specified types
+            // Get fields by specified types with deduplication
             let fieldsToSearch: FieldTypeInfo[] = [];
             
             if (fieldTypes.length === 0) {
                 // Search all text fields if no specific types specified
                 fieldsToSearch = this.fieldDetector.getAllTextFields(analysisResult.mapping);
             } else {
-                // Combine fields from all specified types
+                // Combine fields from all specified types with deduplication
+                const fieldMap = new Map<string, FieldTypeInfo>();
+                
                 for (const fieldType of fieldTypes) {
                     const typeFields = this.fieldDetector.getFieldsByType(analysisResult.mapping, fieldType);
-                    fieldsToSearch = fieldsToSearch.concat(typeFields);
+                    for (const field of typeFields) {
+                        fieldMap.set(field.fieldId, field);
+                    }
                 }
+                
+                fieldsToSearch = Array.from(fieldMap.values());
             }
 
-            return await this.executeSearch(formId, searchText, fieldsToSearch, searchOptions, analysisResult, startTime);
+            return await this.executeSearch(cleanFormId, cleanSearchText, fieldsToSearch, searchOptions, analysisResult, startTime);
         } catch (error) {
-            throw new Error(`Universal search failed for form ${formId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            throw new Error(`Universal search failed for form ${cleanFormId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
     }
 
@@ -176,7 +190,7 @@ export class UniversalSearchManager {
     /**
      * Calculate match confidence based on matched fields and search context
      */
-    public calculateMatchConfidence(entry: any, searchText: string, matchedFields: { [fieldId: string]: string }): number {
+    public calculateMatchConfidence(entry: any, searchText: string, matchedFields: { [fieldId: string]: string }, fieldMapping?: FormFieldMapping): number {
         if (!matchedFields || Object.keys(matchedFields).length === 0) {
             return 0;
         }
@@ -205,18 +219,21 @@ export class UniversalSearchManager {
             else {
                 const searchWords = searchLower.split(/\s+/);
                 const matchingWords = searchWords.filter(word => 
-                    word.length > 2 && valueLower.includes(word)
+                    word.length > UniversalSearchManager.MIN_WORD_LENGTH_FOR_MATCHING && valueLower.includes(word)
                 );
                 if (matchingWords.length > 0) {
                     fieldConfidence = Math.min(0.7, matchingWords.length / searchWords.length * 0.7);
                 }
             }
 
-            // Boost confidence based on field type (name fields are more relevant than team mentions)
-            if (this.isNameField(fieldId)) {
-                fieldConfidence *= 1.2; // 20% boost for name fields
-            } else if (this.isEmailField(fieldId)) {
-                fieldConfidence *= 1.1; // 10% boost for email fields
+            // Boost confidence based on actual detected field type (not heuristics)
+            if (fieldMapping && fieldMapping[fieldId]) {
+                const fieldType = fieldMapping[fieldId].fieldType;
+                if (fieldType === 'name') {
+                    fieldConfidence *= UniversalSearchManager.NAME_FIELD_CONFIDENCE_BOOST;
+                } else if (fieldType === 'email') {
+                    fieldConfidence *= UniversalSearchManager.EMAIL_FIELD_CONFIDENCE_BOOST;
+                }
             }
 
             totalConfidence += Math.min(1.0, fieldConfidence);
@@ -227,7 +244,8 @@ export class UniversalSearchManager {
         const baseConfidence = fieldCount > 0 ? totalConfidence / fieldCount : 0;
         
         // Slight boost for multiple field matches (indicates stronger match)
-        const multiFieldBoost = fieldCount > 1 ? Math.min(0.1, (fieldCount - 1) * 0.05) : 0;
+        const multiFieldBoost = fieldCount > 1 ? 
+            Math.min(UniversalSearchManager.MAX_MULTI_FIELD_BOOST, (fieldCount - 1) * UniversalSearchManager.MULTI_FIELD_BOOST_INCREMENT) : 0;
         
         return Math.min(1.0, baseConfidence + multiFieldBoost);
     }
@@ -260,14 +278,14 @@ export class UniversalSearchManager {
         const entries = await this.apiClient.searchEntries(formId, searchParams);
         
         // Process results into matches with confidence scoring
-        const matches = this.processSearchResults(entries, searchText, fields, options.maxResults);
+        const matches = this.processSearchResults(entries, searchText, fields, options.maxResults, analysisResult.mapping);
         
         // Create search metadata
         const executionTimeMs = Date.now() - startTime;
         const searchMetadata: SearchMetadata = {
             formId,
             searchText,
-            strategy: options.strategy, // Use original strategy, not resolved one
+            strategy: strategy, // Use resolved strategy for accurate reporting
             fieldsSearched: fields.length,
             executionTimeMs,
             cacheStatus: {
@@ -287,7 +305,7 @@ export class UniversalSearchManager {
     /**
      * Process API search results into SearchMatch objects with confidence scoring
      */
-    private processSearchResults(entries: any[], searchText: string, fields: FieldTypeInfo[], maxResults: number): SearchMatch[] {
+    private processSearchResults(entries: any[], searchText: string, fields: FieldTypeInfo[], maxResults: number, fieldMapping: FormFieldMapping): SearchMatch[] {
         if (!entries || entries.length === 0) {
             return [];
         }
@@ -301,7 +319,8 @@ export class UniversalSearchManager {
             
             for (const field of fields) {
                 const fieldValue = entry[field.fieldId];
-                if (fieldValue && typeof fieldValue === 'string') {
+                // Add null safety - check for null/undefined before processing
+                if (fieldValue != null && typeof fieldValue === 'string' && fieldValue.trim() !== '') {
                     const valueLower = fieldValue.toLowerCase();
                     if (valueLower.includes(searchLower) || this.containsSearchWords(valueLower, searchLower)) {
                         matchedFields[field.fieldId] = fieldValue;
@@ -311,7 +330,7 @@ export class UniversalSearchManager {
 
             // Only include entries that have actual matches
             if (Object.keys(matchedFields).length > 0) {
-                const confidence = this.calculateMatchConfidence(entry, searchText, matchedFields);
+                const confidence = this.calculateMatchConfidence(entry, searchText, matchedFields, fieldMapping);
                 
                 matches.push({
                     entryId: entry.id || entry.entry_id || 'unknown',
@@ -335,8 +354,8 @@ export class UniversalSearchManager {
             return 'contains';
         }
         
-        // For very short (<=3 chars), exact-looking searches, use exact matching
-        if (searchText.length <= 3 && !searchText.includes(' ')) {
+        // For very short, exact-looking searches, use exact matching
+        if (searchText.length <= UniversalSearchManager.EXACT_SEARCH_MAX_LENGTH && !searchText.includes(' ')) {
             return 'exact';
         }
         
@@ -363,25 +382,11 @@ export class UniversalSearchManager {
      * Check if search text words are contained in field value
      */
     private containsSearchWords(fieldValue: string, searchText: string): boolean {
-        const searchWords = searchText.split(/\s+/).filter(word => word.length > 2);
+        const searchWords = searchText.split(/\s+/).filter(word => word.length > UniversalSearchManager.MIN_WORD_LENGTH_FOR_MATCHING);
         return searchWords.some(word => fieldValue.includes(word));
     }
 
-    /**
-     * Check if field ID represents a name field (heuristic)
-     */
-    private isNameField(fieldId: string): boolean {
-        // Common name field patterns: standalone numbers (52, 55) or name sub-fields (1.3, 1.6)
-        return /^\d+$/.test(fieldId) || /^\d+\.[36]$/.test(fieldId);
-    }
-
-    /**
-     * Check if field ID represents an email field (heuristic)
-     */
-    private isEmailField(fieldId: string): boolean {
-        // Email fields are typically standalone numbers or specific sub-fields
-        return /^\d+$/.test(fieldId) || /^\d+\.1$/.test(fieldId);
-    }
+    // Removed flawed heuristic methods - now using proper field type detection
 
     /**
      * Create empty search result
@@ -408,15 +413,27 @@ export class UniversalSearchManager {
     }
 
     /**
-     * Validate input parameters
+     * Validate input parameters and return cleaned values
      */
-    private validateInput(formId: string, searchText: string): void {
-        if (!formId || typeof formId !== 'string' || formId.trim() === '') {
-            throw new Error('Form ID is required and must be a non-empty string');
+    private validateInput(formId: string, searchText: string): { cleanFormId: string; cleanSearchText: string } {
+        if (!formId || typeof formId !== 'string') {
+            throw new Error('Form ID is required and must be a string');
         }
         
-        if (!searchText || typeof searchText !== 'string' || searchText.trim() === '') {
-            throw new Error('Search text is required and must be a non-empty string');
+        const cleanFormId = formId.trim();
+        if (cleanFormId === '') {
+            throw new Error('Form ID must be a non-empty string');
         }
+        
+        if (!searchText || typeof searchText !== 'string') {
+            throw new Error('Search text is required and must be a string');
+        }
+        
+        const cleanSearchText = searchText.trim();
+        if (cleanSearchText === '') {
+            throw new Error('Search text must be a non-empty string');
+        }
+        
+        return { cleanFormId, cleanSearchText };
     }
 }
