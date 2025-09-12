@@ -1,7 +1,8 @@
 // ABOUTME: Unit tests for update_form tool in Gravity Forms MCP Server
 // ABOUTME: Tests form updating functionality with API integration and error handling
 
-// import { GravityFormsMocks } from '../mocks/gravityFormsMocks'; // Will be used in later steps
+// Import will be uncommented when actually used in next step
+// import { GravityFormsMocks } from '../mocks/gravityFormsMocks';
 
 // Mock the entire MCP SDK at the module level
 const mockServer = {
@@ -46,11 +47,24 @@ describe('Update Form Tool', () => {
 
     // Clear module cache to ensure fresh imports
     jest.clearAllMocks();
+    
+    // Clear module cache for clean server instances
+    delete require.cache[require.resolve('../../index')];
+    
+    // Reset global fetch mock
+    if (global.fetch) {
+      (global.fetch as jest.Mock).mockClear();
+    }
   });
 
   afterEach(() => {
     // Restore original environment
     process.env = originalEnv;
+    
+    // Clean up global mocks
+    if (global.fetch && typeof global.fetch === 'function' && 'mockRestore' in global.fetch) {
+      (global.fetch as jest.Mock).mockRestore();
+    }
   });
 
   // Test structure will be added in subsequent steps
