@@ -2,6 +2,7 @@
 // ABOUTME: Tests automatic detection of name, email, phone, team fields with confidence scoring
 
 import { FieldTypeDetector, FieldTypeInfo, DetectedFieldType, FormFieldMapping } from '../../utils/fieldTypeDetector';
+import { FieldMappingCache } from '../../utils/fieldMappingCache';
 
 describe('FieldTypeDetector', () => {
     let detector: FieldTypeDetector;
@@ -527,6 +528,145 @@ describe('FieldTypeDetector', () => {
             // Generic fields
             expect(mapping['30'].fieldType).toBe('text');
             expect(mapping['31'].fieldType).toBe('text');
+        });
+    });
+
+    describe('Cache Integration', () => {
+        test('should use cache when available for form analysis', () => {
+            const cache = new FieldMappingCache();
+            const detectorWithCache = new FieldTypeDetector(cache);
+
+            const mockForm = {
+                id: '500',
+                title: 'Cached Form',
+                fields: [
+                    { id: '1', label: 'Name', type: 'text' },
+                    { id: '2', label: 'Email', type: 'email' }
+                ]
+            };
+
+            // First call should analyze and cache
+            const firstResult = detectorWithCache.analyzeFormFields(mockForm);
+            expect(firstResult['1'].fieldType).toBe('name');
+            expect(firstResult['2'].fieldType).toBe('email');
+
+            // Verify cache was populated
+            const stats1 = cache.getCacheStats();
+            expect(stats1.entryCount).toBe(1);
+
+            // Second call should use cache
+            const secondResult = detectorWithCache.analyzeFormFields(mockForm);
+            expect(secondResult).toEqual(firstResult);
+
+            // Verify cache hit
+            const stats2 = cache.getCacheStats();
+            expect(stats2.hitRate).toBeGreaterThan(0);
+        });
+
+        test('should fallback to analysis when cache miss', () => {
+            const cache = new FieldMappingCache();
+            const detectorWithCache = new FieldTypeDetector(cache);
+
+            const form1 = {
+                id: '501',
+                title: 'Form 1',
+                fields: [{ id: '1', label: 'Name', type: 'text' }]
+            };
+
+            const form2 = {
+                id: '502', 
+                title: 'Form 2',
+                fields: [{ id: '1', label: 'Email', type: 'email' }]
+            };
+
+            // Analyze different forms
+            const result1 = detectorWithCache.analyzeFormFields(form1);
+            const result2 = detectorWithCache.analyzeFormFields(form2);
+
+            expect(result1['1'].fieldType).toBe('name');
+            expect(result2['1'].fieldType).toBe('email');
+            expect(cache.getCacheStats().entryCount).toBe(2);
+        });
+
+        test('should work without cache (backward compatibility)', () => {
+            const detectorWithoutCache = new FieldTypeDetector();
+
+            const mockForm = {
+                id: '503',
+                title: 'Non-cached Form',
+                fields: [{ id: '1', label: 'Phone', type: 'phone' }]
+            };
+
+            const result = detectorWithoutCache.analyzeFormFields(mockForm);
+            expect(result['1'].fieldType).toBe('phone');
+        });
+
+        test('should handle cache errors gracefully', () => {
+            // Create a cache that will throw errors
+            const failingCache = new FieldMappingCache();
+            const originalGet = failingCache.get.bind(failingCache);
+            failingCache.get = () => { throw new Error('Cache error'); };
+
+            const detectorWithFailingCache = new FieldTypeDetector(failingCache);
+
+            const mockForm = {
+                id: '504',
+                title: 'Error Test Form',
+                fields: [{ id: '1', label: 'Name', type: 'text' }]
+            };
+
+            // Should fallback to analysis despite cache error
+            expect(() => {
+                const result = detectorWithFailingCache.analyzeFormFields(mockForm);
+                expect(result['1'].fieldType).toBe('name');
+            }).not.toThrow();
+        });
+
+        test('should return cache status in analysis results', () => {
+            const cache = new FieldMappingCache();
+            const detectorWithCache = new FieldTypeDetector(cache);
+
+            const mockForm = {
+                id: '505',
+                title: 'Status Test Form',
+                fields: [{ id: '1', label: 'Name', type: 'text' }]
+            };
+
+            // First call - should be cache miss
+            const result1 = detectorWithCache.analyzeFormFieldsWithStatus(mockForm);
+            expect(result1.mapping['1'].fieldType).toBe('name');
+            expect(result1.cacheStatus.hit).toBe(false);
+            expect(result1.cacheStatus.source).toBe('analysis');
+
+            // Second call - should be cache hit
+            const result2 = detectorWithCache.analyzeFormFieldsWithStatus(mockForm);
+            expect(result2.mapping['1'].fieldType).toBe('name');
+            expect(result2.cacheStatus.hit).toBe(true);
+            expect(result2.cacheStatus.source).toBe('cache');
+        });
+
+        test('should respect cache invalidation', () => {
+            const cache = new FieldMappingCache();
+            const detectorWithCache = new FieldTypeDetector(cache);
+
+            const mockForm = {
+                id: '506',
+                title: 'Invalidation Test Form',
+                fields: [{ id: '1', label: 'Name', type: 'text' }]
+            };
+
+            // Analyze and cache
+            detectorWithCache.analyzeFormFields(mockForm);
+            expect(cache.getCacheStats().entryCount).toBe(1);
+
+            // Invalidate specific form
+            cache.invalidate('506');
+            expect(cache.getCacheStats().entryCount).toBe(0);
+
+            // Should re-analyze after invalidation
+            const result = detectorWithCache.analyzeFormFields(mockForm);
+            expect(result['1'].fieldType).toBe('name');
+            expect(cache.getCacheStats().entryCount).toBe(1);
         });
     });
 });

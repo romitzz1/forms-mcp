@@ -1,6 +1,8 @@
 // ABOUTME: Intelligent field type detection for Gravity Forms - identifies name, email, phone, team fields automatically
 // ABOUTME: Uses pattern matching on field labels and types with confidence scoring for universal search capabilities
 
+import { FieldMappingCache } from './fieldMappingCache';
+
 export type DetectedFieldType = 'name' | 'email' | 'phone' | 'team' | 'text' | 'unknown';
 
 export interface FieldTypeInfo {
@@ -12,6 +14,17 @@ export interface FieldTypeInfo {
 
 export interface FormFieldMapping {
     [fieldId: string]: FieldTypeInfo;
+}
+
+export interface CacheStatus {
+    hit: boolean;
+    source: 'cache' | 'analysis';
+    timestamp: Date;
+}
+
+export interface AnalysisResult {
+    mapping: FormFieldMapping;
+    cacheStatus: CacheStatus;
 }
 
 interface GravityFormField {
@@ -33,6 +46,12 @@ export class FieldTypeDetector {
     private static readonly SPECIAL_CASE_CONFIDENCE = 0.8;
     private static readonly CAPTAIN_CONFIDENCE = 0.85;
     private static readonly USERNAME_CONFIDENCE = 0.6;
+
+    private cache?: FieldMappingCache;
+
+    constructor(cache?: FieldMappingCache) {
+        this.cache = cache;
+    }
 
     private readonly patterns = {
         name: {
@@ -245,11 +264,48 @@ export class FieldTypeDetector {
      * Analyzes all fields in a form and returns field type mapping
      */
     public analyzeFormFields(formDefinition: GravityForm): FormFieldMapping {
-        const mapping: FormFieldMapping = {};
+        return this.analyzeFormFieldsWithStatus(formDefinition).mapping;
+    }
 
+    /**
+     * Analyzes form fields with cache status information
+     */
+    public analyzeFormFieldsWithStatus(formDefinition: GravityForm): AnalysisResult {
+        const formId = formDefinition.id;
+        
         if (!formDefinition?.fields || !Array.isArray(formDefinition.fields)) {
-            return mapping;
+            return {
+                mapping: {},
+                cacheStatus: {
+                    hit: false,
+                    source: 'analysis',
+                    timestamp: new Date()
+                }
+            };
         }
+
+        // Try cache first if available
+        if (this.cache) {
+            try {
+                const cachedMapping = this.cache.get(formId);
+                if (cachedMapping) {
+                    return {
+                        mapping: cachedMapping,
+                        cacheStatus: {
+                            hit: true,
+                            source: 'cache',
+                            timestamp: new Date()
+                        }
+                    };
+                }
+            } catch (error) {
+                // Cache error - fallback to analysis
+                console.warn('FieldTypeDetector: Cache error, falling back to analysis:', error);
+            }
+        }
+
+        // Perform field analysis
+        const mapping: FormFieldMapping = {};
 
         for (let i = 0; i < formDefinition.fields.length; i++) {
             const field = formDefinition.fields[i];
@@ -276,7 +332,24 @@ export class FieldTypeDetector {
             mapping[fieldId] = fieldInfo;
         }
 
-        return mapping;
+        // Cache the results if cache is available
+        if (this.cache) {
+            try {
+                this.cache.set(formId, mapping);
+            } catch (error) {
+                // Cache error - continue without caching
+                console.warn('FieldTypeDetector: Failed to cache results:', error);
+            }
+        }
+
+        return {
+            mapping,
+            cacheStatus: {
+                hit: false,
+                source: 'analysis',
+                timestamp: new Date()
+            }
+        };
     }
 
     /**
@@ -359,5 +432,28 @@ export class FieldTypeDetector {
             averageConfidence: fields.length > 0 ? totalConfidence / fields.length : 0,
             highConfidenceCount
         };
+    }
+
+    /**
+     * Gets the cache instance if available
+     */
+    public getCache(): FieldMappingCache | undefined {
+        return this.cache;
+    }
+
+    /**
+     * Invalidates cache for a specific form or all forms
+     */
+    public invalidateCache(formId?: string): void {
+        if (this.cache) {
+            this.cache.invalidate(formId);
+        }
+    }
+
+    /**
+     * Gets cache statistics if cache is available
+     */
+    public getCacheStats() {
+        return this.cache?.getCacheStats() || null;
     }
 }
