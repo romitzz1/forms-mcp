@@ -11,7 +11,8 @@
       "WebFetch(domain:docs.gravityforms.com)",
       "Bash(node:*)",
       "mcp__gravity-forms-enhanced__get_cache_status",
-      "mcp__gravity-forms-enhanced__get_entries"
+      "mcp__gravity-forms-enhanced__get_entries",
+      "Bash(npm run lint)"
     ],
     "deny": [],
     "ask": []

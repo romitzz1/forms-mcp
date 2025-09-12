@@ -545,7 +545,7 @@ describe('BulkOperationsManager', () => {
 
       mockFetch.mockImplementationOnce(async () => {
         // Add small delay to ensure measurable timing
-        await new Promise(resolve => setTimeout(resolve, 1));
+        await new Promise(resolve => setTimeout(resolve, 10));
         return {
           ok: true,
           json: async () => ({ message: 'Success' })

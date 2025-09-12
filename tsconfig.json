@@ -6,25 +6,54 @@
     "moduleResolution": "node",
     "outDir": "./dist",
     "rootDir": "./",
+    
+    // Strict type checking options
     "strict": true,
+    "noImplicitAny": true,
+    "noImplicitThis": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    
+    // Additional safety checks
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitOverride": true,
+    "noPropertyAccessFromIndexSignature": true,
+    
+    // Module resolution and imports
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "allowImportingTsExtensions": false,
+    
+    // Output options
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
-    "resolveJsonModule": true,
-    "allowImportingTsExtensions": false,
-    "noEmit": false
+    "noEmit": false,
+    "removeComments": false,
+    "preserveConstEnums": true,
+    
+    // Compatibility and interop
+    "isolatedModules": true,
+    "allowJs": false,
+    "checkJs": false
   },
   "include": [
     "index.ts",
     "utils/**/*.ts",
-    "__tests__/**/*.ts"
+    "__tests__/**/*.ts",
+    "eslint.config.js"
   ],
   "exclude": [
     "node_modules",
-    "dist"
+    "dist",
+    "coverage",
+    "**/*.js",
+    "**/*.d.ts"
   ]
 }
