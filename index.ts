@@ -1293,7 +1293,7 @@ Consider using form templates or cloning for management.`;
     } = args;
 
     // Handle universal search mode
-    if (search_mode === 'universal' && search && search.field_filters && form_id) {
+    if (search_mode === 'universal' && form_id) {
       try {
         return await this.handleUniversalSearch(form_id, search, response_mode, field_detection);
       } catch (error) {
@@ -1443,27 +1443,36 @@ Consider using form templates or cloning for management.`;
   }
 
   private async handleUniversalSearch(form_id: string, search: any, response_mode: string, field_detection: boolean) {
-    // Initialize universal search components
-    const fieldDetector = new FieldTypeDetector();
-    
-    // Create API client adapter
-    const apiClient = {
-      getFormDefinition: async (formId: string) => {
-        return await this.makeRequest(`/forms/${formId}`);
-      },
-      searchEntries: async (formId: string, searchParams: any) => {
-        // Build search URL with proper encoding
-        const params = new URLSearchParams();
-        if (searchParams) {
-          params.append('search', JSON.stringify(searchParams));
+    try {
+      // Initialize universal search components
+      const fieldDetector = new FieldTypeDetector();
+      
+      // Create API client adapter with error handling
+      const apiClient = {
+        getFormDefinition: async (formId: string) => {
+          try {
+            return await this.makeRequest(`/forms/${formId}`);
+          } catch (error) {
+            throw new Error(`Failed to fetch form definition for form ${formId}: ${error}`);
+          }
+        },
+        searchEntries: async (formId: string, searchParams: any) => {
+          try {
+            // Build search URL with proper encoding
+            const params = new URLSearchParams();
+            if (searchParams) {
+              params.append('search', JSON.stringify(searchParams));
+            }
+            const endpoint = `/forms/${formId}/entries?${params.toString()}`;
+            return await this.makeRequest(endpoint);
+          } catch (error) {
+            throw new Error(`Failed to search entries in form ${formId}: ${error}`);
+          }
         }
-        const endpoint = `/forms/${formId}/entries?${params.toString()}`;
-        return await this.makeRequest(endpoint);
-      }
-    };
-    
-    const searchManager = new UniversalSearchManager(fieldDetector, apiClient);
-    const resultsFormatter = new SearchResultsFormatter();
+      };
+      
+      const searchManager = new UniversalSearchManager(fieldDetector, apiClient);
+      const resultsFormatter = new SearchResultsFormatter();
 
     // Get form information for better context
     const formInfo: FormInfo = {
@@ -1472,52 +1481,80 @@ Consider using form templates or cloning for management.`;
       fieldCount: 0 // This will be populated by field detection
     };
 
-    // Extract search text from field_filters
-    let searchText = '';
-    if (search.field_filters && Array.isArray(search.field_filters) && search.field_filters.length > 0) {
-      // For universal search, combine all search values
-      searchText = search.field_filters
-        .map((filter: any) => filter.value)
-        .filter(Boolean)
-        .join(' ');
-    }
+      // Extract and validate search text from various sources
+      let searchText = '';
+      
+      // Try to extract from field_filters first
+      if (search?.field_filters && Array.isArray(search.field_filters) && search.field_filters.length > 0) {
+        searchText = search.field_filters
+          .filter((filter: any) => filter && typeof filter.value === 'string')
+          .map((filter: any) => String(filter.value).trim())
+          .filter(Boolean)
+          .join(' ');
+      }
+      
+      // If no search text from field_filters, try other search parameters
+      if (!searchText.trim() && search) {
+        // Check for other common search patterns
+        if (typeof search.text === 'string') {
+          searchText = search.text.trim();
+        } else if (typeof search.query === 'string') {
+          searchText = search.query.trim();
+        }
+      }
 
-    if (!searchText.trim()) {
+      // Handle empty search - return all entries in universal mode with field detection
+      if (!searchText.trim()) {
+        if (field_detection) {
+          // In field detection mode, we can still provide field mapping information
+          searchText = '*'; // Use wildcard to get all entries for field analysis
+        } else {
+          return {
+            content: [
+              {
+                type: "text",
+                text: "No search criteria provided. Use field_detection=true to analyze all entries or provide search text."
+              }
+            ]
+          };
+        }
+      }
+
+    // Perform universal search with field_detection setting
+    const searchOptions = {
+      strategy: 'auto' as SearchStrategy,
+      maxResults: 50,
+      includeContext: field_detection // Use field_detection parameter for context
+    };
+    
+      // Execute search with error handling
+      const searchResult = await searchManager.searchByName(form_id, searchText, searchOptions);
+
+      // Format results using SearchResultsFormatter
+      // Note: Universal search returns formatted, human-readable results with context and confidence scores
+      // This is intentionally different from standard search (raw JSON) to provide enhanced user experience
+      const outputMode: OutputMode = response_mode === 'summary' ? 'summary' : 
+                                     response_mode === 'full' ? 'detailed' : 'auto';
+
+      const formattedResult = resultsFormatter.formatSearchResults(
+        searchResult, 
+        outputMode, 
+        formInfo
+      );
+
       return {
         content: [
           {
-            type: "text",
-            text: "No entries found for the specified criteria."
+            type: "text", 
+            text: formattedResult.content
           }
         ]
       };
+    } catch (error) {
+      // Log the specific error and re-throw to trigger fallback in caller
+      console.error(`Universal search failed for form ${form_id}:`, error);
+      throw new Error(`Universal search failed: ${error instanceof Error ? error.message : String(error)}`);
     }
-
-    // Perform universal search
-    const searchResult = await searchManager.searchByName(form_id, searchText, {
-      strategy: 'auto',
-      maxResults: 50,
-      includeContext: true
-    });
-
-    // Format results using SearchResultsFormatter
-    const outputMode: OutputMode = response_mode === 'summary' ? 'summary' : 
-                                   response_mode === 'full' ? 'detailed' : 'auto';
-
-    const formattedResult = resultsFormatter.formatSearchResults(
-      searchResult, 
-      outputMode, 
-      formInfo
-    );
-
-    return {
-      content: [
-        {
-          type: "text", 
-          text: formattedResult.content
-        }
-      ]
-    };
   }
 
   private async submitForm(args: any) {
