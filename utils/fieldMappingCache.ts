@@ -14,12 +14,15 @@ export interface CacheOptions {
     maxAge: number;              // Cache expiration time in milliseconds
     maxSize: number;             // Maximum number of cached form mappings
     enablePersistence: boolean;  // Enable persistent storage (future feature)
+    enableLogging?: boolean;     // Enable console logging for errors (default: false)
 }
 
 export interface CacheStats {
     hitRate: number;           // Cache hit rate (0.0 to 1.0)
     entryCount: number;        // Current number of cached entries
     memoryUsage: number;       // Estimated memory usage in bytes
+    expiredCount: number;      // Number of expired entries encountered
+    corruptionCount: number;   // Number of corruption incidents detected
 }
 
 export class FieldMappingCache {
@@ -28,18 +31,23 @@ export class FieldMappingCache {
     private accessOrder: string[]; // For LRU tracking
     private hitCount: number = 0;
     private missCount: number = 0;
+    private expiredCount: number = 0;
+    private corruptionCount: number = 0;
+    private enableLogging: boolean;
 
     // Default configuration
     private static readonly DEFAULT_OPTIONS: CacheOptions = {
         maxAge: 3600000,        // 1 hour in milliseconds
         maxSize: 100,           // 100 form mappings
-        enablePersistence: false
+        enablePersistence: false,
+        enableLogging: false    // Disable console logging by default
     };
 
     constructor(options?: Partial<CacheOptions>) {
         this.options = { ...FieldMappingCache.DEFAULT_OPTIONS, ...options };
         this.cache = new Map();
         this.accessOrder = [];
+        this.enableLogging = this.options.enableLogging || false;
     }
 
     /**
@@ -59,14 +67,14 @@ export class FieldMappingCache {
         if (this.isExpired(entry)) {
             this.cache.delete(formId);
             this.removeFromAccessOrder(formId);
-            this.missCount++;
+            this.expiredCount++; // Track expired separately from misses
             return null;
         }
 
-        // Update access tracking
-        entry.lastAccessed = new Date();
-        this.updateAccessOrder(formId);
+        // Update access tracking atomically
         this.hitCount++;
+        entry.lastAccessed = new Date();
+        this.updateAccessOrderSafely(formId);
 
         return entry.mapping;
     }
@@ -98,7 +106,7 @@ export class FieldMappingCache {
 
         // Add new entry
         this.cache.set(formId, entry);
-        this.updateAccessOrder(formId);
+        this.updateAccessOrderSafely(formId);
 
         // Enforce size limit with LRU eviction
         this.enforceSizeLimit();
@@ -138,7 +146,9 @@ export class FieldMappingCache {
         return {
             hitRate,
             entryCount: this.cache.size,
-            memoryUsage: this.estimateMemoryUsage()
+            memoryUsage: this.estimateMemoryUsage(),
+            expiredCount: this.expiredCount,
+            corruptionCount: this.corruptionCount
         };
     }
 
@@ -172,6 +182,11 @@ export class FieldMappingCache {
         if (!formId || typeof formId !== 'string' || formId.trim() === '') {
             throw new Error('Form ID must be a non-empty string');
         }
+        
+        // Prevent excessively long form IDs that could cause memory issues
+        if (formId.length > 1000) {
+            throw new Error('Form ID exceeds maximum length of 1000 characters');
+        }
     }
 
     /**
@@ -184,14 +199,32 @@ export class FieldMappingCache {
     }
 
     /**
-     * Updates access order for LRU tracking
+     * Updates access order for LRU tracking with corruption detection
+     */
+    private updateAccessOrderSafely(formId: string): void {
+        try {
+            // Remove from current position
+            this.removeFromAccessOrder(formId);
+            
+            // Add to end (most recently used) 
+            this.accessOrder.push(formId);
+            
+            // Verify consistency after update
+            this.validateAccessOrderConsistency();
+        } catch (error) {
+            this.corruptionCount++;
+            if (this.enableLogging) {
+                console.warn('FieldMappingCache: Access order corruption detected, rebuilding:', error);
+            }
+            this.rebuildAccessOrder();
+        }
+    }
+    
+    /**
+     * Legacy method for backward compatibility - now uses safe version
      */
     private updateAccessOrder(formId: string): void {
-        // Remove from current position
-        this.removeFromAccessOrder(formId);
-        
-        // Add to end (most recently used)
-        this.accessOrder.push(formId);
+        this.updateAccessOrderSafely(formId);
     }
 
     /**
@@ -205,14 +238,42 @@ export class FieldMappingCache {
     }
 
     /**
-     * Enforces maximum cache size with LRU eviction
+     * Enforces maximum cache size with LRU eviction and infinite loop protection
      */
     private enforceSizeLimit(): void {
-        while (this.cache.size > this.options.maxSize && this.accessOrder.length > 0) {
+        let evictionCount = 0;
+        const maxEvictions = this.cache.size; // Prevent infinite loop
+        
+        while (this.cache.size > this.options.maxSize && 
+               this.accessOrder.length > 0 && 
+               evictionCount < maxEvictions) {
+               
             // Remove least recently used (first in access order)
             const lruFormId = this.accessOrder[0];
+            
+            if (!this.cache.has(lruFormId)) {
+                // Corruption detected: access order contains non-existent cache key
+                this.corruptionCount++;
+                if (this.enableLogging) {
+                    console.warn(`FieldMappingCache: Corruption - access order contains non-existent key: ${lruFormId}`);
+                }
+                this.removeFromAccessOrder(lruFormId);
+                evictionCount++;
+                continue;
+            }
+            
             this.cache.delete(lruFormId);
             this.removeFromAccessOrder(lruFormId);
+            evictionCount++;
+        }
+        
+        // If we hit max evictions, rebuild access order as safety measure
+        if (evictionCount >= maxEvictions && this.cache.size > this.options.maxSize) {
+            this.corruptionCount++;
+            if (this.enableLogging) {
+                console.warn('FieldMappingCache: Hit max evictions limit, rebuilding access order');
+            }
+            this.rebuildAccessOrder();
         }
     }
 
@@ -259,11 +320,46 @@ export class FieldMappingCache {
     }
 
     /**
+     * Validates consistency between cache and access order
+     */
+    private validateAccessOrderConsistency(): void {
+        if (this.accessOrder.length > this.cache.size) {
+            throw new Error('Access order length exceeds cache size');
+        }
+        
+        // Check for duplicates in access order
+        const seen = new Set<string>();
+        for (const formId of this.accessOrder) {
+            if (seen.has(formId)) {
+                throw new Error(`Duplicate form ID in access order: ${formId}`);
+            }
+            seen.add(formId);
+        }
+    }
+    
+    /**
+     * Rebuilds access order from current cache state
+     */
+    private rebuildAccessOrder(): void {
+        this.accessOrder = [];
+        
+        // Rebuild based on lastAccessed timestamps (most recent first)
+        const entries = Array.from(this.cache.entries())
+            .sort(([, a], [, b]) => b.lastAccessed.getTime() - a.lastAccessed.getTime());
+            
+        for (const [formId] of entries) {
+            this.accessOrder.push(formId);
+        }
+    }
+
+    /**
      * Resets cache statistics
      */
     public resetStats(): void {
         this.hitCount = 0;
         this.missCount = 0;
+        this.expiredCount = 0;
+        this.corruptionCount = 0;
     }
 
     /**

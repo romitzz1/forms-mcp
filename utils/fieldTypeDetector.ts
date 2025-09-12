@@ -300,7 +300,10 @@ export class FieldTypeDetector {
                 }
             } catch (error) {
                 // Cache error - fallback to analysis
-                console.warn('FieldTypeDetector: Cache error, falling back to analysis:', error);
+                // Only log if cache has logging enabled
+                if (this.cache?.getOptions()?.enableLogging) {
+                    console.warn('FieldTypeDetector: Cache error, falling back to analysis:', error);
+                }
             }
         }
 
@@ -338,7 +341,10 @@ export class FieldTypeDetector {
                 this.cache.set(formId, mapping);
             } catch (error) {
                 // Cache error - continue without caching
-                console.warn('FieldTypeDetector: Failed to cache results:', error);
+                // Only log if cache has logging enabled
+                if (this.cache?.getOptions()?.enableLogging) {
+                    console.warn('FieldTypeDetector: Failed to cache results:', error);
+                }
             }
         }
 

@@ -229,6 +229,8 @@ describe('FieldMappingCache', () => {
         test('should handle division by zero in hit rate calculation', () => {
             const stats = cache.getCacheStats();
             expect(stats.hitRate).toBe(0); // No operations should result in 0, not NaN
+            expect(stats.expiredCount).toBe(0);
+            expect(stats.corruptionCount).toBe(0);
         });
     });
 
@@ -371,6 +373,12 @@ describe('FieldMappingCache', () => {
             expect(() => cache.set('', mockMapping)).toThrow();
         });
 
+        test('should handle excessively long form IDs', () => {
+            const longFormId = 'a'.repeat(2000); // Over the 1000 character limit
+            expect(() => cache.get(longFormId)).toThrow('Form ID exceeds maximum length');
+            expect(() => cache.set(longFormId, mockMapping)).toThrow('Form ID exceeds maximum length');
+        });
+
         test('should handle null mappings', () => {
             expect(() => cache.set('test', null as any)).toThrow();
             expect(() => cache.set('test', undefined as any)).toThrow();
@@ -391,6 +399,130 @@ describe('FieldMappingCache', () => {
             // Should handle large mappings without error
             expect(() => cache.set('large', largeMapping)).not.toThrow();
             expect(cache.get('large')).toEqual(largeMapping);
+        });
+    });
+
+    describe('Corruption Detection and Recovery', () => {
+        test('should detect and recover from access order corruption', () => {
+            const loggingCache = new FieldMappingCache({ 
+                maxSize: 3, 
+                maxAge: 3600000,
+                enablePersistence: false,
+                enableLogging: true 
+            });
+
+            // Add some entries
+            loggingCache.set('form1', mockMapping);
+            loggingCache.set('form2', mockMapping);
+            
+            // Manually corrupt access order by adding duplicate
+            (loggingCache as any).accessOrder.push('form1');
+            
+            // This should detect corruption and rebuild
+            loggingCache.set('form3', mockMapping);
+            
+            const stats = loggingCache.getCacheStats();
+            expect(stats.corruptionCount).toBeGreaterThan(0);
+            
+            // Cache should still function correctly after recovery
+            expect(loggingCache.get('form1')).toEqual(mockMapping);
+            expect(loggingCache.get('form2')).toEqual(mockMapping);
+            expect(loggingCache.get('form3')).toEqual(mockMapping);
+        });
+
+        test('should handle expired entries tracking separately', () => {
+            const shortCache = new FieldMappingCache({ 
+                maxAge: 100, // Very short expiry
+                maxSize: 10,
+                enablePersistence: false 
+            });
+
+            shortCache.set('test', mockMapping);
+            
+            // Mock expiration
+            const entry = (shortCache as any).cache.get('test');
+            entry.timestamp = new Date(Date.now() - 200); // Expired
+
+            // Should count as expired, not miss
+            expect(shortCache.get('test')).toBeNull();
+            
+            const stats = shortCache.getCacheStats();
+            expect(stats.expiredCount).toBe(1);
+            expect(stats.hitRate).toBe(0); // No successful hits
+        });
+
+        test('should prevent infinite loops in enforceSizeLimit', () => {
+            const smallCache = new FieldMappingCache({ 
+                maxSize: 2,
+                maxAge: 3600000,
+                enablePersistence: false,
+                enableLogging: true 
+            });
+
+            // Add entries normally
+            smallCache.set('form1', mockMapping);
+            smallCache.set('form2', mockMapping);
+
+            // Manually corrupt access order to contain non-existent entries
+            (smallCache as any).accessOrder = ['nonexistent1', 'form1', 'nonexistent2', 'form2'];
+
+            // This should detect corruption and not infinite loop
+            smallCache.set('form3', mockMapping);
+
+            const stats = smallCache.getCacheStats();
+            expect(stats.corruptionCount).toBeGreaterThan(0);
+            expect(stats.entryCount).toBeLessThanOrEqual(2); // Should respect size limit
+        });
+
+        test('should reset all stats including new counters', () => {
+            // Create some activity to generate stats
+            cache.set('test', mockMapping);
+            cache.get('test'); // hit
+            cache.get('missing'); // miss
+
+            // Mock expired and corruption counts
+            (cache as any).expiredCount = 5;
+            (cache as any).corruptionCount = 2;
+
+            let stats = cache.getCacheStats();
+            expect(stats.hitRate).toBeGreaterThan(0);
+            expect(stats.expiredCount).toBe(5);
+            expect(stats.corruptionCount).toBe(2);
+
+            // Reset stats
+            cache.resetStats();
+
+            stats = cache.getCacheStats();
+            expect(stats.hitRate).toBe(0);
+            expect(stats.expiredCount).toBe(0);
+            expect(stats.corruptionCount).toBe(0);
+        });
+    });
+
+    describe('Configurable Logging', () => {
+        test('should respect enableLogging option', () => {
+            const quietCache = new FieldMappingCache({ 
+                maxSize: 10,
+                maxAge: 3600000,
+                enablePersistence: false,
+                enableLogging: false // Disable logging
+            });
+
+            expect((quietCache as any).enableLogging).toBe(false);
+
+            const verboseCache = new FieldMappingCache({ 
+                maxSize: 10,
+                maxAge: 3600000,
+                enablePersistence: false,
+                enableLogging: true // Enable logging
+            });
+
+            expect((verboseCache as any).enableLogging).toBe(true);
+        });
+
+        test('should default to logging disabled', () => {
+            const defaultCache = new FieldMappingCache();
+            expect((defaultCache as any).enableLogging).toBe(false);
         });
     });
 });
