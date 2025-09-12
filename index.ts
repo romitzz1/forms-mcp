@@ -2378,12 +2378,32 @@ ${exportResult.base64Data}`
         }
       );
 
-      // Get form data for formatting context
+      // Get form data for formatting context  
       const formData = await this.makeRequest('GET', `/forms/${form_id}`);
+
+      // Transform UniversalSearchManager result to SearchResultsFormatter format
+      const transformedResult = {
+        matches: searchResult.matches.map(match => ({
+          ...match,
+          entryData: { 
+            id: match.entryId,
+            ...match.matchedFields,
+            // Add minimal entry data - in real use, this would come from entry lookup
+            form_id: form_id
+          }
+        })),
+        totalFound: searchResult.totalFound,
+        searchMetadata: {
+          searchText: searchResult.searchMetadata.searchText,
+          executionTime: searchResult.searchMetadata.executionTimeMs,
+          apiCalls: 1, // Default for now
+          fieldsSearched: [`${searchResult.searchMetadata.fieldsSearched} fields`] // Convert number to array
+        }
+      };
 
       // Format results with SearchResultsFormatter
       const formattedResult = this.searchResultsFormatter.formatSearchResults(
-        searchResult as any, // Type compatibility handled in formatter
+        transformedResult as any,
         outputMode as any,
         {
           id: formData.id,
