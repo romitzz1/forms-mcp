@@ -44,7 +44,7 @@
     "checkJs": false
   },
   "include": [
-    "index.ts",
+    "*.ts",
     "utils/**/*.ts",
     "__tests__/**/*.ts",
     "eslint.config.js"

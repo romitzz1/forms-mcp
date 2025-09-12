@@ -12,7 +12,8 @@
       "Bash(node:*)",
       "mcp__gravity-forms-enhanced__get_cache_status",
       "mcp__gravity-forms-enhanced__get_entries",
-      "Bash(npm run lint)"
+      "Bash(npm run lint)",
+      "Bash(npx lint-staged:*)"
     ],
     "deny": [],
     "ask": []
