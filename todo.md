@@ -10,10 +10,11 @@
   - Follow existing test patterns
   - **Status**: COMPLETED - Basic test structure in place with placeholder test
 
-- [ ] **Step 2**: Write tool registration tests
+- [x] **Step 2**: Write tool registration tests ✅
   - Tool appears in list
   - Correct metadata and schema
-  - **Estimated**: 15 minutes
+  - **Status**: COMPLETED - Tests failing as expected (TDD)
+  - **Actual Time**: 15 minutes
 
 ### Phase 2: Core Implementation  
 - [ ] **Step 3**: Write basic update success test
