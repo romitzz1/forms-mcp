@@ -2,6 +2,8 @@
 // ABOUTME: Coordinates field detection, search strategies, confidence scoring, and result optimization
 
 import { FieldTypeDetector, FormFieldMapping, DetectedFieldType, FieldTypeInfo, AnalysisResult } from './fieldTypeDetector';
+import { SearchResultsCache } from './searchResultsCache';
+import { PerformanceMonitor } from './performanceMonitor';
 
 export type SearchStrategy = 'exact' | 'contains' | 'fuzzy' | 'auto';
 
@@ -51,6 +53,8 @@ export class UniversalSearchManager {
     private fieldDetector: FieldTypeDetector;
     private apiClient: ApiClient;
     private defaultOptions: SearchOptions;
+    private searchCache: SearchResultsCache;
+    private performanceMonitor: PerformanceMonitor;
 
     // Constants for better maintainability
     private static readonly EXACT_SEARCH_MAX_LENGTH = 3;
@@ -68,6 +72,14 @@ export class UniversalSearchManager {
             maxResults: 50,
             includeContext: true
         };
+        
+        // Initialize performance optimization components
+        this.searchCache = new SearchResultsCache({
+            maxAge: Math.max(1000, parseInt(process.env.SEARCH_CACHE_MAX_AGE_MS || '900000') || 900000), // 15 minutes default, min 1 second
+            maxSize: Math.max(1, parseInt(process.env.SEARCH_CACHE_MAX_SIZE || '100') || 100), // default 100, min 1
+            enableLogging: process.env.NODE_ENV === 'development'
+        });
+        this.performanceMonitor = new PerformanceMonitor();
     }
 
     /**
@@ -75,12 +87,29 @@ export class UniversalSearchManager {
      */
     public async searchByName(formId: string, searchText: string, options?: Partial<SearchOptions>): Promise<SearchResult> {
         const { cleanFormId, cleanSearchText } = this.validateInput(formId, searchText);
-        
-        const startTime = Date.now();
         const searchOptions = { ...this.defaultOptions, ...options };
-
+        
+        // Start performance monitoring
+        const perfHandle = this.performanceMonitor.startTimer('search_by_name');
+        
         try {
+            // Resolve the actual strategy that will be used for consistent caching
+            const resolvedStrategy = searchOptions.strategy === 'auto' ? this.determineOptimalStrategy(cleanSearchText) : searchOptions.strategy;
+            
+            // Check cache first using resolved strategy
+            const cachedResult = this.searchCache.get(cleanFormId, cleanSearchText, resolvedStrategy);
+            if (cachedResult) {
+                this.performanceMonitor.incrementCounter('cache_hits');
+                this.performanceMonitor.endTimer('search_by_name', perfHandle);
+                return cachedResult;
+            }
+            
+            // Cache miss - proceed with search
+            this.performanceMonitor.incrementCounter('cache_misses');
+            const startTime = Date.now();
+
             // Get form definition and analyze fields
+            this.performanceMonitor.incrementCounter('api_calls');
             const formDefinition = await this.apiClient.getFormDefinition(cleanFormId);
             const analysisResult = this.fieldDetector.analyzeFormFieldsWithStatus(formDefinition);
             
@@ -90,14 +119,24 @@ export class UniversalSearchManager {
             const teamFields = this.fieldDetector.getFieldsByType(analysisResult.mapping, 'team');
             const fieldsToSearch = [...nameFields, ...teamFields];
             
+            let searchResult: SearchResult;
+            
             if (fieldsToSearch.length === 0) {
                 // Fallback to all text fields if no name or team fields detected
                 const allTextFields = this.fieldDetector.getAllTextFields(analysisResult.mapping);
-                return await this.executeSearch(cleanFormId, cleanSearchText, allTextFields, searchOptions, analysisResult, startTime);
+                searchResult = await this.executeSearch(cleanFormId, cleanSearchText, allTextFields, searchOptions, analysisResult, startTime);
+            } else {
+                searchResult = await this.executeSearch(cleanFormId, cleanSearchText, fieldsToSearch, searchOptions, analysisResult, startTime);
             }
 
-            return await this.executeSearch(cleanFormId, cleanSearchText, fieldsToSearch, searchOptions, analysisResult, startTime);
+            // Cache the result using resolved strategy
+            this.searchCache.set(cleanFormId, cleanSearchText, searchResult, resolvedStrategy);
+            this.performanceMonitor.endTimer('search_by_name', perfHandle);
+            
+            return searchResult;
         } catch (error) {
+            this.performanceMonitor.incrementCounter('search_errors');
+            this.performanceMonitor.endTimer('search_by_name', perfHandle);
             throw new Error(`Name search failed for form ${cleanFormId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
     }
@@ -477,5 +516,31 @@ export class UniversalSearchManager {
         } catch (error) {
             throw new Error(`Field ID search failed for form ${cleanFormId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
+    }
+
+    /**
+     * Get performance statistics
+     */
+    public getPerformanceStats() {
+        return {
+            search: this.performanceMonitor.getStats(),
+            cache: this.searchCache.getCacheStats(),
+            summary: this.performanceMonitor.getSummary()
+        };
+    }
+
+    /**
+     * Clear performance caches
+     */
+    public clearCaches(): void {
+        this.searchCache.clear();
+        this.performanceMonitor.reset();
+    }
+
+    /**
+     * Invalidate cache for specific form
+     */
+    public invalidateFormCache(formId: string): void {
+        this.searchCache.invalidateForm(formId);
     }
 }
