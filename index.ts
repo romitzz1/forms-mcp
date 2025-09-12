@@ -354,6 +354,15 @@ export class GravityFormsMCPServer {
                   type: "string",
                   enum: ["full", "summary", "auto"],
                   description: "Response format mode: 'full' for complete entries, 'summary' for essential fields only, 'auto' for intelligent size management (default: auto)"
+                },
+                search_mode: {
+                  type: "string",
+                  enum: ["standard", "universal"],
+                  description: "Search strategy: 'standard' for traditional field-specific search, 'universal' for intelligent multi-field search with auto-detection (default: standard)"
+                },
+                field_detection: {
+                  type: "boolean",
+                  description: "Enable automatic field type detection for better search targeting (default: false)"
                 }
               }
             }
@@ -1272,7 +1281,26 @@ Consider using form templates or cloning for management.`;
   }
 
   private async getEntries(args: any) {
-    const { form_id, entry_id, search, sorting, paging, response_mode = 'auto' } = args;
+    const { 
+      form_id, 
+      entry_id, 
+      search, 
+      sorting, 
+      paging, 
+      response_mode = 'auto',
+      search_mode = 'standard',
+      field_detection = false
+    } = args;
+
+    // Handle universal search mode
+    if (search_mode === 'universal' && search && search.field_filters && form_id) {
+      try {
+        return await this.handleUniversalSearch(form_id, search, response_mode, field_detection);
+      } catch (error) {
+        // Fallback to standard search if universal search fails
+        console.warn('Universal search failed, falling back to standard search:', error);
+      }
+    }
     
     let endpoint = '';
     const params = new URLSearchParams();
@@ -1409,6 +1437,84 @@ Consider using form templates or cloning for management.`;
         {
           type: "text",
           text: responseText
+        }
+      ]
+    };
+  }
+
+  private async handleUniversalSearch(form_id: string, search: any, response_mode: string, field_detection: boolean) {
+    // Initialize universal search components
+    const fieldDetector = new FieldTypeDetector();
+    
+    // Create API client adapter
+    const apiClient = {
+      getFormDefinition: async (formId: string) => {
+        return await this.makeRequest(`/forms/${formId}`);
+      },
+      searchEntries: async (formId: string, searchParams: any) => {
+        // Build search URL with proper encoding
+        const params = new URLSearchParams();
+        if (searchParams) {
+          params.append('search', JSON.stringify(searchParams));
+        }
+        const endpoint = `/forms/${formId}/entries?${params.toString()}`;
+        return await this.makeRequest(endpoint);
+      }
+    };
+    
+    const searchManager = new UniversalSearchManager(fieldDetector, apiClient);
+    const resultsFormatter = new SearchResultsFormatter();
+
+    // Get form information for better context
+    const formInfo: FormInfo = {
+      id: form_id,
+      title: `Form ${form_id}`, // We could enhance this by fetching actual form title
+      fieldCount: 0 // This will be populated by field detection
+    };
+
+    // Extract search text from field_filters
+    let searchText = '';
+    if (search.field_filters && Array.isArray(search.field_filters) && search.field_filters.length > 0) {
+      // For universal search, combine all search values
+      searchText = search.field_filters
+        .map((filter: any) => filter.value)
+        .filter(Boolean)
+        .join(' ');
+    }
+
+    if (!searchText.trim()) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: "No entries found for the specified criteria."
+          }
+        ]
+      };
+    }
+
+    // Perform universal search
+    const searchResult = await searchManager.searchByName(form_id, searchText, {
+      strategy: 'auto',
+      maxResults: 50,
+      includeContext: true
+    });
+
+    // Format results using SearchResultsFormatter
+    const outputMode: OutputMode = response_mode === 'summary' ? 'summary' : 
+                                   response_mode === 'full' ? 'detailed' : 'auto';
+
+    const formattedResult = resultsFormatter.formatSearchResults(
+      searchResult, 
+      outputMode, 
+      formInfo
+    );
+
+    return {
+      content: [
+        {
+          type: "text", 
+          text: formattedResult.content
         }
       ]
     };
