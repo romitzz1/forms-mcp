@@ -2622,6 +2622,9 @@ ${exportResult.base64Data}`
         throw new McpError(ErrorCode.InvalidRequest, 'max_results must be between 1 and 1000');
       }
 
+      // Track execution time
+      const searchStartTime = Date.now();
+
       // Get UniversalSearchManager instance
       const searchManager = this.getUniversalSearchManager();
       
@@ -2633,24 +2636,35 @@ ${exportResult.base64Data}`
         for (const query of search_queries) {
           const fieldTypes = query.field_types || ['name']; // Default to name if not specified
           
+          let searchResult;
+          
           // Use custom field IDs if provided, otherwise use field types
-          let targetFieldTypes = fieldTypes;
           if (query.field_ids && query.field_ids.length > 0) {
-            // For custom field IDs, we'll need to implement field targeting in UniversalSearchManager
-            // For now, use the field types approach
-            targetFieldTypes = fieldTypes;
+            // Use searchByFieldIds for custom field targeting
+            searchResult = await searchManager.searchByFieldIds(
+              form_id,
+              query.text,
+              query.field_ids,
+              {
+                strategy: searchStrategy,
+                maxResults: maxResults,
+                includeContext: true
+              }
+            );
+          } else {
+            // Use field types approach
+            const targetFieldTypes = fieldTypes;
+            searchResult = await searchManager.searchUniversal(
+              form_id,
+              query.text,
+              targetFieldTypes,
+              {
+                strategy: searchStrategy,
+                maxResults: maxResults,
+                includeContext: true
+              }
+            );
           }
-
-          const searchResult = await searchManager.searchUniversal(
-            form_id,
-            query.text,
-            targetFieldTypes,
-            {
-              strategy: searchStrategy,
-              maxResults: maxResults,
-              includeContext: true
-            }
-          );
 
           // Merge results (avoid duplicates by entry ID)
           const existingIds = new Set(combinedResults.matches.map((m: any) => m.entryId));
@@ -2666,39 +2680,19 @@ ${exportResult.base64Data}`
           const query = search_queries[0];
           const fieldTypes = query.field_types || ['name'];
           
-          combinedResults = await searchManager.searchUniversal(
-            form_id,
-            query.text,
-            fieldTypes,
-            {
-              strategy: searchStrategy,
-              maxResults: maxResults,
-              includeContext: true
-            }
-          );
-        } else {
-          // Multiple queries with AND logic
-          // Start with first query results
-          const firstQuery = search_queries[0];
-          const firstFieldTypes = firstQuery.field_types || ['name'];
-          
-          let currentResults = await searchManager.searchUniversal(
-            form_id,
-            firstQuery.text,
-            firstFieldTypes,
-            {
-              strategy: searchStrategy,
-              maxResults: maxResults,
-              includeContext: true
-            }
-          );
-
-          // Filter by remaining queries
-          for (let i = 1; i < search_queries.length; i++) {
-            const query = search_queries[i];
-            const fieldTypes = query.field_types || ['name'];
-            
-            const queryResults = await searchManager.searchUniversal(
+          if (query.field_ids && query.field_ids.length > 0) {
+            combinedResults = await searchManager.searchByFieldIds(
+              form_id,
+              query.text,
+              query.field_ids,
+              {
+                strategy: searchStrategy,
+                maxResults: maxResults,
+                includeContext: true
+              }
+            );
+          } else {
+            combinedResults = await searchManager.searchUniversal(
               form_id,
               query.text,
               fieldTypes,
@@ -2708,6 +2702,67 @@ ${exportResult.base64Data}`
                 includeContext: true
               }
             );
+          }
+        } else {
+          // Multiple queries with AND logic
+          // Start with first query results
+          const firstQuery = search_queries[0];
+          const firstFieldTypes = firstQuery.field_types || ['name'];
+          
+          let currentResults;
+          if (firstQuery.field_ids && firstQuery.field_ids.length > 0) {
+            currentResults = await searchManager.searchByFieldIds(
+              form_id,
+              firstQuery.text,
+              firstQuery.field_ids,
+              {
+                strategy: searchStrategy,
+                maxResults: maxResults,
+                includeContext: true
+              }
+            );
+          } else {
+            currentResults = await searchManager.searchUniversal(
+              form_id,
+              firstQuery.text,
+              firstFieldTypes,
+              {
+                strategy: searchStrategy,
+                maxResults: maxResults,
+                includeContext: true
+              }
+            );
+          }
+
+          // Filter by remaining queries
+          for (let i = 1; i < search_queries.length; i++) {
+            const query = search_queries[i];
+            const fieldTypes = query.field_types || ['name'];
+            
+            let queryResults;
+            if (query.field_ids && query.field_ids.length > 0) {
+              queryResults = await searchManager.searchByFieldIds(
+                form_id,
+                query.text,
+                query.field_ids,
+                {
+                  strategy: searchStrategy,
+                  maxResults: maxResults,
+                  includeContext: true
+                }
+              );
+            } else {
+              queryResults = await searchManager.searchUniversal(
+                form_id,
+                query.text,
+                fieldTypes,
+                {
+                  strategy: searchStrategy,
+                  maxResults: maxResults,
+                  includeContext: true
+                }
+              );
+            }
 
             // Keep only entries that appear in both result sets
             const queryEntryIds = new Set(queryResults.matches.map(m => m.entryId));
@@ -2724,28 +2779,92 @@ ${exportResult.base64Data}`
       // Apply additional filters if provided
       if (filters) {
         if (filters.payment_status) {
+          const initialCount = combinedResults.matches.length;
           combinedResults.matches = combinedResults.matches.filter((match: any) => {
-            // This would need to check the actual entry data for payment status
-            // For now, we'll include all matches
+            // Check if the match has entry data with payment information
+            const entryData = match.entryData || match.matchedFields;
+            const paymentStatus = entryData?.payment_status;
+            
+            // If payment status exists, filter by it
+            if (paymentStatus) {
+              return paymentStatus === filters.payment_status;
+            }
+            
+            // If no payment status data, include the match (avoid false negatives)
             return true;
           });
+          
+          // Update total count if filtering removed items
+          if (combinedResults.matches.length < initialCount) {
+            combinedResults.totalFound = combinedResults.matches.length;
+          }
         }
         
         if (filters.date_range) {
-          // Date range filtering would need entry date information
-          // For now, we'll include all matches
+          const initialCount = combinedResults.matches.length;
+          combinedResults.matches = combinedResults.matches.filter((match: any) => {
+            const entryData = match.entryData || match.matchedFields;
+            const dateCreated = entryData?.date_created;
+            
+            if (!dateCreated) {
+              return true; // Include if no date info (avoid false negatives)
+            }
+            
+            const entryDate = new Date(dateCreated);
+            let includeEntry = true;
+            
+            if (filters.date_range?.start) {
+              const startDate = new Date(filters.date_range.start);
+              if (entryDate < startDate) {
+                includeEntry = false;
+              }
+            }
+            
+            if (filters.date_range?.end && includeEntry) {
+              const endDate = new Date(filters.date_range.end);
+              if (entryDate > endDate) {
+                includeEntry = false;
+              }
+            }
+            
+            return includeEntry;
+          });
+          
+          // Update total count if filtering removed items
+          if (combinedResults.matches.length < initialCount) {
+            combinedResults.totalFound = combinedResults.matches.length;
+          }
         }
       }
 
+      // Store total found BEFORE limiting
+      const totalFoundBeforeLimiting = combinedResults.totalFound;
+      
       // Limit results to maxResults
       if (combinedResults.matches.length > maxResults) {
         combinedResults.matches = combinedResults.matches.slice(0, maxResults);
-        combinedResults.totalFound = combinedResults.matches.length;
+        // Keep the original total found, not the limited count
+        combinedResults.totalFound = totalFoundBeforeLimiting;
       }
 
       // Get form data for formatting context
       const formData = await this.makeRequest('GET', `/forms/${form_id}`);
       
+      // Calculate execution time
+      const executionTimeMs = Date.now() - searchStartTime;
+
+      // Count actual fields searched across all queries
+      let totalFieldsSearched = 0;
+      for (const query of search_queries) {
+        if (query.field_ids && query.field_ids.length > 0) {
+          totalFieldsSearched += query.field_ids.length;
+        } else {
+          // Estimate based on field types (will be more accurate with actual field detection)
+          const fieldTypes = query.field_types || ['name'];
+          totalFieldsSearched += fieldTypes.length * 2; // Rough estimate
+        }
+      }
+
       // Transform to SearchResultsFormatter format
       const transformedResult: FormattedSearchResult = {
         matches: combinedResults.matches.map((match: any) => ({
@@ -2759,9 +2878,9 @@ ${exportResult.base64Data}`
         totalFound: combinedResults.totalFound,
         searchMetadata: {
           searchText: `${search_queries.length} queries with ${searchLogic} logic`,
-          executionTime: Date.now(), // Simplified
-          apiCalls: search_queries.length, // Approximation
-          fieldsSearched: [`Multiple field types searched`]
+          executionTime: executionTimeMs,
+          apiCalls: search_queries.length,
+          fieldsSearched: [totalFieldsSearched.toString()]
         }
       };
 
@@ -2807,8 +2926,18 @@ ${exportResult.base64Data}`
         throw error;
       }
       
-      // Handle common API errors
+      // Handle common API errors with context
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      
+      // Create detailed error context for debugging
+      const searchContext = {
+        form_id: args.form_id,
+        query_count: args.search_queries?.length || 0,
+        logic: args.logic || 'OR',
+        strategy: args.strategy || 'auto', 
+        has_filters: !!args.filters,
+        max_results: args.output_options?.max_results || 50
+      };
       
       if (errorMessage.includes('Form not found') || errorMessage.includes('404')) {
         throw new McpError(
@@ -2817,9 +2946,10 @@ ${exportResult.base64Data}`
         );
       }
 
+      // Include search context in error for debugging
       throw new McpError(
         ErrorCode.InternalError,
-        `Error in universal search: ${errorMessage}`
+        `Error in universal search: ${errorMessage}. Context: ${JSON.stringify(searchContext)}`
       );
     }
   }

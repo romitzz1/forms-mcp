@@ -436,4 +436,46 @@ export class UniversalSearchManager {
         
         return { cleanFormId, cleanSearchText };
     }
+
+    /**
+     * Search entries using specific field IDs rather than detected field types
+     */
+    public async searchByFieldIds(formId: string, searchText: string, fieldIds: string[], options?: Partial<SearchOptions>): Promise<SearchResult> {
+        const { cleanFormId, cleanSearchText } = this.validateInput(formId, searchText);
+        
+        if (!fieldIds || fieldIds.length === 0) {
+            throw new Error('Field IDs array is required and must not be empty');
+        }
+
+        const startTime = Date.now();
+        const searchOptions = { ...this.defaultOptions, ...options };
+
+        try {
+            // Get form definition for field information
+            const formDefinition = await this.apiClient.getFormDefinition(cleanFormId);
+            const analysisResult = this.fieldDetector.analyzeFormFieldsWithStatus(formDefinition);
+            
+            // Convert field IDs to FieldTypeInfo objects for consistency
+            const targetFields: FieldTypeInfo[] = fieldIds.map(fieldId => {
+                // Try to get field info from analysis, or create basic info
+                const existingField = analysisResult.mapping[fieldId];
+                if (existingField) {
+                    return existingField;
+                } else {
+                    // Create basic field info for unknown fields
+                    const fieldData = formDefinition.fields?.find((f: any) => f.id === fieldId);
+                    return {
+                        fieldId,
+                        fieldType: 'text' as DetectedFieldType,
+                        confidence: 0.5,
+                        label: fieldData?.label || `Field ${fieldId}`
+                    };
+                }
+            });
+
+            return await this.executeSearch(cleanFormId, cleanSearchText, targetFields, searchOptions, analysisResult, startTime);
+        } catch (error) {
+            throw new Error(`Field ID search failed for form ${cleanFormId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+    }
 }
