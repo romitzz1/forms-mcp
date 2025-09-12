@@ -225,9 +225,11 @@ describe('FieldTypeDetector', () => {
             expect(mapping['1'].fieldType).toBe('unknown');
             expect(mapping['2']).toBeDefined();
             expect(mapping['2'].fieldType).toBe('name');
-            // Field without ID should get generated ID
-            expect(mapping['malformed_2']).toBeDefined();
-            expect(mapping['malformed_2'].fieldType).toBe('email');
+            
+            // Field without ID should get generated ID (check pattern, not exact match due to timestamp)
+            const generatedIdKey = Object.keys(mapping).find(key => key.startsWith('malformed_888_2_'));
+            expect(generatedIdKey).toBeDefined();
+            expect(mapping[generatedIdKey!].fieldType).toBe('email');
         });
     });
 
@@ -329,6 +331,56 @@ describe('FieldTypeDetector', () => {
                 const result = detector.detectFieldType(field);
                 expect(result.confidence).toBe(1.0);
             });
+        });
+    });
+
+    describe('Special Case Logic Verification', () => {
+        test('should correctly handle captain/team field conflicts', () => {
+            const conflictFields = [
+                { id: '1', label: 'Team Captain', type: 'text' },      // Should be name
+                { id: '2', label: 'Captain', type: 'text' },          // Should be name  
+                { id: '3', label: 'Team Members', type: 'text' },     // Should be team
+                { id: '4', label: 'Team Name', type: 'text' },        // Should be team
+                { id: '5', label: 'Captain Team List', type: 'text' }, // Should be name (captain takes priority)
+                { id: '6', label: 'Team', type: 'text' }              // Should be team
+            ];
+
+            const results = conflictFields.map(field => ({
+                label: field.label,
+                result: detector.detectFieldType(field)
+            }));
+
+            // Verify specific logic
+            expect(results[0].result.fieldType).toBe('name'); // Team Captain -> name
+            expect(results[1].result.fieldType).toBe('name'); // Captain -> name
+            expect(results[2].result.fieldType).toBe('team'); // Team Members -> team  
+            expect(results[3].result.fieldType).toBe('team'); // Team Name -> team
+            expect(results[4].result.fieldType).toBe('name'); // Captain Team List -> name (captain priority)
+            expect(results[5].result.fieldType).toBe('team'); // Team -> team
+
+            // Verify confidence scores are using constants appropriately
+            expect(results[0].result.confidence).toBe(0.85); // CAPTAIN_CONFIDENCE
+            expect(results[2].result.confidence).toBe(0.8);  // SPECIAL_CASE_CONFIDENCE
+        });
+
+        test('should handle compound phrase detection correctly', () => {
+            const compoundFields = [
+                { id: '1', label: 'Contact Name Field', type: 'text' },
+                { id: '2', label: 'Contact Name', type: 'text' },
+                { id: '3', label: 'Team Member List', type: 'text' },
+                { id: '4', label: 'Username', type: 'text' },
+                { id: '5', label: 'User Name', type: 'text' }
+            ];
+
+            const results = compoundFields.map(field => detector.detectFieldType(field));
+
+            expect(results[0].fieldType).toBe('name');  // Contact Name Field -> name
+            expect(results[0].confidence).toBe(0.8);    // SPECIAL_CASE_CONFIDENCE
+            expect(results[1].fieldType).toBe('name');  // Contact Name -> name
+            expect(results[2].fieldType).toBe('team');  // Team Member List -> team
+            expect(results[3].fieldType).toBe('text');  // Username -> text  
+            expect(results[3].confidence).toBe(0.6);    // USERNAME_CONFIDENCE
+            expect(results[4].fieldType).toBe('text');  // User Name -> text
         });
     });
 

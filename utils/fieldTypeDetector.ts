@@ -27,26 +27,33 @@ interface GravityForm {
 }
 
 export class FieldTypeDetector {
+    // Constants for confidence thresholds and scoring
+    private static readonly HIGH_CONFIDENCE_THRESHOLD = 0.7;
+    private static readonly DEFAULT_TEXT_CONFIDENCE = 0.3;
+    private static readonly SPECIAL_CASE_CONFIDENCE = 0.8;
+    private static readonly CAPTAIN_CONFIDENCE = 0.85;
+    private static readonly USERNAME_CONFIDENCE = 0.6;
+
     private readonly patterns = {
         name: {
             exact: ['name', 'full name', 'first name', 'last name', 'attendee', 'participant', 'member'],
-            partial: ['captain', 'person'],
-            confidence: { exact: 0.95, partial: 0.75, fieldType: 1.0 }
+            partial: ['person'], // Removed 'captain' - handled as special case
+            confidence: { exact: 0.95, partial: 0.75 }
         },
         email: {
             exact: ['email', 'e-mail', 'mail'],
             partial: ['email address', 'mail address'],
-            confidence: { exact: 0.95, partial: 0.85, fieldType: 1.0 }
+            confidence: { exact: 0.95, partial: 0.85 }
         },
         phone: {
             exact: ['phone', 'tel', 'mobile', 'cell'],
             partial: ['phone number', 'telephone', 'contact number', 'cell phone'],
-            confidence: { exact: 0.90, partial: 0.80, fieldType: 1.0 }
+            confidence: { exact: 0.90, partial: 0.80 }
         },
         team: {
             exact: ['team', 'group', 'with', 'partner', 'squad'],
             partial: ['team name', 'team members', 'group name', 'members', 'partners'],
-            confidence: { exact: 0.85, partial: 0.75, fieldType: 0.90 }
+            confidence: { exact: 0.85, partial: 0.75 }
         }
     };
 
@@ -123,36 +130,49 @@ export class FieldTypeDetector {
             return {
                 fieldId: field.id,
                 fieldType: 'text',
-                confidence: 0.6,
+                confidence: FieldTypeDetector.USERNAME_CONFIDENCE,
                 label: field.label
             };
         }
 
-        // Team Captain should be name, not team (captain is a person/role)
-        if (label.includes('captain')) {
+        // Handle compound phrases with priority (most specific first)
+        
+        // "Team Captain" -> name (captain is a person, even if on a team)
+        if (label.includes('team') && label.includes('captain')) {
             return {
                 fieldId: field.id,
                 fieldType: 'name',
-                confidence: 0.85,
+                confidence: FieldTypeDetector.CAPTAIN_CONFIDENCE,
                 label: field.label
             };
         }
 
-        // Handle compound phrases that need medium confidence
-        if (label.includes('contact') && (label.includes('name') || label.includes('field'))) {
-            return {
-                fieldId: field.id,
-                fieldType: 'name',
-                confidence: 0.8,
-                label: field.label
-            };
-        }
-
+        // "Team Member" or "Team List" -> team
         if (label.includes('team') && (label.includes('member') || label.includes('list'))) {
             return {
                 fieldId: field.id,
                 fieldType: 'team',
-                confidence: 0.8,
+                confidence: FieldTypeDetector.SPECIAL_CASE_CONFIDENCE,
+                label: field.label
+            };
+        }
+
+        // "Contact Name" or "Contact Name Field" -> name  
+        if (label.includes('contact') && (label.includes('name') || label.includes('field'))) {
+            return {
+                fieldId: field.id,
+                fieldType: 'name',
+                confidence: FieldTypeDetector.SPECIAL_CASE_CONFIDENCE,
+                label: field.label
+            };
+        }
+
+        // Generic "Captain" (without team context) -> name
+        if (label.includes('captain')) {
+            return {
+                fieldId: field.id,
+                fieldType: 'name',
+                confidence: FieldTypeDetector.CAPTAIN_CONFIDENCE,
                 label: field.label
             };
         }
@@ -207,7 +227,7 @@ export class FieldTypeDetector {
             return {
                 fieldId: field.id,
                 fieldType: 'text',
-                confidence: 0.3,
+                confidence: FieldTypeDetector.DEFAULT_TEXT_CONFIDENCE,
                 label: field.label
             };
         }
@@ -239,11 +259,20 @@ export class FieldTypeDetector {
                 continue;
             }
 
-            // Generate ID for fields missing IDs for tracking purposes
-            const fieldId = field.id || `malformed_${i}`;
-            const fieldWithId = { ...field, id: fieldId };
+            let fieldToAnalyze: GravityFormField;
+            let fieldId: string;
 
-            const fieldInfo = this.detectFieldType(fieldWithId);
+            if (field.id) {
+                // Field has ID, use as-is (no unnecessary object spreading)
+                fieldToAnalyze = field;
+                fieldId = field.id;
+            } else {
+                // Generate collision-resistant ID for fields missing IDs
+                fieldId = `malformed_${formDefinition.id}_${i}_${Date.now()}`;
+                fieldToAnalyze = { ...field, id: fieldId };
+            }
+
+            const fieldInfo = this.detectFieldType(fieldToAnalyze);
             mapping[fieldId] = fieldInfo;
         }
 
@@ -295,7 +324,7 @@ export class FieldTypeDetector {
         const targetTypes = fieldTypes || ['name', 'email', 'phone', 'team'];
         
         return Object.values(mapping)
-            .filter(field => targetTypes.includes(field.fieldType) && field.confidence >= 0.7)
+            .filter(field => targetTypes.includes(field.fieldType) && field.confidence >= FieldTypeDetector.HIGH_CONFIDENCE_THRESHOLD)
             .sort((a, b) => b.confidence - a.confidence);
     }
 
@@ -319,7 +348,7 @@ export class FieldTypeDetector {
         for (const field of fields) {
             fieldTypeCounts[field.fieldType]++;
             totalConfidence += field.confidence;
-            if (field.confidence >= 0.7) {
+            if (field.confidence >= FieldTypeDetector.HIGH_CONFIDENCE_THRESHOLD) {
                 highConfidenceCount++;
             }
         }
