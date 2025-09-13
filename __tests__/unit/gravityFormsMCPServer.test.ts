@@ -1356,6 +1356,536 @@ describe('GravityFormsMCPServer', () => {
       expect(field10.type).toBe('number');
       expect(field10.label).toBe('New Number Field');
     });
+
+    // Edge Cases Tests - Prompt 8
+    test('should handle empty fields array with partial_update', async () => {
+      const { GravityFormsMCPServer } = await import('../../index');
+      const server = new GravityFormsMCPServer();
+      
+      server.makeRequest = jest.fn().mockImplementation((endpoint: string, method: string = 'GET', body?: any) => {
+        if (method === 'GET') {
+          return Promise.resolve(mockForm);
+        } else if (method === 'PUT') {
+          return Promise.resolve(body);
+        }
+        return Promise.reject(new Error('Unexpected request'));
+      });
+
+      const result = await (server as any).updateForm({
+        form_id: '217',
+        partial_update: true,
+        fields: []
+      });
+
+      // Parse the result to get formData
+      const resultText = result.content[0].text;
+      let formData;
+      try {
+        // Extract JSON from "Successfully updated form:\n{...}"
+        const jsonStart = resultText.indexOf('{');
+        if (jsonStart === -1) throw new Error('No JSON found');
+        const jsonText = resultText.substring(jsonStart);
+        formData = JSON.parse(jsonText);
+      } catch (e) {
+        throw new Error(`Failed to parse result: ${resultText}`);
+      }
+
+      // Should preserve all existing fields when empty array is sent
+      expect(formData.fields).toHaveLength(4); // Original 4 fields
+      expect(formData.fields.find((f: any) => f.id === 1)).toBeDefined();
+      expect(formData.fields.find((f: any) => f.id === 3)).toBeDefined();
+      expect(formData.fields.find((f: any) => f.id === 6)).toBeDefined();
+      expect(formData.fields.find((f: any) => f.id === 7)).toBeDefined();
+    });
+
+    test('should handle fields without IDs', async () => {
+      const { GravityFormsMCPServer } = await import('../../index');
+      const server = new GravityFormsMCPServer();
+      
+      server.makeRequest = jest.fn().mockImplementation((endpoint: string, method: string = 'GET', body?: any) => {
+        if (method === 'GET') {
+          return Promise.resolve(mockForm);
+        } else if (method === 'PUT') {
+          return Promise.resolve(body);
+        }
+        return Promise.reject(new Error('Unexpected request'));
+      });
+
+      const result = await (server as any).updateForm({
+        form_id: '217',
+        partial_update: true,
+        fields: [
+          {
+            // No id field
+            type: 'text',
+            label: 'Field Without ID'
+          },
+          {
+            id: 6,
+            label: 'Valid Field Update'
+          }
+        ]
+      });
+
+      // Parse the result to get formData
+      const resultText = result.content[0].text;
+      let formData;
+      try {
+        const jsonStart = resultText.indexOf('{');
+        if (jsonStart === -1) throw new Error('No JSON found');
+        const jsonText = resultText.substring(jsonStart);
+        formData = JSON.parse(jsonText);
+      } catch (e) {
+        throw new Error(`Failed to parse result: ${resultText}`);
+      }
+
+      // Should preserve original fields and ignore field without ID
+      expect(formData.fields).toHaveLength(4); // Original 4 fields
+      
+      // Field 6 should be updated
+      const field6 = formData.fields.find((f: any) => f.id === 6);
+      expect(field6).toBeDefined();
+      expect(field6.label).toBe('Valid Field Update');
+      
+      // Field without ID should be ignored (not added)
+      const fieldsWithoutValidIds = formData.fields.filter((f: any) => !f.id);
+      expect(fieldsWithoutValidIds).toHaveLength(0);
+    });
+
+    test('should preserve field-specific settings during partial update', async () => {
+      const { GravityFormsMCPServer } = await import('../../index');
+      const server = new GravityFormsMCPServer();
+      
+      server.makeRequest = jest.fn().mockImplementation((endpoint: string, method: string = 'GET', body?: any) => {
+        if (method === 'GET') {
+          return Promise.resolve(mockForm);
+        } else if (method === 'PUT') {
+          return Promise.resolve(body);
+        }
+        return Promise.reject(new Error('Unexpected request'));
+      });
+
+      const result = await (server as any).updateForm({
+        form_id: '217',
+        partial_update: true,
+        fields: [
+          {
+            id: 6,
+            label: 'Updated Label Only'
+            // Not specifying choices, isRequired, type, etc.
+          }
+        ]
+      });
+
+      // Parse the result to get formData
+      const resultText = result.content[0].text;
+      let formData;
+      try {
+        const jsonStart = resultText.indexOf('{');
+        if (jsonStart === -1) throw new Error('No JSON found');
+        const jsonText = resultText.substring(jsonStart);
+        formData = JSON.parse(jsonText);
+      } catch (e) {
+        throw new Error(`Failed to parse result: ${resultText}`);
+      }
+
+      const field6 = formData.fields.find((f: any) => f.id === 6);
+      expect(field6).toBeDefined();
+      
+      // Updated property
+      expect(field6.label).toBe('Updated Label Only');
+      
+      // Preserved field-specific settings
+      expect(field6.type).toBe('checkbox');
+      expect(field6.isRequired).toBe(false);
+      expect(field6.choices).toBeDefined();
+      expect(field6.choices).toHaveLength(3);
+      
+      // Verify all choice properties are preserved
+      expect(field6.choices[0].text).toBe('Yes, as event lead.');
+      expect(field6.choices[0].inventory_limit).toBe('1');
+      expect(field6.choices[1].text).toBe('Yes, as a primary instructor.');
+      expect(field6.choices[1].inventory_limit).toBe('5');
+    });
+
+    test('should handle malformed field data', async () => {
+      const { GravityFormsMCPServer } = await import('../../index');
+      const server = new GravityFormsMCPServer();
+      
+      server.makeRequest = jest.fn().mockImplementation((endpoint: string, method: string = 'GET', body?: any) => {
+        if (method === 'GET') {
+          return Promise.resolve(mockForm);
+        } else if (method === 'PUT') {
+          return Promise.resolve(body);
+        }
+        return Promise.reject(new Error('Unexpected request'));
+      });
+
+      const result = await (server as any).updateForm({
+        form_id: '217',
+        partial_update: true,
+        fields: [
+          {
+            id: 6,
+            label: 'Valid Update'
+          },
+          // Various malformed field data that should be handled gracefully
+          null,
+          undefined,
+          {
+            // No id - should be ignored
+            type: 'text',
+            label: 'No ID field'
+          },
+          {
+            id: '', // Empty string ID - should be ignored
+            label: 'Empty ID'
+          },
+          {
+            id: 0, // Zero ID - should be ignored (falsy)
+            label: 'Zero ID'
+          },
+          {
+            id: -1, // Negative ID - should be ignored
+            label: 'Negative ID'
+          },
+          {
+            id: 'abc', // Non-numeric string - should be ignored
+            label: 'Non-numeric ID'
+          },
+          {
+            id: '5', // Valid numeric string - should be accepted
+            type: 'text',
+            label: 'Valid String ID'
+          }
+        ]
+      });
+
+      // Parse the result to get formData
+      const resultText = result.content[0].text;
+      let formData;
+      try {
+        const jsonStart = resultText.indexOf('{');
+        if (jsonStart === -1) throw new Error('No JSON found');
+        const jsonText = resultText.substring(jsonStart);
+        formData = JSON.parse(jsonText);
+      } catch (e) {
+        throw new Error(`Failed to parse result: ${resultText}`);
+      }
+
+      // Should preserve all original fields + valid new field (field 5)
+      expect(formData.fields).toHaveLength(5); // Original 4 fields + 1 new valid field
+      
+      // Field 6 should be updated
+      const field6 = formData.fields.find((f: any) => f.id === 6);
+      expect(field6).toBeDefined();
+      expect(field6.label).toBe('Valid Update');
+      
+      // All original fields should be preserved
+      expect(formData.fields.find((f: any) => f.id === 1)).toBeDefined();
+      expect(formData.fields.find((f: any) => f.id === 3)).toBeDefined();
+      expect(formData.fields.find((f: any) => f.id === 7)).toBeDefined();
+      
+      // Valid new field with numeric string ID should be added
+      const field5 = formData.fields.find((f: any) => f.id === '5');
+      expect(field5).toBeDefined();
+      expect(field5.type).toBe('text');
+      expect(field5.label).toBe('Valid String ID');
+      
+      // Verify no malformed fields were added (all fields should have valid IDs)
+      const fieldsWithInvalidIds = formData.fields.filter((f: any) => 
+        f.id == null || f.id === '' || f.id === 0 || Number(f.id) <= 0 || isNaN(Number(f.id))
+      );
+      expect(fieldsWithInvalidIds).toHaveLength(0); // No invalid IDs should exist
+    });
+
+    // Integration Tests - Prompt 11
+    describe('Integration Testing: End-to-End Workflows', () => {
+      // Integration test: complete partial update workflow
+      test('complete partial update workflow', async () => {
+        const { GravityFormsMCPServer } = await import('../../index');
+        const server = new GravityFormsMCPServer();
+        
+        // Step 1: Fetch existing form (simulates real workflow)
+        server.makeRequest = jest.fn()
+          .mockImplementationOnce(() => Promise.resolve(mockForm)) // First GET
+          .mockImplementationOnce((endpoint: string, method: string = 'GET', body?: any) => {
+            if (method === 'PUT') return Promise.resolve(body);
+            return Promise.reject(new Error('Unexpected request'));
+          })
+          .mockImplementationOnce(() => Promise.resolve({
+            ...mockForm,
+            fields: mockForm.fields.map((f: any) => 
+              f.id === 6 ? { ...f, label: 'Updated via Workflow' } : f
+            )
+          })); // Final GET to confirm persistence
+
+        // Step 2: Update single field property
+        const updateResult = await (server as any).updateForm({
+          form_id: '217',
+          partial_update: true,
+          fields: [
+            {
+              id: 6,
+              label: 'Updated via Workflow'
+            }
+          ]
+        });
+
+        // Step 3: Verify response
+        const updateResultText = updateResult.content[0].text;
+        let updateFormData;
+        try {
+          const jsonStart = updateResultText.indexOf('{');
+          if (jsonStart === -1) throw new Error('No JSON found');
+          const jsonText = updateResultText.substring(jsonStart);
+          updateFormData = JSON.parse(jsonText);
+        } catch (e) {
+          throw new Error(`Failed to parse update result: ${updateResultText}`);
+        }
+
+        expect(updateFormData.fields).toHaveLength(4);
+        const updatedField6 = updateFormData.fields.find((f: any) => f.id === 6);
+        expect(updatedField6.label).toBe('Updated via Workflow');
+
+        // Step 4: Fetch form again to confirm persistence (simulated)
+        const fetchResult = await (server as any).getForms({ form_id: '217' });
+        const fetchResultText = fetchResult.content[0].text;
+        
+        expect(fetchResultText).toContain('Updated via Workflow');
+        expect(server.makeRequest).toHaveBeenCalledTimes(3);
+      });
+
+      // Integration test: multiple sequential partial updates
+      test('multiple sequential partial updates', async () => {
+        const { GravityFormsMCPServer } = await import('../../index');
+        const server = new GravityFormsMCPServer();
+        
+        let currentForm = { ...mockForm };
+        
+        server.makeRequest = jest.fn().mockImplementation((endpoint: string, method: string = 'GET', body?: any) => {
+          if (method === 'GET') {
+            return Promise.resolve(currentForm);
+          } else if (method === 'PUT') {
+            // Simulate form state changes
+            currentForm = { ...body };
+            return Promise.resolve(body);
+          }
+          return Promise.reject(new Error('Unexpected request'));
+        });
+
+        // Update 1: Field 1 (name field)
+        const update1 = await (server as any).updateForm({
+          form_id: '217',
+          partial_update: true,
+          fields: [
+            {
+              id: 1,
+              label: 'Updated Full Name'
+            }
+          ]
+        });
+
+        // Update 2: Field 3 (email field)
+        const update2 = await (server as any).updateForm({
+          form_id: '217',
+          partial_update: true,
+          fields: [
+            {
+              id: 3,
+              label: 'Updated Email Address'
+            }
+          ]
+        });
+
+        // Update 3: Field 6 (checkbox field with nested properties)
+        const update3 = await (server as any).updateForm({
+          form_id: '217',
+          partial_update: true,
+          fields: [
+            {
+              id: 6,
+              label: 'Updated Checkbox',
+              choices: [
+                { text: 'Yes, as event lead.', inventory_limit: '2' }, // Updated
+                { text: 'Yes, as a primary instructor.', inventory_limit: '8' }, // Updated
+                { text: 'Yes, as an assistant instructor (Shadow).', inventory_limit: '6' } // Updated
+              ]
+            }
+          ]
+        });
+
+        // Verify cumulative changes - all fields should have their updates
+        const finalResultText = update3.content[0].text;
+        let finalFormData;
+        try {
+          const jsonStart = finalResultText.indexOf('{');
+          if (jsonStart === -1) throw new Error('No JSON found');
+          const jsonText = finalResultText.substring(jsonStart);
+          finalFormData = JSON.parse(jsonText);
+        } catch (e) {
+          throw new Error(`Failed to parse final result: ${finalResultText}`);
+        }
+
+        // Verify all updates were preserved
+        expect(finalFormData.fields).toHaveLength(4);
+        
+        const field1 = finalFormData.fields.find((f: any) => f.id === 1);
+        const field3 = finalFormData.fields.find((f: any) => f.id === 3);
+        const field6 = finalFormData.fields.find((f: any) => f.id === 6);
+        
+        expect(field1.label).toBe('Updated Full Name');
+        expect(field3.label).toBe('Updated Email Address');
+        expect(field6.label).toBe('Updated Checkbox');
+        expect(field6.choices[0].inventory_limit).toBe('2');
+        expect(field6.choices[1].inventory_limit).toBe('8');
+        expect(field6.choices[2].inventory_limit).toBe('6');
+
+        // Verify 6 total calls: 3 GETs + 3 PUTs
+        expect(server.makeRequest).toHaveBeenCalledTimes(6);
+      });
+
+      // Integration test: partial update with API error handling
+      test('partial update with API error handling', async () => {
+        const { GravityFormsMCPServer } = await import('../../index');
+        const server = new GravityFormsMCPServer();
+        
+        // Simulate API errors
+        server.makeRequest = jest.fn()
+          .mockImplementationOnce(() => Promise.resolve(mockForm)) // GET succeeds
+          .mockImplementationOnce(() => Promise.reject(new Error('API Error: Form update failed'))) // PUT fails
+          .mockImplementationOnce(() => Promise.resolve(mockForm)) // GET succeeds  
+          .mockImplementationOnce(() => Promise.reject(new Error('Network timeout'))) // PUT fails again
+          .mockImplementationOnce(() => Promise.resolve(mockForm)) // GET succeeds
+          .mockImplementationOnce((endpoint: string, method: string = 'GET', body?: any) => {
+            if (method === 'PUT') return Promise.resolve(body); // PUT finally succeeds
+            return Promise.reject(new Error('Unexpected request'));
+          });
+
+        // Test 1: API error during update
+        await expect((server as any).updateForm({
+          form_id: '217',
+          partial_update: true,
+          fields: [{ id: 6, label: 'Should Fail' }]
+        })).rejects.toThrow('API Error: Form update failed');
+
+        // Test 2: Network error during update
+        await expect((server as any).updateForm({
+          form_id: '217',
+          partial_update: true,
+          fields: [{ id: 6, label: 'Should Fail Again' }]
+        })).rejects.toThrow('Network timeout');
+
+        // Test 3: Successful update after errors
+        const successResult = await (server as any).updateForm({
+          form_id: '217',
+          partial_update: true,
+          fields: [{ id: 6, label: 'Should Succeed' }]
+        });
+
+        const resultText = successResult.content[0].text;
+        expect(resultText).toContain('Should Succeed');
+
+        // Verify appropriate error messages and no data corruption
+        expect(server.makeRequest).toHaveBeenCalledTimes(6);
+      });
+
+      // Integration test: verify no regressions
+      test('verify no regressions in existing functionality', async () => {
+        const { GravityFormsMCPServer } = await import('../../index');
+        const server = new GravityFormsMCPServer();
+        
+        server.makeRequest = jest.fn().mockImplementation((endpoint: string, method: string = 'GET', body?: any) => {
+          if (method === 'GET') {
+            return Promise.resolve(mockForm);
+          } else if (method === 'PUT') {
+            return Promise.resolve(body);
+          }
+          return Promise.reject(new Error('Unexpected request'));
+        });
+
+        // Test 1: Full update still works (non-partial)
+        const fullUpdate = await (server as any).updateForm({
+          form_id: '217',
+          title: 'Completely New Form',
+          fields: [
+            {
+              id: 1,
+              type: 'text',
+              label: 'Only Field'
+            }
+          ]
+        });
+
+        let fullUpdateData;
+        try {
+          const resultText = fullUpdate.content[0].text;
+          const jsonStart = resultText.indexOf('{');
+          const jsonText = resultText.substring(jsonStart);
+          fullUpdateData = JSON.parse(jsonText);
+        } catch (e) {
+          throw new Error('Failed to parse full update result');
+        }
+
+        expect(fullUpdateData.title).toBe('Completely New Form');
+        expect(fullUpdateData.fields).toHaveLength(1);
+        expect(fullUpdateData.fields[0].label).toBe('Only Field');
+
+        // Test 2: Partial update with no fields still preserves all fields
+        const noFieldsUpdate = await (server as any).updateForm({
+          form_id: '217',
+          partial_update: true,
+          title: 'Title Only Update'
+        });
+
+        let noFieldsData;
+        try {
+          const resultText = noFieldsUpdate.content[0].text;
+          const jsonStart = resultText.indexOf('{');
+          const jsonText = resultText.substring(jsonStart);
+          noFieldsData = JSON.parse(jsonText);
+        } catch (e) {
+          throw new Error('Failed to parse no fields update result');
+        }
+
+        expect(noFieldsData.title).toBe('Title Only Update');
+        expect(noFieldsData.fields).toHaveLength(4); // All original fields preserved
+
+        // Test 3: Mixed field operations in single update
+        const mixedUpdate = await (server as any).updateForm({
+          form_id: '217',
+          partial_update: true,
+          fields: [
+            {
+              id: 3, // Update existing field
+              label: 'Updated Email'
+            },
+            {
+              id: 10, // Add new field
+              type: 'number',
+              label: 'New Number Field'
+            }
+          ]
+        });
+
+        let mixedData;
+        try {
+          const resultText = mixedUpdate.content[0].text;
+          const jsonStart = resultText.indexOf('{');
+          const jsonText = resultText.substring(jsonStart);
+          mixedData = JSON.parse(jsonText);
+        } catch (e) {
+          throw new Error('Failed to parse mixed update result');
+        }
+
+        expect(mixedData.fields).toHaveLength(5); // 4 original + 1 new
+        expect(mixedData.fields.find((f: any) => f.id === 3).label).toBe('Updated Email');
+        expect(mixedData.fields.find((f: any) => f.id === 10).type).toBe('number');
+
+        // Verify total calls: fullUpdate (1), noFieldsUpdate (2), mixedUpdate (2) = 5 total
+        expect(server.makeRequest).toHaveBeenCalledTimes(5);
+      });
+    });
   });
 
   // Test get_entries pagination behavior
