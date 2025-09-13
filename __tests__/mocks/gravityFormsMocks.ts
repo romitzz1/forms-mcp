@@ -16,6 +16,11 @@ export interface MockField {
   label: string;
   isRequired: boolean;
   inputs?: MockInput[];
+  choices?: Array<{
+    text: string;
+    inventory_limit?: string | number;
+  }>;
+  content?: string;
 }
 
 export interface MockInput {
@@ -66,6 +71,57 @@ export class GravityFormsMocks {
       is_active: "1",
       date_created: '2024-01-01 12:00:00',
       ...overrides
+    };
+  }
+
+  static getPartialUpdateTestForm(): MockForm {
+    return {
+      id: '217',
+      title: 'Volunteer Sign-up Template',
+      description: 'Form for volunteer role assignments',
+      fields: [
+        {
+          id: 1,
+          type: 'name',
+          label: 'Full Name',
+          isRequired: true
+        },
+        {
+          id: 3,
+          type: 'email',
+          label: 'Email',
+          isRequired: true
+        },
+        {
+          id: 6,
+          type: 'checkbox',
+          label: 'I will help out',
+          isRequired: false,
+          choices: [
+            {
+              text: 'Yes, as event lead.',
+              inventory_limit: '1'
+            },
+            {
+              text: 'Yes, as a primary instructor.',
+              inventory_limit: 5
+            },
+            {
+              text: 'Yes, as an assistant instructor (Shadow).',
+              inventory_limit: '4'
+            }
+          ]
+        },
+        {
+          id: 7,
+          type: 'html',
+          label: 'Name Display',
+          content: '<b>Name</b><br>{user:first_name} {user:last_name}',
+          isRequired: false
+        }
+      ],
+      is_active: "1",
+      date_created: '2024-01-01 12:00:00'
     };
   }
 

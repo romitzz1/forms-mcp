@@ -1,130 +1,123 @@
-# TODO: Update Form Tool Implementation
+# TODO: Gravity Forms Field Update Fix
 
-## Current Status: Planning Phase Complete ✅
+## Current Status: Planning Complete ✅
+
+### Implementation Roadmap
+
+#### Phase 1: Test Infrastructure ⏳
+- [x] **Prompt 1**: Set up test fixtures with 4+ fields ✅ COMPLETED
+- [ ] **Prompt 2**: Write failing tests for basic field merging
+- [ ] Verify test failures demonstrate current issue
+
+#### Phase 2: Basic Field Merging 📋
+- [ ] **Prompt 3**: Implement field ID matching and merging
+- [ ] Verify basic field preservation tests pass
+- [ ] Debug any merge logic issues
+
+#### Phase 3: Nested Properties 📋
+- [ ] **Prompt 4**: Write tests for choices array merging
+- [ ] **Prompt 5**: Implement deep merge for nested properties
+- [ ] Test conditional logic preservation
+
+#### Phase 4: New Field Handling 📋
+- [ ] **Prompt 6**: Write tests for adding new fields
+- [ ] **Prompt 7**: Implement new field addition logic
+- [ ] Verify field ordering maintained
+
+#### Phase 5: Edge Cases 📋
+- [ ] **Prompt 8**: Write edge case tests
+- [ ] **Prompt 9**: Implement validation and error handling
+- [ ] Test empty arrays, missing IDs, malformed data
+
+#### Phase 6: Documentation & Integration 📋
+- [ ] **Prompt 10**: Update README with examples
+- [ ] **Prompt 11**: Create end-to-end integration tests
+- [ ] Final testing and validation
+
+## Test-Driven Development Checklist
+
+### Before Each Prompt
+- [ ] Review previous prompt completion
+- [ ] Understand current test state
+- [ ] Identify what should fail/pass
+
+### After Each Prompt
+- [ ] Run tests to verify expected behavior
+- [ ] Debug any unexpected failures
+- [ ] Commit working code
+- [ ] Update this TODO with progress
+
+## Key Files to Modify
+
+### Primary Implementation
+- [ ] `index.ts` (lines 1800-1805) - Field merging logic
+- [ ] `index.ts` - Add mergeFieldProperties helper method
+
+### Testing
+- [ ] `__tests__/unit/gravityFormsMCPServer.test.ts` - New test suite
+- [ ] Test fixtures for mock forms
+- [ ] Edge case testing
+
+### Documentation
+- [ ] `README.md` - Partial update examples
+- [ ] `README.md` - API behavior clarification
+
+## Success Metrics
+
+### Functional Requirements ✅ = Pass, ❌ = Fail, ⏳ = In Progress
+
+- ⏳ Update single field without losing others
+- ⏳ Merge nested properties (choices)
+- ⏳ Add new fields during partial update
+- ⏳ Preserve field order
+- ⏳ Handle edge cases gracefully
+- ⏳ Maintain backwards compatibility
+
+### Quality Requirements
+
+- ⏳ 100% test coverage for modified code
+- ⏳ All existing tests continue to pass
+- ⏳ Clear documentation with examples
+- ⏳ Performance maintained or improved
+
+## Risk Management
+
+### High Risk Items
+- [ ] Breaking existing API compatibility
+- [ ] Data loss during field updates
+- [ ] Performance impact on large forms
+
+### Mitigation Strategies
+- [ ] Comprehensive test coverage before changes
+- [ ] Feature flag for new behavior
+- [ ] Backup/rollback plan documented
+
+## Current Implementation Gaps
+
+### Identified Issues
+1. ✅ Line 1801: `fields || existingForm.fields` replaces all fields
+2. ✅ No field-by-field merging logic
+3. ✅ Nested property merging not implemented
+4. ✅ New field addition not handled in partial mode
+
+### Required Components
+- [ ] Field ID mapping and lookup
+- [ ] Deep merge algorithm for nested properties
+- [ ] Field order preservation logic
+- [ ] Validation for partial update constraints
 
 ## Next Steps
 
-### Phase 1: Foundation (Ready to Start)
-- [x] **Step 1**: Create test file `__tests__/unit/updateForm.test.ts` ✅
-  - Set up imports and basic structure
-  - Follow existing test patterns
-  - **Status**: COMPLETED - Basic test structure in place with placeholder test
-
-- [x] **Step 2**: Write tool registration tests ✅
-  - Tool appears in list
-  - Correct metadata and schema
-  - **Status**: COMPLETED - Tests failing as expected (TDD)
-  - **Actual Time**: 15 minutes
-
-### Phase 2: Core Implementation  
-- [x] **Step 3**: Write basic update success test ✅
-  - Mock successful API response
-  - Verify PUT request to correct endpoint
-  - **Status**: COMPLETED - 4 test cases implemented, all failing as expected (TDD)
-  - **Actual Time**: 20 minutes
-
-- [x] **Step 4**: Add parameter validation tests ✅
-  - Missing/invalid parameters
-  - Edge cases and boundaries
-  - **Status**: COMPLETED - 8 comprehensive validation test cases implemented
-  - **Actual Time**: 25 minutes
-
-- [x] **Step 5**: Implement tool schema in index.ts ✅
-  - Add to tools array
-  - Define input parameters
-  - **Status**: COMPLETED - Tool schema added, all registration tests passing
-  - **Actual Time**: 15 minutes
-
-### Phase 3: Business Logic
-- [x] **Step 6**: Create updateForm method stub ✅
-  - Method signature and basic structure
-  - Parameter extraction
-  - **Status**: COMPLETED - Method with comprehensive validation, 13/17 tests passing
-  - **Actual Time**: 15 minutes
-
-- [x] **Step 7**: Implement API request logic ✅
-  - Use makeRequest with PUT method
-  - Build request body correctly
-  - **Status**: COMPLETED - Full API implementation, all 17 tests passing!
-  - **Actual Time**: 20 minutes
-
-### Phase 4: Integration & Error Handling
-- [x] **Step 8**: Add comprehensive error handling ✅
-  - Parameter validation
-  - API error transformation
-  - **Status**: COMPLETED - All error handling already fully implemented, all 17 tests passing
-  - **Actual Time**: 0 minutes (already implemented)
-
-- [x] **Step 9**: Wire to tool handler ✅
-  - Add case to switch statement
-  - Test end-to-end flow
-  - **Status**: COMPLETED - Tool handler already wired at index.ts:960-961 with proper case
-  - **Actual Time**: 0 minutes (already implemented)
-
-### Phase 5: Enhancement & Documentation
-- [x] **Step 10**: Advanced features ✅
-  - Partial updates
-  - Enhanced validation
-  - **Status**: COMPLETED - All 5 advanced features implemented with 31 tests passing
-  - **Actual Time**: 60 minutes
-
-- [x] **Step 11**: Update documentation ✅
-  - README.md examples
-  - CLAUDE.md updates
-  - **Status**: COMPLETED - All documentation updated with update_form tool, examples, and corrected tool counts
-  - **Actual Time**: 20 minutes
-
-- [x] **Step 12**: Integration testing ✅
-  - Full test coverage
-  - Edge case verification  
-  - **Status**: COMPLETED - Comprehensive integration tests added (43 total tests passing)
-  - **Actual Time**: 30 minutes
-
-## Implementation Notes
-
-### Key Patterns to Follow
-- Use existing `createForm` method as template
-- Follow error handling from other tools
-- Match test structure from `gravityFormsMCPServer.test.ts`
-- Use McpError for consistent error responses
-
-### Critical Requirements
-- **Required Parameters**: form_id, title, fields
-- **HTTP Method**: PUT to `/forms/{form_id}`
-- **Response Format**: Match existing tool responses
-- **Error Codes**: Use ErrorCode.InvalidParams for validation
-
-### Test Strategy
-1. **Red**: Write failing tests first
-2. **Green**: Implement minimum code to pass
-3. **Refactor**: Clean up implementation
-4. **Repeat**: Continue with next feature
-
-### Success Metrics
-- All tests passing
-- TypeScript compilation clean
-- 100% test coverage for new code
-- Documentation complete
-- No breaking changes
-
-## Blockers/Dependencies
-- None identified - all dependencies already in place
-- Existing patterns well established
-- MCP SDK and testing infrastructure ready
-
-## Questions/Decisions
-- Should we support partial updates (update only provided fields)?
-  - **Decision**: Start with full updates, add partial later if needed
-- Error handling strategy for non-existent forms?
-  - **Decision**: Return McpError with appropriate message
-- Response format consistency?
-  - **Decision**: Follow existing createForm pattern exactly
-
-## Timeline
-**Target Completion**: End of current session
-**Estimated Total Time**: 3-3.5 hours
-**Current Progress**: 0% (Planning Complete)
+1. **Start with Prompt 1**: Set up test infrastructure
+2. **Follow TDD cycle**: Red → Green → Refactor for each prompt
+3. **Commit frequently**: After each working implementation
+4. **Update TODO**: Mark completed items and note any issues
 
 ---
-*Last Updated: Current session - Planning phase*
-*Next Update: After Step 2 completion*
+
+## Notes
+
+- Keep original behavior when `partial_update: false`
+- Gravity Forms API always replaces entire fields array
+- Our wrapper adds value with field-level merging
+- Consider adding separate `update_form_field` tool later

@@ -340,7 +340,7 @@ describe('GravityFormsMCPServer', () => {
           isStale: jest.fn()
             .mockResolvedValueOnce(true)  // First call: stale
             .mockResolvedValueOnce(false), // After sync: fresh
-          performIncrementalSync: jest.fn().mockResolvedValue({
+          performHybridSync: jest.fn().mockResolvedValue({
             discovered: 2,
             updated: 0,
             errors: []
@@ -356,7 +356,7 @@ describe('GravityFormsMCPServer', () => {
 
         const result = await server.getForms({ include_all: true });
         
-        expect(server.formCache.performIncrementalSync).toHaveBeenCalledTimes(1);
+        expect(server.formCache.performHybridSync).toHaveBeenCalledTimes(1);
         expect(server.formCache.getAllForms).toHaveBeenCalledTimes(1);
         expect(result.content[0].text).toContain('Hidden Form 2'); // Should include hidden forms
       });
@@ -377,7 +377,7 @@ describe('GravityFormsMCPServer', () => {
             .mockReturnValueOnce(true), // After init: ready
           init: jest.fn().mockResolvedValue(undefined),
           isStale: jest.fn().mockResolvedValue(true),
-          performIncrementalSync: jest.fn().mockResolvedValue({
+          performHybridSync: jest.fn().mockResolvedValue({
             discovered: 1,
             updated: 0,
             errors: []
@@ -394,7 +394,7 @@ describe('GravityFormsMCPServer', () => {
         const result = await server.getForms({ include_all: true });
         
         expect(server.formCache.init).toHaveBeenCalledTimes(1);
-        expect(server.formCache.performIncrementalSync).toHaveBeenCalledTimes(1);
+        expect(server.formCache.performHybridSync).toHaveBeenCalledTimes(1);
         expect(result.content[0].text).toContain('API Form');
       });
 
@@ -402,14 +402,15 @@ describe('GravityFormsMCPServer', () => {
         server.formCache = {
           isReady: jest.fn().mockReturnValue(true),
           isStale: jest.fn().mockResolvedValue(true),
-          performIncrementalSync: jest.fn().mockRejectedValue(new Error('Sync failed')),
+          performHybridSync: jest.fn().mockRejectedValue(new Error('Sync failed')),
+          getAllForms: jest.fn().mockResolvedValue([])
         };
 
         const result = await server.getForms({ include_all: true });
         
         expect(result.content[0].text).toContain('Error accessing complete form cache');
         expect(result.content[0].text).toContain('Sync failed');
-        expect(server.formCache.performIncrementalSync).toHaveBeenCalledTimes(1);
+        expect(server.formCache.performHybridSync).toHaveBeenCalledTimes(1);
       });
 
       it('should handle cache initialization failures', async () => {
@@ -529,6 +530,176 @@ describe('GravityFormsMCPServer', () => {
         expect(result.content[0].text).toContain('API Fallback');
         expect((global as any).fetch).toHaveBeenCalledTimes(1);
       });
+    });
+
+    describe('exclude_trash functionality', () => {
+      it('should filter out trashed forms when exclude_trash=true', async () => {
+        const mockCachedForms = [
+          { id: 1, title: 'Active Non-Trash Form', entry_count: 10, is_active: true, is_trash: false },
+          { id: 2, title: 'Inactive Non-Trash Form', entry_count: 5, is_active: false, is_trash: false },
+          { id: 3, title: 'Active Trashed Form', entry_count: 0, is_active: true, is_trash: true },
+          { id: 4, title: 'Inactive Trashed Form', entry_count: 3, is_active: false, is_trash: true }
+        ];
+
+        server.formCache = {
+          isReady: jest.fn().mockReturnValue(true),
+          init: jest.fn().mockResolvedValue(undefined),
+          isStale: jest.fn().mockResolvedValue(false),
+          performHybridSync: jest.fn().mockResolvedValue(undefined),
+          getAllForms: jest.fn().mockImplementation((activeOnly, excludeTrash) => {
+            let filteredForms = mockCachedForms;
+            if (excludeTrash === true) {
+              filteredForms = mockCachedForms.filter(form => !form.is_trash);
+            }
+            return Promise.resolve(filteredForms);
+          })
+        };
+
+        const result = await server.getForms({ include_all: true, exclude_trash: true });
+        
+        expect(result.content[0].text).toContain('Active Non-Trash Form');
+        expect(result.content[0].text).toContain('Inactive Non-Trash Form');
+        expect(result.content[0].text).not.toContain('Active Trashed Form');
+        expect(result.content[0].text).not.toContain('Inactive Trashed Form');
+        expect(server.formCache.getAllForms).toHaveBeenCalledWith(false, true); // activeOnly=false, excludeTrash=true
+      });
+
+      it('should include trashed forms when exclude_trash=false', async () => {
+        const mockCachedForms = [
+          { id: 1, title: 'Active Non-Trash Form', entry_count: 10, is_active: true, is_trash: false },
+          { id: 2, title: 'Active Trashed Form', entry_count: 0, is_active: true, is_trash: true }
+        ];
+
+        server.formCache = {
+          isReady: jest.fn().mockReturnValue(true),
+          init: jest.fn().mockResolvedValue(undefined),
+          isStale: jest.fn().mockResolvedValue(false),
+          performHybridSync: jest.fn().mockResolvedValue(undefined),
+          getAllForms: jest.fn().mockResolvedValue(mockCachedForms)
+        };
+
+        const result = await server.getForms({ include_all: true, exclude_trash: false });
+        
+        expect(result.content[0].text).toContain('Active Non-Trash Form');
+        expect(result.content[0].text).toContain('Active Trashed Form');
+        expect(server.formCache.getAllForms).toHaveBeenCalledWith(false, false); // activeOnly=false, excludeTrash=false
+      });
+
+      it('should default to including trashed forms when exclude_trash not specified', async () => {
+        const mockCachedForms = [
+          { id: 1, title: 'Non-Trash Form', entry_count: 10, is_active: true, is_trash: false },
+          { id: 2, title: 'Trashed Form', entry_count: 0, is_active: true, is_trash: true }
+        ];
+
+        server.formCache = {
+          isReady: jest.fn().mockReturnValue(true),
+          init: jest.fn().mockResolvedValue(undefined),
+          isStale: jest.fn().mockResolvedValue(false),
+          performHybridSync: jest.fn().mockResolvedValue(undefined),
+          getAllForms: jest.fn().mockResolvedValue(mockCachedForms)
+        };
+
+        const result = await server.getForms({ include_all: true });
+        
+        expect(result.content[0].text).toContain('Non-Trash Form');
+        expect(result.content[0].text).toContain('Trashed Form');
+        // Should not pass excludeTrash parameter, so FormCache gets undefined (defaults to false)
+        expect(server.formCache.getAllForms).toHaveBeenCalledWith(false, undefined);
+      });
+
+      it('should show is_trash status in response when include_all=true', async () => {
+        const mockCachedForms = [
+          { id: 1, title: 'Non-Trash Form', entry_count: 10, is_active: true, is_trash: false },
+          { id: 2, title: 'Trashed Form', entry_count: 0, is_active: true, is_trash: true }
+        ];
+
+        server.formCache = {
+          isReady: jest.fn().mockReturnValue(true),
+          init: jest.fn().mockResolvedValue(undefined),
+          isStale: jest.fn().mockResolvedValue(false),
+          performHybridSync: jest.fn().mockResolvedValue(undefined),
+          getAllForms: jest.fn().mockResolvedValue(mockCachedForms)
+        };
+
+        const result = await server.getForms({ include_all: true });
+        const responseText = result.content[0].text;
+        
+        // Should include is_trash field in the response
+        expect(responseText).toContain('"is_trash": "0"'); // is_trash false converted to "0"
+        expect(responseText).toContain('"is_trash": "1"'); // is_trash true converted to "1"
+      });
+
+      it('should combine exclude_trash with other filtering when available', async () => {
+        const mockCachedForms = [
+          { id: 1, title: 'Active Non-Trash Form', entry_count: 10, is_active: true, is_trash: false }
+        ];
+
+        server.formCache = {
+          isReady: jest.fn().mockReturnValue(true),
+          init: jest.fn().mockResolvedValue(undefined),
+          isStale: jest.fn().mockResolvedValue(false),
+          performHybridSync: jest.fn().mockResolvedValue(undefined),
+          getAllForms: jest.fn().mockResolvedValue(mockCachedForms)
+        };
+
+        // Test with both include_all and exclude_trash
+        const result = await server.getForms({ 
+          include_all: true, 
+          exclude_trash: true,
+          include_fields: false 
+        });
+        
+        expect(result.content[0].text).toContain('Active Non-Trash Form');
+        expect(server.formCache.getAllForms).toHaveBeenCalledWith(false, true);
+      });
+    });
+  });
+
+  // Test Infrastructure for Partial Field Updates
+  describe('update_form partial field updates', () => {
+    let mockForm: any;
+    
+    beforeEach(() => {
+      // Reset mock form to original state for each test
+      mockForm = GravityFormsMocks.getPartialUpdateTestForm();
+    });
+
+    // Helper function to verify field preservation
+    const verifyFieldPreservation = (result: any, expectedFieldIds: number[]) => {
+      const resultText = result.content[0].text;
+      const formData = JSON.parse(resultText.replace('Form updated successfully:\n', ''));
+      
+      expect(formData.fields).toHaveLength(expectedFieldIds.length);
+      
+      expectedFieldIds.forEach(fieldId => {
+        const field = formData.fields.find((f: any) => f.id === fieldId);
+        expect(field).toBeDefined();
+      });
+      
+      return formData;
+    };
+
+    // Verify test fixture is properly set up
+    test('should have mock form fixture with expected structure', async () => {
+      expect(mockForm).toBeDefined();
+      expect(mockForm.id).toBe('217');
+      expect(mockForm.fields).toHaveLength(4);
+      
+      // Verify specific fields exist
+      const nameField = mockForm.fields.find((f: any) => f.id === 1);
+      const emailField = mockForm.fields.find((f: any) => f.id === 3);
+      const checkboxField = mockForm.fields.find((f: any) => f.id === 6);
+      const htmlField = mockForm.fields.find((f: any) => f.id === 7);
+      
+      expect(nameField).toBeDefined();
+      expect(nameField.type).toBe('name');
+      expect(emailField).toBeDefined();
+      expect(emailField.type).toBe('email');
+      expect(checkboxField).toBeDefined();
+      expect(checkboxField.type).toBe('checkbox');
+      expect(checkboxField.choices).toHaveLength(3);
+      expect(htmlField).toBeDefined();
+      expect(htmlField.type).toBe('html');
     });
   });
 });

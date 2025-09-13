@@ -1,365 +1,433 @@
-# TDD Implementation Plan: `update_form` Tool for Gravity Forms MCP Server
+# TDD Implementation Plan: Fix Gravity Forms Field Update Issue
 
 ## Project Overview
-Implement a new `update_form` tool for the Enhanced Gravity Forms MCP Server that allows updating existing forms via the REST API v2. This tool will complete the CRUD operations suite by enabling form modifications through the MCP protocol.
+Fix the `update_form` tool in the Gravity Forms MCP server to properly handle partial field updates without losing unrelated fields. Currently, when updating a single field property, all other fields are lost.
+
+## Problem Statement
+- **Current Behavior**: When `partial_update: true` is used with a fields array, it replaces ALL fields
+- **Expected Behavior**: Should merge individual fields by ID, preserving unmodified fields
+- **Root Cause**: Line 1801 in index.ts uses `fields || existingForm.fields` instead of field-by-field merging
 
 ## Architecture Blueprint
 
-### Core Requirements
-- **Endpoint**: PUT `/gf/v2/forms/[FORM_ID]`
-- **Authentication**: Basic Auth (existing pattern)
-- **Required Fields**: `title` and `fields` array
-- **Optional Fields**: All other form properties
-- **Response**: Updated form object
+### Core Components to Modify
+1. **updateForm method** (index.ts:1734-1950)
+   - Add field merging logic
+   - Handle nested property updates (e.g., choices in checkbox fields)
+   - Preserve field order and IDs
 
-### Integration Points
-1. **index.ts**: Main server class with tool registration and handler
-2. **Tool Schema**: Input validation and parameter definition
-3. **API Client**: Existing `makeRequest` method for HTTP calls
-4. **Error Handling**: McpError class for consistent error responses
-5. **Testing**: Jest-based unit tests following existing patterns
+2. **Test Suite** (__tests__/unit/gravityFormsMCPServer.test.ts)
+   - Add comprehensive tests for partial field updates
+   - Test edge cases and nested property merging
+   - Verify no data loss scenarios
 
-## Implementation Breakdown
+3. **Documentation** (README.md)
+   - Document partial update behavior
+   - Add examples of field-level updates
+   - Clarify API expectations
 
-### Phase 1: Foundation (Infrastructure Setup)
-- Create test file structure
-- Set up mocks and test utilities
-- Define basic test cases for tool registration
+## Implementation Strategy
 
-### Phase 2: Schema Definition (API Contract)
-- Define input schema for update_form tool
-- Add parameter validation rules
-- Create type definitions if needed
+### Phase 1: Test Infrastructure
+- Create test fixtures for forms with multiple fields
+- Set up mock scenarios for partial updates
+- Establish baseline tests for current behavior
 
-### Phase 3: Core Implementation (Business Logic)
-- Implement updateForm method
-- Add request building logic
-- Handle API response transformation
+### Phase 2: Field Merging Logic
+- Implement field-by-field merging algorithm
+- Handle nested properties (choices, conditionalLogic, etc.)
+- Preserve field ordering and non-updated fields
 
-### Phase 4: Integration (Wire Everything Together)
-- Register tool in tools array
-- Add case to tool handler switch
-- Connect all components
+### Phase 3: Edge Cases & Validation
+- Handle new fields being added
+- Validate field ID consistency
+- Test with complex field types
 
-### Phase 5: Error Handling (Robustness)
-- Add validation error handling
-- Handle API errors gracefully
-- Implement retry logic if needed
-
-### Phase 6: Documentation (User Experience)
-- Update README with tool documentation
+### Phase 4: Integration & Documentation
+- Wire everything together
+- Update documentation
 - Add usage examples
-- Update CLAUDE.md
 
-## Incremental Implementation Steps
+## Iterative Development Chunks
 
-### Step 1: Test File Setup
-- Create test file with basic structure
-- Import necessary dependencies
-- Set up test environment
+### Round 1: High-Level Chunks
+1. Set up test infrastructure
+2. Implement basic field merging
+3. Handle nested properties
+4. Add validation and edge cases
+5. Documentation and integration
 
-### Step 2: Tool Registration Test
-- Write test for tool appearing in list
-- Verify tool metadata is correct
-- Check schema validation
+### Round 2: Refined Chunks
+1. Create test fixtures and mock data
+2. Write failing tests for field merging
+3. Implement simple field merging (flat properties)
+4. Write tests for nested property merging
+5. Implement nested property merging
+6. Write tests for edge cases
+7. Handle edge cases
+8. Update documentation
+9. Integration testing
 
-### Step 3: Basic Update Test
-- Write test for successful form update
-- Mock API response
-- Verify correct endpoint called
+### Round 3: Right-Sized Steps
+1. **Test Setup**: Create form fixtures with 4+ fields
+2. **Basic Merge Test**: Test updating single field without losing others
+3. **Basic Merge Implementation**: Implement field ID matching and merging
+4. **Nested Property Test**: Test updating choices in checkbox field
+5. **Nested Property Implementation**: Deep merge for complex properties
+6. **New Field Test**: Test adding new field with partial update
+7. **New Field Implementation**: Handle fields not in original form
+8. **Field Order Test**: Verify field order preservation
+9. **Field Order Implementation**: Maintain original field sequence
+10. **Documentation**: Update README with examples
+11. **Integration Test**: End-to-end test with real API mock
 
-### Step 4: Parameter Validation Tests
-- Test missing required parameters
-- Test invalid parameter types
-- Test boundary conditions
+## TDD Prompts for Implementation
 
-### Step 5: Implement Tool Schema
-- Add tool definition to index.ts
-- Define input parameters
-- Add to tools array
-
-### Step 6: Implement Update Method Stub
-- Create updateForm method skeleton
-- Add basic parameter extraction
-- Return placeholder response
-
-### Step 7: API Request Implementation
-- Build request body
-- Call makeRequest with PUT method
-- Handle response
-
-### Step 8: Error Handling Implementation
-- Add try-catch blocks
-- Transform API errors to McpError
-- Add validation logic
-
-### Step 9: Integration with Tool Handler
-- Add case to switch statement
-- Call updateForm method
-- Test end-to-end flow
-
-### Step 10: Advanced Features
-- Add partial updates support
-- Implement field validation
-- Add response formatting
-
-### Step 11: Documentation Updates
-- Update README.md
-- Add examples
-- Update tool count
-
-### Step 12: Final Integration Testing
-- Test with real API (if possible)
-- Verify all edge cases
-- Ensure backward compatibility
-
-## Test-Driven Development Prompts
-
-### Prompt 1: Test File Foundation ✅ COMPLETED
+### Prompt 1: Test Infrastructure Setup ✅ COMPLETED
 ```text
-Create a new test file `__tests__/unit/updateForm.test.ts` for testing the update_form tool in the Gravity Forms MCP Server. The file should:
+Create test infrastructure for the update_form partial field updates feature.
 
-1. Import necessary testing utilities and mocks from '../mocks/gravityFormsMocks'
-2. Set up describe blocks for 'Update Form Tool'
-3. Include beforeEach/afterEach hooks for test isolation
-4. Mock the fetch API and MCP server components
-5. Follow the existing test patterns from gravityFormsMCPServer.test.ts
+1. In __tests__/unit/gravityFormsMCPServer.test.ts, add a new describe block for 'update_form partial field updates'
+2. Create a mock form fixture with these fields:
+   - Field ID 1: name field (type: 'name', label: 'Full Name')
+   - Field ID 3: email field (type: 'email', label: 'Email')
+   - Field ID 6: checkbox field with 3 choices and inventory_limit properties
+   - Field ID 7: html field with content
+3. Set up beforeEach to reset the mock form to original state
+4. Create a helper function to verify field preservation
+5. Write a simple test that fetches the mock form to verify fixture
 
-Start with the basic file structure and imports only. Don't implement any actual tests yet.
+The test should fail initially since we haven't set up the mocks yet.
 ```
 
-**Status**: ✅ **COMPLETED** - Test file created with basic structure, proper mocking, and placeholder test to ensure Jest compatibility.
+**Status**: ✅ **COMPLETED** - Test infrastructure established with mock form fixture containing 4 fields (name, email, checkbox with choices, html). Helper function created for field preservation verification. Infrastructure test passes confirming proper setup.
 
-### Prompt 2: Tool Registration Tests ✅ COMPLETED
+### Prompt 2: Basic Field Merge Test
 ```text
-Add tests to verify the update_form tool is properly registered:
+Write failing tests for basic field merging functionality.
 
-1. Write a test that checks if 'update_form' appears in the list of available tools
-2. Verify the tool has the correct description: "Update an existing form"
-3. Check that the input schema includes required parameters: form_id, title, fields
-4. Verify optional parameters are properly defined
+1. Write test: 'should preserve other fields when updating single field with partial_update'
+   - Call update_form with partial_update: true
+   - Update only field ID 6's label to 'Updated Checkbox'
+   - Verify fields 1, 3, and 7 remain unchanged
+   - Verify field 6 has updated label but preserves choices
 
-Use the existing pattern from how other tools are tested. Make the tests fail first by not implementing the actual tool yet.
+2. Write test: 'should replace all fields when partial_update is false'
+   - Call update_form with partial_update: false
+   - Send only field ID 6
+   - Verify only field 6 exists in response
+
+3. Mock makeRequest to return the existing form for GET requests
+
+These tests should fail with current implementation.
 ```
 
-**Status**: ✅ **COMPLETED** - Tool registration tests implemented and failing as expected (following TDD). Tests properly capture tool handler through mock implementation and verify tool properties.
-
-### Prompt 3: Basic Update Success Test ✅ COMPLETED
+### Prompt 3: Basic Field Merge Implementation
 ```text
-Write a test for successfully updating a form:
+Implement basic field merging logic to make tests pass.
 
-1. Create a test that calls the update_form tool with valid parameters
-2. Mock the API to return a successful response with the updated form
-3. Verify the PUT request is made to the correct endpoint: /forms/{form_id}
-4. Check that the request body includes title and fields
-5. Assert the response contains the updated form data
+1. In index.ts updateForm method, locate the field assignment logic (around line 1801)
+2. Replace the current logic:
+   ```javascript
+   finalFields = fields || existingForm.fields;
+   ```
+   With field merging logic:
+   ```javascript
+   if (fields && partial_update) {
+     // Create a map of updated fields by ID
+     const fieldUpdates = new Map();
+     fields.forEach(field => {
+       if (field.id) fieldUpdates.set(field.id.toString(), field);
+     });
+     
+     // Merge with existing fields
+     finalFields = existingForm.fields.map(existingField => {
+       const fieldId = existingField.id?.toString();
+       if (fieldId && fieldUpdates.has(fieldId)) {
+         return { ...existingField, ...fieldUpdates.get(fieldId) };
+       }
+       return existingField;
+     });
+   } else {
+     finalFields = fields || existingForm.fields;
+   }
+   ```
 
-The test should fail since the implementation doesn't exist yet.
+3. Run tests to verify basic merging works
+4. Debug any issues with the merge logic
+
+The basic field merge tests should now pass.
 ```
 
-**Status**: ✅ **COMPLETED** - Comprehensive success tests implemented with 4 test cases covering successful update flow, correct endpoint usage, request body validation, and response format verification. All tests failing as expected (TDD).
-
-### Prompt 4: Parameter Validation Tests ✅ COMPLETED
+### Prompt 4: Nested Property Merge Test
 ```text
-Add comprehensive parameter validation tests:
+Write tests for merging nested properties like choices in checkbox fields.
 
-1. Test that missing form_id throws an InvalidParams error
-2. Test that missing title throws an InvalidParams error  
-3. Test that missing fields throws an InvalidParams error
-4. Test that invalid form_id format is rejected
-5. Test that fields must be an array
-6. Test that empty title is rejected
+1. Write test: 'should merge nested choices array in checkbox field'
+   - Update field ID 6's second choice inventory_limit from 5 to 7
+   - Keep the same choice text and other properties
+   - Verify other choices remain unchanged
+   - Verify field label and other properties preserved
 
-Each test should verify the specific error message returned.
+2. Write test: 'should handle partial choice updates'
+   - Update only inventory_limit without providing choice text
+   - This should properly merge the choice properties
+
+3. Write test: 'should preserve conditional logic when updating other properties'
+   - Add conditional logic to mock field
+   - Update field label
+   - Verify conditional logic remains intact
+
+These tests will fail because shallow merge doesn't handle nested properties.
 ```
 
-**Status**: ✅ **COMPLETED** - Comprehensive parameter validation tests implemented with 8 test cases covering missing required parameters, invalid parameter types, empty values, and wrong data types. All tests failing as expected with "Unknown tool: update_form" (TDD).
-
-### Prompt 5: Implement Tool Schema ✅ COMPLETED
+### Prompt 5: Nested Property Merge Implementation
 ```text
-In index.ts, add the update_form tool definition to the tools array:
+Implement deep merging for nested field properties.
 
-1. Add the tool object with name 'update_form'
-2. Set description to "Update an existing form"
-3. Define inputSchema with:
-   - form_id (required, string): "ID of the form to update"
-   - title (required, string): "Updated form title"
-   - fields (required, array): "Updated array of field objects"
-   - description (optional, string): "Updated form description"
-   - Additional optional properties can be included
-4. Follow the exact pattern used by create_form tool
+1. Create a helper function for deep merging:
+   ```javascript
+   private mergeFieldProperties(existing: any, updates: any): any {
+     // Handle choices array specially
+     if (updates.choices && existing.choices) {
+       const mergedChoices = existing.choices.map((existingChoice: any, index: number) => {
+         if (updates.choices[index]) {
+           return { ...existingChoice, ...updates.choices[index] };
+         }
+         return existingChoice;
+       });
+       return { ...existing, ...updates, choices: mergedChoices };
+     }
+     
+     // Default shallow merge for other properties
+     return { ...existing, ...updates };
+   }
+   ```
 
-Make sure the tool registration tests now pass.
+2. Update the field merging logic to use deep merge:
+   ```javascript
+   finalFields = existingForm.fields.map(existingField => {
+     const fieldId = existingField.id?.toString();
+     if (fieldId && fieldUpdates.has(fieldId)) {
+       const updates = fieldUpdates.get(fieldId);
+       return this.mergeFieldProperties(existingField, updates);
+     }
+     return existingField;
+   });
+   ```
+
+3. Run tests to verify nested property merging
+4. Handle any edge cases discovered during testing
+
+Nested property tests should now pass.
 ```
 
-**Status**: ✅ **COMPLETED** - Tool schema successfully added to index.ts with proper structure including required parameters (form_id, title, fields) and optional parameters (description, settings). All 5 tool registration tests now passing. Tool ready for implementation.
-
-### Prompt 6: Implement Update Method Stub ✅ COMPLETED
+### Prompt 6: New Field Addition Test
 ```text
-Add a private updateForm method to the GravityFormsMCPServer class:
+Write tests for adding new fields during partial updates.
 
-1. Create method signature: private async updateForm(args: any)
-2. Extract parameters: form_id, title, fields, description, and rest
-3. For now, just return a success response with mock data
-4. Follow the pattern from createForm method
-5. Add basic parameter presence checks
+1. Write test: 'should add new field when it does not exist in original form'
+   - Use partial_update: true
+   - Include existing field 6 and new field 10
+   - Verify all original fields preserved
+   - Verify new field 10 is added
 
-This should make the basic update test partially work.
+2. Write test: 'should maintain field order when adding new fields'
+   - Add field with ID 5 (between existing 3 and 6)
+   - Verify fields are in ID order: 1, 3, 5, 6, 7
+
+3. Write test: 'should handle array of new fields'
+   - Add multiple new fields at once
+   - Verify all are added correctly
+
+These tests will fail as current logic only updates existing fields.
 ```
 
-**Status**: ✅ **COMPLETED** - updateForm method implemented with comprehensive parameter validation, tool handler integration, and mock response. All 8 parameter validation tests now passing, 5 registration tests passing. Ready for API implementation (Prompt 7).
-
-### Prompt 7: Implement API Request ✅ COMPLETED
+### Prompt 7: New Field Addition Implementation
 ```text
-Complete the updateForm method implementation:
+Implement logic to handle new fields during partial updates.
 
-1. Build the request body with title, fields, and any additional properties
-2. Use this.makeRequest with:
-   - Endpoint: `/forms/${form_id}`
-   - Method: 'PUT'
-   - Body: the form update object
-3. Return the formatted response following the pattern from createForm
-4. Ensure the response includes the success message and updated form data
+1. Update the field merging logic to handle new fields:
+   ```javascript
+   if (fields && partial_update) {
+     const fieldUpdates = new Map();
+     fields.forEach(field => {
+       if (field.id) fieldUpdates.set(field.id.toString(), field);
+     });
+     
+     // First, update existing fields
+     finalFields = existingForm.fields.map(existingField => {
+       const fieldId = existingField.id?.toString();
+       if (fieldId && fieldUpdates.has(fieldId)) {
+         const updates = fieldUpdates.get(fieldId);
+         fieldUpdates.delete(fieldId); // Mark as processed
+         return this.mergeFieldProperties(existingField, updates);
+       }
+       return existingField;
+     });
+     
+     // Then, add any new fields
+     fieldUpdates.forEach(newField => {
+       finalFields.push(newField);
+     });
+     
+     // Sort by field ID to maintain consistent order
+     finalFields.sort((a, b) => {
+       const idA = parseInt(a.id) || 0;
+       const idB = parseInt(b.id) || 0;
+       return idA - idB;
+     });
+   }
+   ```
 
-All basic tests should now pass.
+2. Test the implementation
+3. Verify field ordering is maintained
+
+New field addition tests should pass.
 ```
 
-**Status**: ✅ **COMPLETED** - Full API implementation with PUT requests to Gravity Forms API. All 17 tests passing (5 registration + 4 success + 8 validation). Complete CRUD operations now available with update_form tool fully functional.
-
-### Prompt 8: Add Error Handling ✅ COMPLETED
+### Prompt 8: Edge Cases Test
 ```text
-Enhance the updateForm method with comprehensive error handling:
+Write tests for edge cases and error conditions.
 
-1. Add try-catch block around the API call
-2. Validate form_id is provided and is a string
-3. Validate title is provided and is a non-empty string
-4. Validate fields is provided and is an array
-5. Transform API errors into McpError with appropriate error codes
-6. Add specific error messages for different failure scenarios
+1. Write test: 'should handle empty fields array with partial_update'
+   - Send empty fields array with partial_update: true
+   - Should preserve all existing fields
 
-The parameter validation tests should all pass now.
+2. Write test: 'should handle fields without IDs'
+   - Send field without ID property
+   - Should skip or error appropriately
+
+3. Write test: 'should handle malformed field data'
+   - Send field with invalid structure
+   - Should validate and provide meaningful error
+
+4. Write test: 'should preserve field-specific settings'
+   - Test with fields containing:
+     - Validation rules
+     - Default values
+     - CSS classes
+     - Admin labels
+
+These tests ensure robustness of the implementation.
 ```
 
-**Status**: ✅ **COMPLETED** - Error handling already fully implemented. All 17 tests passing with comprehensive parameter validation, API error transformation via makeRequest method, and specific error messages for all validation scenarios.
-
-### Prompt 9: Wire Tool Handler ✅ COMPLETED
+### Prompt 9: Edge Cases Implementation
 ```text
-Connect the update_form tool to the main tool handler:
+Implement edge case handling and validation.
 
-1. In the tool handler switch statement, add case 'update_form'
-2. Call this.updateForm(args) for this case
-3. Return the result from updateForm
-4. Ensure proper error propagation
+1. Add validation for field IDs:
+   ```javascript
+   if (fields && partial_update) {
+     // Validate fields have IDs
+     const invalidFields = fields.filter(f => !f.id);
+     if (invalidFields.length > 0) {
+       throw new McpError(
+         ErrorCode.InvalidParams,
+         'All fields must have an ID when using partial_update'
+       );
+     }
+     
+     // Continue with merging logic...
+   }
+   ```
 
-Test the complete flow from tool invocation to response.
+2. Handle empty fields array:
+   ```javascript
+   if (fields && fields.length === 0 && partial_update) {
+     finalFields = existingForm.fields;
+   }
+   ```
+
+3. Add debug logging for edge cases
+4. Ensure all validation provides clear error messages
+
+Edge case tests should pass.
 ```
 
-**Status**: ✅ **COMPLETED** - Tool handler already properly wired with "update_form" case calling this.updateForm(args) at index.ts:960-961. Complete end-to-end flow working.
-
-### Prompt 10: Add Advanced Features ✅ COMPLETED
+### Prompt 10: Documentation Update
 ```text
-Enhance the update_form tool with additional capabilities:
+Update documentation to explain the new partial update behavior.
 
-1. Support partial updates (only update provided fields)
-2. Add field type validation if needed
-3. Support updating form settings and notifications
-4. Add response formatting options
-5. Implement logging for debugging
+1. In README.md, add a section about partial field updates:
+   - Explain when to use partial_update: true
+   - Provide example of updating single field property
+   - Show how to update nested properties like choices
+   - Document the field merging behavior
 
-Write tests for each new feature following TDD principles.
+2. Add code examples:
+   ```javascript
+   // Example: Update inventory limit for one choice
+   mcp.update_form({
+     form_id: "217",
+     partial_update: true,
+     fields: [{
+       id: 6,
+       choices: [
+         { text: "Yes, as event lead.", inventory_limit: "1" },
+         { text: "Yes, as primary instructor.", inventory_limit: 7 },
+         { text: "Yes, as assistant.", inventory_limit: "4" }
+       ]
+     }]
+   });
+   ```
+
+3. Document the difference between partial_update true/false
+4. Add troubleshooting section for common issues
+
+Documentation should be clear and comprehensive.
 ```
 
-**Status**: ✅ **COMPLETED** - All 5 advanced features successfully implemented with comprehensive test coverage! Schema updated to support partial updates (only form_id required), field type validation with 21 valid field types, 3 response formats (detailed/compact/minimal), support for confirmations/notifications, and debug logging with performance timing. 31 tests passing including 14 new advanced feature tests.
-
-### Prompt 11: Update Documentation ✅ COMPLETED
+### Prompt 11: Integration Testing
 ```text
-Update the project documentation:
+Create end-to-end integration tests to verify the complete workflow.
 
-1. In README.md:
-   - Add update_form to the tools list
-   - Include usage examples
-   - Document all parameters
-   - Update the total tool count to 17
-   
-2. In CLAUDE.md:
-   - Add update_form to the Core Tools list
-   - Note that CRUD operations are now complete
-   - Add any implementation notes
+1. Write integration test: 'complete partial update workflow'
+   - Fetch existing form
+   - Update single field property
+   - Verify response
+   - Fetch form again to confirm persistence
 
-3. Create example usage showing form title and field updates
+2. Write test: 'multiple sequential partial updates'
+   - Update field 1
+   - Update field 3
+   - Update field 6
+   - Verify cumulative changes
+
+3. Write test: 'partial update with API error handling'
+   - Simulate API errors
+   - Verify appropriate error messages
+   - Ensure no data corruption
+
+4. Run all tests together to ensure no regressions
+5. Verify test coverage for the updateForm method
+
+All tests should pass, confirming the implementation is complete.
 ```
-
-**Status**: ✅ **COMPLETED** - Documentation fully updated across README.md, CLAUDE.md, and SETUP.md. Added update_form tool documentation with examples, updated tool counts from 16→17 and 8→9 core tools, corrected Enhanced Tools numbering. CRUD operations now complete.
-
-### Prompt 12: Integration Testing ✅ COMPLETED
-```text
-Create comprehensive integration tests:
-
-1. Test updating a form with all optional parameters
-2. Test updating only specific fields
-3. Test error handling for non-existent forms
-4. Test concurrent update scenarios
-5. Test with various field types and configurations
-6. Verify backward compatibility with existing tools
-
-Add any necessary mocks and fixtures for complete test coverage.
-```
-
-**Status**: ✅ **COMPLETED** - Comprehensive integration test suite implemented with 43 total tests passing. Added 12 new integration tests covering all 6 requirements: comprehensive form updates with all parameters, partial updates, error handling (404/500/network), concurrent scenarios, field type variations (10+ types), complex field configurations, and full backward compatibility verification with existing tools (create_form, get_forms). Complete test coverage achieved.
 
 ## Success Criteria
 
-### Functional Requirements
-- [x] Tool appears in list of available tools ✅
-- [x] Can update form title and fields ✅
-- [x] Supports optional form properties ✅
-- [x] Returns updated form data ✅
-- [x] Handles errors gracefully ✅
-
-### Technical Requirements
-- [x] 100% test coverage for new code ✅
-- [x] Follows existing code patterns ✅
-- [x] TypeScript compilation without errors ✅
-- [x] No breaking changes to existing tools ✅
-- [x] Proper error messages and codes ✅
-
-### Documentation Requirements
-- [x] README.md updated with examples ✅
-- [x] CLAUDE.md reflects new capability ✅
-- [x] Input schema fully documented ✅
-- [x] Error scenarios documented ✅
+1. ✅ All existing tests continue to pass
+2. ✅ New partial field update tests pass
+3. ✅ Can update single field property without losing others
+4. ✅ Nested properties (choices) merge correctly
+5. ✅ New fields can be added during partial updates
+6. ✅ Field order is preserved
+7. ✅ Edge cases handled gracefully
+8. ✅ Documentation is clear and complete
+9. ✅ No performance degradation
+10. ✅ Backwards compatibility maintained
 
 ## Risk Mitigation
 
-### Potential Issues
-1. **Breaking Changes**: Test extensively with existing tools
-2. **API Compatibility**: Verify against actual Gravity Forms API
-3. **Type Safety**: Use TypeScript strictly
-4. **Performance**: Consider caching for repeated updates
-5. **Security**: Validate all inputs, sanitize outputs
-
-### Rollback Plan
-- Keep changes isolated to new tool
-- Maintain backward compatibility
-- Feature flag if needed for gradual rollout
-
-## Timeline Estimate
-
-- Phase 1-2 (Foundation & Schema): 30 minutes
-- Phase 3-4 (Implementation & Integration): 45 minutes  
-- Phase 5 (Error Handling): 30 minutes
-- Phase 6 (Documentation): 20 minutes
-- Testing & Refinement: 35 minutes
-
-**Total Estimated Time**: ~2.5-3 hours for complete implementation
+- **Backup Strategy**: Keep original logic available via flag
+- **Testing**: Comprehensive test coverage before deployment
+- **Rollback Plan**: Version control allows quick reversion
+- **Monitoring**: Add debug logging for production issues
 
 ## Notes
 
-This plan follows TDD principles strictly:
-1. Write tests first
-2. See them fail
-3. Implement minimum code to pass
-4. Refactor if needed
-5. Repeat
-
-Each prompt builds on the previous one, ensuring no orphaned code and complete integration at each step.
+- The Gravity Forms API itself replaces the entire fields array when updating
+- Our wrapper adds value by implementing field-level merging
+- This matches user expectations for "partial updates"
+- Consider adding a separate `update_form_field` tool in future for clarity
