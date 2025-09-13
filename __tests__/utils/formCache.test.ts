@@ -361,6 +361,116 @@ describe('FormCache', () => {
       });
     });
 
+    describe('is_trash support', () => {
+      beforeEach(async () => {
+        // Insert forms with various combinations of active and trash status
+        await formCache.insertForm({ id: 1, title: 'Active Non-Trash Form', is_active: true, is_trash: false });
+        await formCache.insertForm({ id: 2, title: 'Inactive Non-Trash Form', is_active: false, is_trash: false });
+        await formCache.insertForm({ id: 3, title: 'Active Trashed Form', is_active: true, is_trash: true });
+        await formCache.insertForm({ id: 4, title: 'Inactive Trashed Form', is_active: false, is_trash: true });
+      });
+
+      it('should return is_trash status in getAllForms', async () => {
+        const forms = await formCache.getAllForms();
+        expect(forms).toHaveLength(4);
+        
+        const activeNonTrash = forms.find(f => f.id === 1);
+        expect(activeNonTrash?.is_trash).toBe(false);
+        
+        const inactiveNonTrash = forms.find(f => f.id === 2);
+        expect(inactiveNonTrash?.is_trash).toBe(false);
+        
+        const activeTrashed = forms.find(f => f.id === 3);
+        expect(activeTrashed?.is_trash).toBe(true);
+        
+        const inactiveTrashed = forms.find(f => f.id === 4);
+        expect(inactiveTrashed?.is_trash).toBe(true);
+      });
+
+      it('should filter out trashed forms when excludeTrash is true', async () => {
+        const forms = await formCache.getAllForms(false, true); // activeOnly=false, excludeTrash=true
+        expect(forms).toHaveLength(2);
+        expect(forms.every(f => !f.is_trash)).toBe(true);
+        expect(forms.map(f => f.title)).toContain('Active Non-Trash Form');
+        expect(forms.map(f => f.title)).toContain('Inactive Non-Trash Form');
+        expect(forms.map(f => f.title)).not.toContain('Active Trashed Form');
+        expect(forms.map(f => f.title)).not.toContain('Inactive Trashed Form');
+      });
+
+      it('should include trashed forms when excludeTrash is false', async () => {
+        const forms = await formCache.getAllForms(false, false); // activeOnly=false, excludeTrash=false
+        expect(forms).toHaveLength(4);
+        expect(forms.some(f => f.is_trash)).toBe(true);
+      });
+
+      it('should combine activeOnly and excludeTrash filters', async () => {
+        const forms = await formCache.getAllForms(true, true); // activeOnly=true, excludeTrash=true
+        expect(forms).toHaveLength(1);
+        expect(forms[0].title).toBe('Active Non-Trash Form');
+        expect(forms[0].is_active).toBe(true);
+        expect(forms[0].is_trash).toBe(false);
+      });
+
+      it('should return is_trash status in getForm', async () => {
+        const form = await formCache.getForm(3);
+        expect(form?.is_trash).toBe(true);
+        
+        const nonTrashForm = await formCache.getForm(1);
+        expect(nonTrashForm?.is_trash).toBe(false);
+      });
+    });
+
+    describe('insertFormFromApi with is_trash', () => {
+      it('should handle API form with is_trash="1"', async () => {
+        const apiForm = {
+          id: '5',
+          title: 'API Trashed Form',
+          is_active: '1',
+          is_trash: '1',
+          entry_count: '0'
+        };
+        
+        await formCache.insertFormFromApi(apiForm);
+        const form = await formCache.getForm(5);
+        
+        expect(form?.is_trash).toBe(true);
+        expect(form?.is_active).toBe(true);
+        expect(form?.title).toBe('API Trashed Form');
+      });
+
+      it('should handle API form with is_trash="0"', async () => {
+        const apiForm = {
+          id: '6',
+          title: 'API Non-Trash Form',
+          is_active: '0',
+          is_trash: '0',
+          entry_count: '5'
+        };
+        
+        await formCache.insertFormFromApi(apiForm);
+        const form = await formCache.getForm(6);
+        
+        expect(form?.is_trash).toBe(false);
+        expect(form?.is_active).toBe(false);
+        expect(form?.title).toBe('API Non-Trash Form');
+      });
+
+      it('should default is_trash to false when not provided by API', async () => {
+        const apiForm = {
+          id: '7',
+          title: 'API Form Without Trash Field',
+          is_active: '1',
+          entry_count: '0'
+        };
+        
+        await formCache.insertFormFromApi(apiForm);
+        const form = await formCache.getForm(7);
+        
+        expect(form?.is_trash).toBe(false);
+        expect(form?.is_active).toBe(true);
+      });
+    });
+
     describe('updateForm', () => {
       beforeEach(async () => {
         await formCache.insertForm(sampleForm);

@@ -14,7 +14,7 @@ const createMockApiCall = (behavior: 'success' | 'timeout' | 'auth_error' | '404
     switch (behavior) {
       case 'success':
         if (endpoint === '/forms') {
-          return [{ id: '123', title: 'Test Form', is_active: '1', entry_count: '0' }];
+          return { '123': { id: '123', title: 'Test Form', is_active: '1', entry_count: '0' } };
         } else {
           // Individual form endpoint - return single form object
           const formId = endpoint.split('/').pop();
@@ -256,10 +256,10 @@ describe('FormCache Error Handling and Logging', () => {
       const partialFailureApiCall = (endpoint: string) => {
         callCount++;
         if (endpoint === '/forms') {
-          return Promise.resolve([
-            { id: '1', title: 'Form 1', is_active: '1', entry_count: '0' },
-            { id: '3', title: 'Form 3', is_active: '1', entry_count: '0' }
-          ]);
+          return Promise.resolve({
+            '1': { id: '1', title: 'Form 1', is_active: '1', entry_count: '0' },
+            '3': { id: '3', title: 'Form 3', is_active: '1', entry_count: '0' }
+          });
         } else if (endpoint === '/forms/2') {
           return Promise.resolve({ id: '2', title: 'Form 2', is_active: '0', entry_count: '5' });
         } else {
@@ -300,9 +300,9 @@ describe('FormCache Error Handling and Logging', () => {
       
       const successApiCall = (endpoint: string) => {
         if (endpoint === '/forms') {
-          return Promise.resolve([
-            { id: '1', title: 'Form 1', is_active: '1', entry_count: '0' }
-          ]);
+          return Promise.resolve({
+            '1': { id: '1', title: 'Form 1', is_active: '1', entry_count: '0' }
+          });
         }
         throw new Error('404 Not Found');
       };
@@ -465,9 +465,9 @@ describe('FormCache Error Handling and Logging', () => {
     it('should provide sync success/failure statistics', async () => {
       const partialFailureApiCall = (endpoint: string) => {
         if (endpoint === '/forms') {
-          return Promise.resolve([
-            { id: '1', title: 'Form 1', is_active: '1', entry_count: '0' }
-          ]);
+          return Promise.resolve({
+            '1': { id: '1', title: 'Form 1', is_active: '1', entry_count: '0' }
+          });
         }
         throw new Error('500 Server Error');
       };

@@ -4,7 +4,7 @@
 import { DatabaseManager } from './database.js';
 import type Database from 'better-sqlite3';
 
-const CURRENT_SCHEMA_VERSION = 1;
+const CURRENT_SCHEMA_VERSION = 2;
 
 // =====================================
 // Step 14: Error Classification System
@@ -183,6 +183,7 @@ export interface FormBasicInfo {
   id: number;
   title: string;
   is_active: boolean;
+  is_trash: boolean;
   entry_count: number;
 }
 
@@ -283,6 +284,7 @@ export interface FormCacheRecord {
   title: string;
   entry_count: number;
   is_active: boolean;
+  is_trash: boolean;
   last_synced: string;
   form_data: string;
 }
@@ -292,6 +294,7 @@ export interface FormCacheInsert {
   title: string;
   entry_count?: number;
   is_active?: boolean;
+  is_trash?: boolean;
   form_data?: string;
 }
 
@@ -299,6 +302,7 @@ export interface FormCacheUpdate {
   title?: string;
   entry_count?: number;
   is_active?: boolean;
+  is_trash?: boolean;
   form_data?: string;
 }
 
@@ -551,6 +555,7 @@ export class FormCache {
         title TEXT NOT NULL,
         entry_count INTEGER DEFAULT 0,
         is_active BOOLEAN DEFAULT true,
+        is_trash BOOLEAN DEFAULT false,
         last_synced TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         form_data TEXT
       )
@@ -560,6 +565,11 @@ export class FormCache {
     db.prepare(`
       CREATE INDEX IF NOT EXISTS idx_forms_active 
       ON forms(is_active)
+    `).run();
+
+    db.prepare(`
+      CREATE INDEX IF NOT EXISTS idx_forms_trash 
+      ON forms(is_trash)
     `).run();
 
     db.prepare(`
@@ -605,17 +615,37 @@ export class FormCache {
       return;
     }
 
-    // Future migrations would go here
-    // For now, we only have version 1
     const currentVersion = await this.getSchemaVersion();
+    const db = this.getDatabase();
     
-    if (currentVersion < CURRENT_SCHEMA_VERSION) {
-      // Apply migrations here when needed
-      const db = this.getDatabase();
+    // Migration from version 1 to version 2: Add is_trash column
+    if (currentVersion < 2) {
+      // Check if is_trash column already exists (safety check)
+      const columnExists = db.prepare(`
+        PRAGMA table_info(forms)
+      `).all().some((col: any) => col.name === 'is_trash');
+      
+      if (!columnExists) {
+        // Add is_trash column with default value false
+        db.prepare(`
+          ALTER TABLE forms ADD COLUMN is_trash BOOLEAN DEFAULT false
+        `).run();
+        
+        // Create index for is_trash performance
+        db.prepare(`
+          CREATE INDEX IF NOT EXISTS idx_forms_trash 
+          ON forms(is_trash)
+        `).run();
+      }
+      
+      // Update schema version to 2
       db.prepare(`
         INSERT INTO schema_version (version) VALUES (?)
-      `).run(CURRENT_SCHEMA_VERSION);
+      `).run(2);
     }
+    
+    // Future migrations will be added here
+    // if (currentVersion < 3) { ... }
   }
 
   /**
@@ -643,6 +673,7 @@ export class FormCache {
       title: row.title,
       entry_count: row.entry_count,
       is_active: Boolean(row.is_active),
+      is_trash: Boolean(row.is_trash),
       last_synced: row.last_synced,
       form_data: row.form_data
     };
@@ -674,6 +705,10 @@ export class FormCache {
       is_active: apiForm.is_active !== undefined 
         ? (apiForm.is_active === '1' || apiForm.is_active === 1 || apiForm.is_active === true)
         : true,
+      // Handle is_trash from API response, default to false if not provided
+      is_trash: apiForm.is_trash !== undefined 
+        ? (apiForm.is_trash === '1' || apiForm.is_trash === 1 || apiForm.is_trash === true)
+        : false,
       form_data: JSON.stringify(apiForm)
     };
   }
@@ -711,8 +746,8 @@ export class FormCache {
     const db = this.getDatabase();
     
     const stmt = db.prepare(`
-      INSERT INTO forms (id, title, entry_count, is_active, form_data, last_synced)
-      VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      INSERT INTO forms (id, title, entry_count, is_active, is_trash, form_data, last_synced)
+      VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `);
 
     try {
@@ -728,6 +763,7 @@ export class FormCache {
         form.title,
         form.entry_count ?? 0,
         (form.is_active ?? true) ? 1 : 0,
+        (form.is_trash ?? false) ? 1 : 0,
         form.form_data ?? ''
       );
 
@@ -792,6 +828,10 @@ export class FormCache {
       updateFields.push('is_active = ?');
       values.push(updates.is_active ? 1 : 0);
     }
+    if (updates.is_trash !== undefined) {
+      updateFields.push('is_trash = ?');
+      values.push(updates.is_trash ? 1 : 0);
+    }
     if (updates.form_data !== undefined) {
       updateFields.push('form_data = ?');
       values.push(updates.form_data);
@@ -830,7 +870,7 @@ export class FormCache {
     try {
       const db = this.getDatabase();
       const stmt = db.prepare(`
-        SELECT id, title, entry_count, is_active, last_synced, form_data
+        SELECT id, title, entry_count, is_active, is_trash, last_synced, form_data
         FROM forms WHERE id = ?
       `);
 
@@ -851,21 +891,31 @@ export class FormCache {
   }
 
   /**
-   * Get all forms with optional active-only filtering
+   * Get all forms with optional active-only and exclude-trash filtering
    */
-  async getAllForms(activeOnly?: boolean): Promise<FormCacheRecord[]> {
+  async getAllForms(activeOnly?: boolean, excludeTrash?: boolean): Promise<FormCacheRecord[]> {
     if (!this.isReady()) {
       throw new Error('FormCache not initialized');
     }
 
     const db = this.getDatabase();
     let query = `
-      SELECT id, title, entry_count, is_active, last_synced, form_data
+      SELECT id, title, entry_count, is_active, is_trash, last_synced, form_data
       FROM forms
     `;
 
+    const conditions: string[] = [];
+    
     if (activeOnly === true) {
-      query += ` WHERE is_active = true`;
+      conditions.push('is_active = true');
+    }
+    
+    if (excludeTrash === true) {
+      conditions.push('is_trash = false');
+    }
+    
+    if (conditions.length > 0) {
+      query += ` WHERE ${conditions.join(' AND ')}`;
     }
 
     query += ` ORDER BY id`;
@@ -1035,6 +1085,7 @@ export class FormCache {
       title: basicInfo.title,
       entry_count: basicInfo.entry_count,
       is_active: basicInfo.is_active,
+      is_trash: basicInfo.is_trash,
       last_synced: new Date().toISOString(),
       form_data: JSON.stringify(apiForm)
     };
@@ -1089,6 +1140,11 @@ export class FormCache {
     const is_active = form.is_active !== undefined 
       ? (form.is_active === '1' || form.is_active === 1 || form.is_active === true)
       : true;
+
+    // Handle is_trash from API response, default to false if not provided
+    const is_trash = form.is_trash !== undefined 
+      ? (form.is_trash === '1' || form.is_trash === 1 || form.is_trash === true)
+      : false;
     
     // Extract entry count - prefer direct entry_count field, then entries array length
     let entry_count = 0;
@@ -1108,6 +1164,7 @@ export class FormCache {
       id,
       title,
       is_active,
+      is_trash,
       entry_count
     };
   }
