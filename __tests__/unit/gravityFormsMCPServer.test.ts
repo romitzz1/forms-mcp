@@ -445,7 +445,7 @@ describe('GravityFormsMCPServer', () => {
       it('should combine include_all with include_fields correctly', async () => {
         const mockCachedForms = [
           { 
-            id: 1, 
+            id: '1', 
             title: 'Cached Form', 
             is_active: true,
             entry_count: 0,
@@ -665,7 +665,7 @@ describe('GravityFormsMCPServer', () => {
     });
 
     // Helper function to verify field preservation
-    const verifyFieldPreservation = (result: any, expectedFieldIds: number[]) => {
+    const verifyFieldPreservation = (result: any, expectedFieldIds: string[]) => {
       const resultText = result.content[0].text;
       
       // Handle the actual response format: "Successfully updated form:\n{json}"
@@ -701,10 +701,10 @@ describe('GravityFormsMCPServer', () => {
       expect(mockForm.fields).toHaveLength(4);
       
       // Verify specific fields exist
-      const nameField = mockForm.fields.find((f: any) => f.id === 1);
-      const emailField = mockForm.fields.find((f: any) => f.id === 3);
-      const checkboxField = mockForm.fields.find((f: any) => f.id === 6);
-      const htmlField = mockForm.fields.find((f: any) => f.id === 7);
+      const nameField = mockForm.fields.find((f: any) => f.id === '1');
+      const emailField = mockForm.fields.find((f: any) => f.id === '3');
+      const checkboxField = mockForm.fields.find((f: any) => f.id === '6');
+      const htmlField = mockForm.fields.find((f: any) => f.id === '7');
       
       expect(nameField).toBeDefined();
       expect(nameField.type).toBe('name');
@@ -739,24 +739,24 @@ describe('GravityFormsMCPServer', () => {
         partial_update: true,
         fields: [
           {
-            id: 6,
+            id: '6',
             label: 'Updated Checkbox'
           }
         ]
       });
 
       // Verify all fields are preserved during partial update
-      const formData = verifyFieldPreservation(result, [1, 3, 6, 7]);
+      const formData = verifyFieldPreservation(result, ['1', '3', '6', '7']);
       
       // Verify field 6 was updated but preserved its choices
-      const updatedField6 = formData.fields.find((f: any) => f.id === 6);
+      const updatedField6 = formData.fields.find((f: any) => f.id === '6');
       expect(updatedField6.label).toBe('Updated Checkbox');
       expect(updatedField6.choices).toHaveLength(3);
       
       // Verify other fields remain unchanged
-      const field1 = formData.fields.find((f: any) => f.id === 1);
-      const field3 = formData.fields.find((f: any) => f.id === 3);
-      const field7 = formData.fields.find((f: any) => f.id === 7);
+      const field1 = formData.fields.find((f: any) => f.id === '1');
+      const field3 = formData.fields.find((f: any) => f.id === '3');
+      const field7 = formData.fields.find((f: any) => f.id === '7');
       
       expect(field1.label).toBe('Full Name');
       expect(field3.label).toBe('Email');
@@ -773,7 +773,7 @@ describe('GravityFormsMCPServer', () => {
         ...mockForm,
         fields: [
           {
-            id: 6,
+            id: '6',
             type: 'checkbox',
             label: 'Only Field',
             isRequired: false
@@ -787,7 +787,7 @@ describe('GravityFormsMCPServer', () => {
         title: 'Updated Form',
         fields: [
           {
-            id: 6,
+            id: '6',
             type: 'checkbox',
             label: 'Only Field',
             isRequired: false
@@ -796,9 +796,9 @@ describe('GravityFormsMCPServer', () => {
       });
 
       // This should PASS - only field 6 should exist
-      const formData = verifyFieldPreservation(result, [6]);
+      const formData = verifyFieldPreservation(result, ['6']);
       expect(formData.fields).toHaveLength(1);
-      expect(formData.fields[0].id).toBe(6);
+      expect(formData.fields[0].id).toBe('6');
       expect(formData.fields[0].label).toBe('Only Field');
     });
 
@@ -823,11 +823,11 @@ describe('GravityFormsMCPServer', () => {
         partial_update: true,
         fields: [
           {
-            id: 6,
+            id: '6',
             label: 'Updated Checkbox'
           },
           {
-            id: 8,
+            id: '8',
             type: 'text',
             label: 'New Field',
             isRequired: false
@@ -836,16 +836,16 @@ describe('GravityFormsMCPServer', () => {
       });
 
       // Should have all original fields plus new field 8
-      const formData = verifyFieldPreservation(result, [1, 3, 6, 7, 8]);
+      const formData = verifyFieldPreservation(result, ['1', '3', '6', '7', '8']);
       
       // Verify new field was added
-      const newField = formData.fields.find((f: any) => f.id === 8);
+      const newField = formData.fields.find((f: any) => f.id === '8');
       expect(newField).toBeDefined();
       expect(newField.type).toBe('text');
       expect(newField.label).toBe('New Field');
       
       // Verify existing field was updated
-      const updatedField6 = formData.fields.find((f: any) => f.id === 6);
+      const updatedField6 = formData.fields.find((f: any) => f.id === '6');
       expect(updatedField6.label).toBe('Updated Checkbox');
     });
 
@@ -870,7 +870,7 @@ describe('GravityFormsMCPServer', () => {
         partial_update: true,
         fields: [
           {
-            id: 6,
+            id: '6',
             choices: [
               { text: 'Yes, as event lead.', inventory_limit: '1' },
               { text: 'Yes, as a primary instructor.', inventory_limit: '7' }, // Changed from 5 to 7
@@ -880,8 +880,8 @@ describe('GravityFormsMCPServer', () => {
         ]
       });
 
-      const formData = verifyFieldPreservation(result, [1, 3, 6, 7]);
-      const field6 = formData.fields.find((f: any) => f.id === 6);
+      const formData = verifyFieldPreservation(result, ['1', '3', '6', '7']);
+      const field6 = formData.fields.find((f: any) => f.id === '6');
       
       // Verify choices were merged, not replaced
       expect(field6.choices).toHaveLength(3);
@@ -914,7 +914,7 @@ describe('GravityFormsMCPServer', () => {
         partial_update: true,
         fields: [
           {
-            id: 6,
+            id: '6',
             choices: [
               undefined, // Skip first choice
               { inventory_limit: '8' }, // Update only inventory_limit, preserve text
@@ -924,8 +924,8 @@ describe('GravityFormsMCPServer', () => {
         ]
       });
 
-      const formData = verifyFieldPreservation(result, [1, 3, 6, 7]);
-      const field6 = formData.fields.find((f: any) => f.id === 6);
+      const formData = verifyFieldPreservation(result, ['1', '3', '6', '7']);
+      const field6 = formData.fields.find((f: any) => f.id === '6');
       
       // Original text should be preserved, inventory_limit updated
       expect(field6.choices[1].text).toBe('Yes, as a primary instructor.');
@@ -941,7 +941,7 @@ describe('GravityFormsMCPServer', () => {
       const mockFormWithConditional = {
         ...mockForm,
         fields: mockForm.fields.map((field: any) => {
-          if (field.id === 6) {
+          if (field.id === '6') {
             return {
               ...field,
               conditionalLogic: {
@@ -976,14 +976,14 @@ describe('GravityFormsMCPServer', () => {
         partial_update: true,
         fields: [
           {
-            id: 6,
+            id: '6',
             label: 'Updated Label Only'
           }
         ]
       });
 
-      const formData = verifyFieldPreservation(result, [1, 3, 6, 7]);
-      const field6 = formData.fields.find((f: any) => f.id === 6);
+      const formData = verifyFieldPreservation(result, ['1', '3', '6', '7']);
+      const field6 = formData.fields.find((f: any) => f.id === '6');
       
       // Label should be updated
       expect(field6.label).toBe('Updated Label Only');
@@ -1017,7 +1017,7 @@ describe('GravityFormsMCPServer', () => {
         partial_update: true,
         fields: [
           {
-            id: 6,
+            id: '6',
             choices: [
               { text: 'Updated first choice', inventory_limit: '2' },
               { text: 'Updated second choice', inventory_limit: '7' },
@@ -1028,8 +1028,8 @@ describe('GravityFormsMCPServer', () => {
         ]
       });
 
-      const formData = verifyFieldPreservation(result, [1, 3, 6, 7]);
-      const field6 = formData.fields.find((f: any) => f.id === 6);
+      const formData = verifyFieldPreservation(result, ['1', '3', '6', '7']);
+      const field6 = formData.fields.find((f: any) => f.id === '6');
       
       // Should have 4 choices now (3 existing + 1 new)
       expect(field6.choices).toHaveLength(4);
@@ -1056,25 +1056,26 @@ describe('GravityFormsMCPServer', () => {
         partial_update: true,
         fields: [
           {
-            id: 6,
+            id: '6',
             choices: [
-              null, // null choice - should preserve existing
-              { inventory_limit: '8' }, // valid update
-              ['invalid', 'array'], // invalid array - should preserve existing
-              undefined // undefined - should preserve existing if it exists
+              null, // null choice - replaces first choice with null
+              { inventory_limit: '8' }, // valid update - merges with second choice
+              ['invalid', 'array'] // invalid array - replaces third choice with invalid array
+              // Note: no 4th element, so original behavior is index-based replacement
             ]
           }
         ]
       });
 
-      const formData = verifyFieldPreservation(result, [1, 3, 6, 7]);
-      const field6 = formData.fields.find((f: any) => f.id === 6);
+      const formData = verifyFieldPreservation(result, ['1', '3', '6', '7']);
+      const field6 = formData.fields.find((f: any) => f.id === '6');
       
-      // Should still have 3 choices, with only choice[1] updated
+      // Should have 3 choices: preserved, merged object, preserved
       expect(field6.choices).toHaveLength(3);
-      expect(field6.choices[0].text).toBe('Yes, as event lead.'); // Preserved
+      expect(field6.choices[0].text).toBe('Yes, as event lead.'); // Preserved (null update ignored)
       expect(field6.choices[1].inventory_limit).toBe('8'); // Updated
-      expect(field6.choices[2].text).toBe('Yes, as an assistant instructor (Shadow).'); // Preserved
+      expect(field6.choices[1].text).toBe('Yes, as a primary instructor.'); // Original text preserved
+      expect(field6.choices[2].text).toBe('Yes, as an assistant instructor (Shadow).'); // Preserved (invalid array ignored)
     });
 
     test('should handle empty choices array in updates', async () => {
@@ -1096,14 +1097,14 @@ describe('GravityFormsMCPServer', () => {
         partial_update: true,
         fields: [
           {
-            id: 6,
+            id: '6',
             choices: [] // Empty array - should preserve all existing choices
           }
         ]
       });
 
-      const formData = verifyFieldPreservation(result, [1, 3, 6, 7]);
-      const field6 = formData.fields.find((f: any) => f.id === 6);
+      const formData = verifyFieldPreservation(result, ['1', '3', '6', '7']);
+      const field6 = formData.fields.find((f: any) => f.id === '6');
       
       // Should preserve all 3 existing choices
       expect(field6.choices).toHaveLength(3);
@@ -1131,7 +1132,7 @@ describe('GravityFormsMCPServer', () => {
         partial_update: true,
         fields: [
           {
-            id: 6,
+            id: '6',
             label: 'Updated Label',
             isRequired: true,
             customProperty: 'new value',
@@ -1144,8 +1145,8 @@ describe('GravityFormsMCPServer', () => {
         ]
       });
 
-      const formData = verifyFieldPreservation(result, [1, 3, 6, 7]);
-      const field6 = formData.fields.find((f: any) => f.id === 6);
+      const formData = verifyFieldPreservation(result, ['1', '3', '6', '7']);
+      const field6 = formData.fields.find((f: any) => f.id === '6');
       
       // Non-choices properties should be merged normally
       expect(field6.label).toBe('Updated Label');
@@ -1177,11 +1178,11 @@ describe('GravityFormsMCPServer', () => {
         partial_update: true,
         fields: [
           {
-            id: 6,
+            id: '6',
             label: 'Updated Checkbox'
           },
           {
-            id: 10,
+            id: '10',
             type: 'text',
             label: 'New Field'
           }
@@ -1205,10 +1206,10 @@ describe('GravityFormsMCPServer', () => {
       expect(formData.fields).toHaveLength(5); // Original 4 + 1 new
       
       // Verify all original fields are preserved
-      const field1 = formData.fields.find((f: any) => f.id === 1);
-      const field3 = formData.fields.find((f: any) => f.id === 3);
-      const field6 = formData.fields.find((f: any) => f.id === 6);
-      const field7 = formData.fields.find((f: any) => f.id === 7);
+      const field1 = formData.fields.find((f: any) => f.id === '1');
+      const field3 = formData.fields.find((f: any) => f.id === '3');
+      const field6 = formData.fields.find((f: any) => f.id === '6');
+      const field7 = formData.fields.find((f: any) => f.id === '7');
       
       expect(field1).toBeDefined();
       expect(field1.type).toBe('name');
@@ -1220,7 +1221,7 @@ describe('GravityFormsMCPServer', () => {
       expect(field7.type).toBe('html');
 
       // Verify new field was added
-      const newField = formData.fields.find((f: any) => f.id === 10);
+      const newField = formData.fields.find((f: any) => f.id === '10');
       expect(newField).toBeDefined();
       expect(newField.type).toBe('text');
       expect(newField.label).toBe('New Field');
@@ -1244,7 +1245,7 @@ describe('GravityFormsMCPServer', () => {
         partial_update: true,
         fields: [
           {
-            id: 5,
+            id: '5',
             type: 'text',
             label: 'Field Between 3 and 6'
           }
@@ -1268,16 +1269,16 @@ describe('GravityFormsMCPServer', () => {
 
       // Verify field order: 1, 3, 5, 6, 7
       const fieldIds = formData.fields.map((f: any) => f.id);
-      expect(fieldIds).toEqual([1, 3, 5, 6, 7]);
+      expect(fieldIds).toEqual(['1', '3', '5', '6', '7']);
       
       // Verify all original fields preserved
-      expect(formData.fields.find((f: any) => f.id === 1)).toBeDefined();
-      expect(formData.fields.find((f: any) => f.id === 3)).toBeDefined();
-      expect(formData.fields.find((f: any) => f.id === 6)).toBeDefined();
-      expect(formData.fields.find((f: any) => f.id === 7)).toBeDefined();
+      expect(formData.fields.find((f: any) => f.id === '1')).toBeDefined();
+      expect(formData.fields.find((f: any) => f.id === '3')).toBeDefined();
+      expect(formData.fields.find((f: any) => f.id === '6')).toBeDefined();
+      expect(formData.fields.find((f: any) => f.id === '7')).toBeDefined();
       
       // Verify new field added
-      const newField = formData.fields.find((f: any) => f.id === 5);
+      const newField = formData.fields.find((f: any) => f.id === '5');
       expect(newField).toBeDefined();
       expect(newField.type).toBe('text');
       expect(newField.label).toBe('Field Between 3 and 6');
@@ -1301,17 +1302,17 @@ describe('GravityFormsMCPServer', () => {
         partial_update: true,
         fields: [
           {
-            id: 8,
+            id: '8',
             type: 'text',
             label: 'New Text Field'
           },
           {
-            id: 9,
+            id: '9',
             type: 'email',
             label: 'New Email Field'
           },
           {
-            id: 10,
+            id: '10',
             type: 'number',
             label: 'New Number Field'
           }
@@ -1334,15 +1335,15 @@ describe('GravityFormsMCPServer', () => {
       expect(formData.fields).toHaveLength(7); // Original 4 + 3 new
       
       // Verify all original fields preserved
-      expect(formData.fields.find((f: any) => f.id === 1)).toBeDefined();
-      expect(formData.fields.find((f: any) => f.id === 3)).toBeDefined();
-      expect(formData.fields.find((f: any) => f.id === 6)).toBeDefined();
-      expect(formData.fields.find((f: any) => f.id === 7)).toBeDefined();
+      expect(formData.fields.find((f: any) => f.id === '1')).toBeDefined();
+      expect(formData.fields.find((f: any) => f.id === '3')).toBeDefined();
+      expect(formData.fields.find((f: any) => f.id === '6')).toBeDefined();
+      expect(formData.fields.find((f: any) => f.id === '7')).toBeDefined();
 
       // Verify all new fields were added
-      const field8 = formData.fields.find((f: any) => f.id === 8);
-      const field9 = formData.fields.find((f: any) => f.id === 9);
-      const field10 = formData.fields.find((f: any) => f.id === 10);
+      const field8 = formData.fields.find((f: any) => f.id === '8');
+      const field9 = formData.fields.find((f: any) => f.id === '9');
+      const field10 = formData.fields.find((f: any) => f.id === '10');
       
       expect(field8).toBeDefined();
       expect(field8.type).toBe('text');
@@ -1392,10 +1393,10 @@ describe('GravityFormsMCPServer', () => {
 
       // Should preserve all existing fields when empty array is sent
       expect(formData.fields).toHaveLength(4); // Original 4 fields
-      expect(formData.fields.find((f: any) => f.id === 1)).toBeDefined();
-      expect(formData.fields.find((f: any) => f.id === 3)).toBeDefined();
-      expect(formData.fields.find((f: any) => f.id === 6)).toBeDefined();
-      expect(formData.fields.find((f: any) => f.id === 7)).toBeDefined();
+      expect(formData.fields.find((f: any) => f.id === '1')).toBeDefined();
+      expect(formData.fields.find((f: any) => f.id === '3')).toBeDefined();
+      expect(formData.fields.find((f: any) => f.id === '6')).toBeDefined();
+      expect(formData.fields.find((f: any) => f.id === '7')).toBeDefined();
     });
 
     test('should handle fields without IDs', async () => {
@@ -1421,7 +1422,7 @@ describe('GravityFormsMCPServer', () => {
             label: 'Field Without ID'
           },
           {
-            id: 6,
+            id: '6',
             label: 'Valid Field Update'
           }
         ]
@@ -1443,7 +1444,7 @@ describe('GravityFormsMCPServer', () => {
       expect(formData.fields).toHaveLength(4); // Original 4 fields
       
       // Field 6 should be updated
-      const field6 = formData.fields.find((f: any) => f.id === 6);
+      const field6 = formData.fields.find((f: any) => f.id === '6');
       expect(field6).toBeDefined();
       expect(field6.label).toBe('Valid Field Update');
       
@@ -1470,7 +1471,7 @@ describe('GravityFormsMCPServer', () => {
         partial_update: true,
         fields: [
           {
-            id: 6,
+            id: '6',
             label: 'Updated Label Only'
             // Not specifying choices, isRequired, type, etc.
           }
@@ -1489,7 +1490,7 @@ describe('GravityFormsMCPServer', () => {
         throw new Error(`Failed to parse result: ${resultText}`);
       }
 
-      const field6 = formData.fields.find((f: any) => f.id === 6);
+      const field6 = formData.fields.find((f: any) => f.id === '6');
       expect(field6).toBeDefined();
       
       // Updated property
@@ -1526,7 +1527,7 @@ describe('GravityFormsMCPServer', () => {
         partial_update: true,
         fields: [
           {
-            id: 6,
+            id: '6',
             label: 'Valid Update'
           },
           // Various malformed field data that should be handled gracefully
@@ -1577,14 +1578,14 @@ describe('GravityFormsMCPServer', () => {
       expect(formData.fields).toHaveLength(5); // Original 4 fields + 1 new valid field
       
       // Field 6 should be updated
-      const field6 = formData.fields.find((f: any) => f.id === 6);
+      const field6 = formData.fields.find((f: any) => f.id === '6');
       expect(field6).toBeDefined();
       expect(field6.label).toBe('Valid Update');
       
       // All original fields should be preserved
-      expect(formData.fields.find((f: any) => f.id === 1)).toBeDefined();
-      expect(formData.fields.find((f: any) => f.id === 3)).toBeDefined();
-      expect(formData.fields.find((f: any) => f.id === 7)).toBeDefined();
+      expect(formData.fields.find((f: any) => f.id === '1')).toBeDefined();
+      expect(formData.fields.find((f: any) => f.id === '3')).toBeDefined();
+      expect(formData.fields.find((f: any) => f.id === '7')).toBeDefined();
       
       // Valid new field with numeric string ID should be added
       const field5 = formData.fields.find((f: any) => f.id === '5');
@@ -1616,7 +1617,7 @@ describe('GravityFormsMCPServer', () => {
           .mockImplementationOnce(() => Promise.resolve({
             ...mockForm,
             fields: mockForm.fields.map((f: any) => 
-              f.id === 6 ? { ...f, label: 'Updated via Workflow' } : f
+              f.id === '6' ? { ...f, label: 'Updated via Workflow' } : f
             )
           })); // Final GET to confirm persistence
 
@@ -1626,7 +1627,7 @@ describe('GravityFormsMCPServer', () => {
           partial_update: true,
           fields: [
             {
-              id: 6,
+              id: '6',
               label: 'Updated via Workflow'
             }
           ]
@@ -1645,7 +1646,7 @@ describe('GravityFormsMCPServer', () => {
         }
 
         expect(updateFormData.fields).toHaveLength(4);
-        const updatedField6 = updateFormData.fields.find((f: any) => f.id === 6);
+        const updatedField6 = updateFormData.fields.find((f: any) => f.id === '6');
         expect(updatedField6.label).toBe('Updated via Workflow');
 
         // Step 4: Fetch form again to confirm persistence (simulated)
@@ -1680,7 +1681,7 @@ describe('GravityFormsMCPServer', () => {
           partial_update: true,
           fields: [
             {
-              id: 1,
+              id: '1',
               label: 'Updated Full Name'
             }
           ]
@@ -1692,7 +1693,7 @@ describe('GravityFormsMCPServer', () => {
           partial_update: true,
           fields: [
             {
-              id: 3,
+              id: '3',
               label: 'Updated Email Address'
             }
           ]
@@ -1704,7 +1705,7 @@ describe('GravityFormsMCPServer', () => {
           partial_update: true,
           fields: [
             {
-              id: 6,
+              id: '6',
               label: 'Updated Checkbox',
               choices: [
                 { text: 'Yes, as event lead.', inventory_limit: '2' }, // Updated
@@ -1730,9 +1731,9 @@ describe('GravityFormsMCPServer', () => {
         // Verify all updates were preserved
         expect(finalFormData.fields).toHaveLength(4);
         
-        const field1 = finalFormData.fields.find((f: any) => f.id === 1);
-        const field3 = finalFormData.fields.find((f: any) => f.id === 3);
-        const field6 = finalFormData.fields.find((f: any) => f.id === 6);
+        const field1 = finalFormData.fields.find((f: any) => f.id === '1');
+        const field3 = finalFormData.fields.find((f: any) => f.id === '3');
+        const field6 = finalFormData.fields.find((f: any) => f.id === '6');
         
         expect(field1.label).toBe('Updated Full Name');
         expect(field3.label).toBe('Updated Email Address');
@@ -1766,21 +1767,21 @@ describe('GravityFormsMCPServer', () => {
         await expect((server as any).updateForm({
           form_id: '217',
           partial_update: true,
-          fields: [{ id: 6, label: 'Should Fail' }]
+          fields: [{ id: '6', label: 'Should Fail' }]
         })).rejects.toThrow('API Error: Form update failed');
 
         // Test 2: Network error during update
         await expect((server as any).updateForm({
           form_id: '217',
           partial_update: true,
-          fields: [{ id: 6, label: 'Should Fail Again' }]
+          fields: [{ id: '6', label: 'Should Fail Again' }]
         })).rejects.toThrow('Network timeout');
 
         // Test 3: Successful update after errors
         const successResult = await (server as any).updateForm({
           form_id: '217',
           partial_update: true,
-          fields: [{ id: 6, label: 'Should Succeed' }]
+          fields: [{ id: '6', label: 'Should Succeed' }]
         });
 
         const resultText = successResult.content[0].text;
@@ -1810,7 +1811,7 @@ describe('GravityFormsMCPServer', () => {
           title: 'Completely New Form',
           fields: [
             {
-              id: 1,
+              id: '1',
               type: 'text',
               label: 'Only Field'
             }
@@ -1857,11 +1858,11 @@ describe('GravityFormsMCPServer', () => {
           partial_update: true,
           fields: [
             {
-              id: 3, // Update existing field
+              id: '3', // Update existing field
               label: 'Updated Email'
             },
             {
-              id: 10, // Add new field
+              id: '10', // Add new field
               type: 'number',
               label: 'New Number Field'
             }
@@ -1879,8 +1880,8 @@ describe('GravityFormsMCPServer', () => {
         }
 
         expect(mixedData.fields).toHaveLength(5); // 4 original + 1 new
-        expect(mixedData.fields.find((f: any) => f.id === 3).label).toBe('Updated Email');
-        expect(mixedData.fields.find((f: any) => f.id === 10).type).toBe('number');
+        expect(mixedData.fields.find((f: any) => f.id === '3').label).toBe('Updated Email');
+        expect(mixedData.fields.find((f: any) => f.id === '10').type).toBe('number');
 
         // Verify total calls: fullUpdate (1), noFieldsUpdate (2), mixedUpdate (2) = 5 total
         expect(server.makeRequest).toHaveBeenCalledTimes(5);

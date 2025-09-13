@@ -1851,7 +1851,10 @@ Consider using form templates or cloning for management.`;
         // Create a map of updated fields by ID
         const fieldUpdates = new Map();
         fields.forEach((field: Record<string, unknown>) => {
-          if (field.id != null) fieldUpdates.set(String(field.id), field);
+          // Only process fields with valid IDs (non-null, non-empty, non-zero)
+          if (field != null && this.isValidFieldId(field.id)) {
+            fieldUpdates.set(String(field.id), field);
+          }
         });
         
         // Merge with existing fields
@@ -1875,6 +1878,12 @@ Consider using form templates or cloning for management.`;
         finalFields.sort((a: Record<string, unknown>, b: Record<string, unknown>) => {
           const idA = a.id != null ? Number(a.id) : 0;
           const idB = b.id != null ? Number(b.id) : 0;
+          
+          // Handle NaN cases safely - invalid IDs go to end
+          if (isNaN(idA) && isNaN(idB)) return 0;
+          if (isNaN(idA)) return 1;
+          if (isNaN(idB)) return -1;
+          
           return idA - idB;
         });
       } else {
@@ -2013,6 +2022,24 @@ Consider using form templates or cloning for management.`;
         }
       ]
     };
+  }
+
+  /**
+   * Validates if a field ID is valid for partial updates
+   * Gravity Forms field IDs should be positive integers or numeric strings
+   */
+  private isValidFieldId(id: unknown): boolean {
+    // Reject null, undefined, empty string, zero, and non-numeric values
+    if (id == null || id === '' || id === 0) {
+      return false;
+    }
+    
+    // Accept positive numbers and numeric strings within reasonable bounds
+    const numericId = Number(id);
+    return !isNaN(numericId) && 
+           numericId > 0 && 
+           numericId <= 999999 && // Reasonable upper bound for Gravity Forms field IDs
+           Number.isInteger(numericId); // Must be whole numbers
   }
 
   /**

@@ -81,19 +81,19 @@ export class GravityFormsMocks {
       description: 'Form for volunteer role assignments',
       fields: [
         {
-          id: 1,
+          id: '1',
           type: 'name',
           label: 'Full Name',
           isRequired: true
         },
         {
-          id: 3,
+          id: '3',
           type: 'email',
           label: 'Email',
           isRequired: true
         },
         {
-          id: 6,
+          id: '6',
           type: 'checkbox',
           label: 'I will help out',
           isRequired: false,
@@ -113,7 +113,7 @@ export class GravityFormsMocks {
           ]
         },
         {
-          id: 7,
+          id: '7',
           type: 'html',
           label: 'Name Display',
           content: '<b>Name</b><br>{user:first_name} {user:last_name}',
