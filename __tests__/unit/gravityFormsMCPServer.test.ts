@@ -996,5 +996,166 @@ describe('GravityFormsMCPServer', () => {
       // Choices should remain intact
       expect(field6.choices).toHaveLength(3);
     });
+
+    // Edge Case Tests for Robust mergeFieldProperties
+    test('should handle updates.choices longer than existing.choices', async () => {
+      const { GravityFormsMCPServer } = await import('../../index');
+      const server = new GravityFormsMCPServer();
+      
+      server.makeRequest = jest.fn().mockImplementation((endpoint: string, method: string = 'GET', body?: any) => {
+        if (method === 'GET' && endpoint.includes('/forms/217')) {
+          return Promise.resolve(mockForm);
+        }
+        if (method === 'PUT' && endpoint.includes('/forms/217')) {
+          return Promise.resolve(body);
+        }
+        return Promise.reject(new Error('Unexpected request'));
+      });
+
+      const result = await (server as any).updateForm({
+        form_id: '217',
+        partial_update: true,
+        fields: [
+          {
+            id: 6,
+            choices: [
+              { text: 'Updated first choice', inventory_limit: '2' },
+              { text: 'Updated second choice', inventory_limit: '7' },
+              { text: 'Updated third choice', inventory_limit: '6' },
+              { text: 'New fourth choice', inventory_limit: '10' } // Extra choice
+            ]
+          }
+        ]
+      });
+
+      const formData = verifyFieldPreservation(result, [1, 3, 6, 7]);
+      const field6 = formData.fields.find((f: any) => f.id === 6);
+      
+      // Should have 4 choices now (3 existing + 1 new)
+      expect(field6.choices).toHaveLength(4);
+      expect(field6.choices[3].text).toBe('New fourth choice');
+      expect(field6.choices[3].inventory_limit).toBe('10');
+    });
+
+    test('should handle null and invalid choice objects gracefully', async () => {
+      const { GravityFormsMCPServer } = await import('../../index');
+      const server = new GravityFormsMCPServer();
+      
+      server.makeRequest = jest.fn().mockImplementation((endpoint: string, method: string = 'GET', body?: any) => {
+        if (method === 'GET' && endpoint.includes('/forms/217')) {
+          return Promise.resolve(mockForm);
+        }
+        if (method === 'PUT' && endpoint.includes('/forms/217')) {
+          return Promise.resolve(body);
+        }
+        return Promise.reject(new Error('Unexpected request'));
+      });
+
+      const result = await (server as any).updateForm({
+        form_id: '217',
+        partial_update: true,
+        fields: [
+          {
+            id: 6,
+            choices: [
+              null, // null choice - should preserve existing
+              { inventory_limit: '8' }, // valid update
+              ['invalid', 'array'], // invalid array - should preserve existing
+              undefined // undefined - should preserve existing if it exists
+            ]
+          }
+        ]
+      });
+
+      const formData = verifyFieldPreservation(result, [1, 3, 6, 7]);
+      const field6 = formData.fields.find((f: any) => f.id === 6);
+      
+      // Should still have 3 choices, with only choice[1] updated
+      expect(field6.choices).toHaveLength(3);
+      expect(field6.choices[0].text).toBe('Yes, as event lead.'); // Preserved
+      expect(field6.choices[1].inventory_limit).toBe('8'); // Updated
+      expect(field6.choices[2].text).toBe('Yes, as an assistant instructor (Shadow).'); // Preserved
+    });
+
+    test('should handle empty choices array in updates', async () => {
+      const { GravityFormsMCPServer } = await import('../../index');
+      const server = new GravityFormsMCPServer();
+      
+      server.makeRequest = jest.fn().mockImplementation((endpoint: string, method: string = 'GET', body?: any) => {
+        if (method === 'GET' && endpoint.includes('/forms/217')) {
+          return Promise.resolve(mockForm);
+        }
+        if (method === 'PUT' && endpoint.includes('/forms/217')) {
+          return Promise.resolve(body);
+        }
+        return Promise.reject(new Error('Unexpected request'));
+      });
+
+      const result = await (server as any).updateForm({
+        form_id: '217',
+        partial_update: true,
+        fields: [
+          {
+            id: 6,
+            choices: [] // Empty array - should preserve all existing choices
+          }
+        ]
+      });
+
+      const formData = verifyFieldPreservation(result, [1, 3, 6, 7]);
+      const field6 = formData.fields.find((f: any) => f.id === 6);
+      
+      // Should preserve all 3 existing choices
+      expect(field6.choices).toHaveLength(3);
+      expect(field6.choices[0].text).toBe('Yes, as event lead.');
+      expect(field6.choices[1].text).toBe('Yes, as a primary instructor.');
+      expect(field6.choices[2].text).toBe('Yes, as an assistant instructor (Shadow).');
+    });
+
+    test('should handle non-choices array properties correctly', async () => {
+      const { GravityFormsMCPServer } = await import('../../index');
+      const server = new GravityFormsMCPServer();
+      
+      server.makeRequest = jest.fn().mockImplementation((endpoint: string, method: string = 'GET', body?: any) => {
+        if (method === 'GET' && endpoint.includes('/forms/217')) {
+          return Promise.resolve(mockForm);
+        }
+        if (method === 'PUT' && endpoint.includes('/forms/217')) {
+          return Promise.resolve(body);
+        }
+        return Promise.reject(new Error('Unexpected request'));
+      });
+
+      const result = await (server as any).updateForm({
+        form_id: '217',
+        partial_update: true,
+        fields: [
+          {
+            id: 6,
+            label: 'Updated Label',
+            isRequired: true,
+            customProperty: 'new value',
+            choices: [
+              undefined,
+              { inventory_limit: '9' },
+              undefined
+            ]
+          }
+        ]
+      });
+
+      const formData = verifyFieldPreservation(result, [1, 3, 6, 7]);
+      const field6 = formData.fields.find((f: any) => f.id === 6);
+      
+      // Non-choices properties should be merged normally
+      expect(field6.label).toBe('Updated Label');
+      expect(field6.isRequired).toBe(true);
+      expect(field6.customProperty).toBe('new value');
+      expect(field6.type).toBe('checkbox'); // Preserved
+      
+      // Choices should be handled specially
+      expect(field6.choices[1].inventory_limit).toBe('9');
+      expect(field6.choices[1].text).toBe('Yes, as a primary instructor.');
+    });
   });
 });

@@ -1971,15 +1971,33 @@ Consider using form templates or cloning for management.`;
   /**
    * Deep merge field properties for partial updates
    */
-  private mergeFieldProperties(existing: any, updates: any): any {
+  private mergeFieldProperties(existing: Record<string, unknown>, updates: Record<string, unknown>): Record<string, unknown> {
     // Handle choices array specially
-    if (updates.choices && existing.choices) {
-      const mergedChoices = existing.choices.map((existingChoice: any, index: number) => {
-        if (updates.choices[index]) {
-          return { ...existingChoice, ...updates.choices[index] };
+    if (Array.isArray(updates.choices) && Array.isArray(existing.choices)) {
+      const updatesChoices = updates.choices as unknown[];
+      const existingChoices = existing.choices as Record<string, unknown>[];
+      
+      // Handle both existing choices and potential additional choices from updates
+      const maxLength = Math.max(existingChoices.length, updatesChoices.length);
+      const mergedChoices: Record<string, unknown>[] = [];
+      
+      for (let index = 0; index < maxLength; index++) {
+        const existingChoice = existingChoices[index];
+        const updateChoice = updatesChoices[index];
+        
+        if (existingChoice && updateChoice && typeof updateChoice === 'object' && updateChoice !== null && !Array.isArray(updateChoice)) {
+          // Merge existing choice with updates
+          mergedChoices.push({ ...existingChoice, ...(updateChoice as Record<string, unknown>) });
+        } else if (existingChoice) {
+          // Keep existing choice unchanged
+          mergedChoices.push(existingChoice);
+        } else if (updateChoice && typeof updateChoice === 'object' && updateChoice !== null && !Array.isArray(updateChoice)) {
+          // Add new choice from updates (edge case: updates.choices longer than existing)
+          mergedChoices.push(updateChoice as Record<string, unknown>);
         }
-        return existingChoice;
-      });
+        // Skip undefined, null, or invalid updateChoice entries
+      }
+      
       return { ...existing, ...updates, choices: mergedChoices };
     }
     
