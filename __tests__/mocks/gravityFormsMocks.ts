@@ -104,7 +104,7 @@ export class GravityFormsMocks {
             },
             {
               text: 'Yes, as a primary instructor.',
-              inventory_limit: 5
+              inventory_limit: '5'
             },
             {
               text: 'Yes, as an assistant instructor (Shadow).',

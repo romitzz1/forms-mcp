@@ -1804,16 +1804,30 @@ Consider using form templates or cloning for management.`;
         // Create a map of updated fields by ID
         const fieldUpdates = new Map();
         fields.forEach(field => {
-          if (field.id) fieldUpdates.set(field.id.toString(), field);
+          if (field.id != null) fieldUpdates.set(String(field.id), field);
         });
         
         // Merge with existing fields
         finalFields = existingForm.fields.map(existingField => {
-          const fieldId = existingField.id?.toString();
+          const fieldId = existingField.id != null ? String(existingField.id) : null;
           if (fieldId && fieldUpdates.has(fieldId)) {
-            return { ...existingField, ...fieldUpdates.get(fieldId) };
+            const updatedField = { ...existingField, ...fieldUpdates.get(fieldId) };
+            fieldUpdates.delete(fieldId); // Mark as processed
+            return updatedField;
           }
           return existingField;
+        });
+        
+        // Add any new fields that weren't in the existing form
+        fieldUpdates.forEach(newField => {
+          finalFields.push(newField);
+        });
+        
+        // Sort by field ID to maintain consistent order
+        finalFields.sort((a, b) => {
+          const idA = a.id != null ? Number(a.id) : 0;
+          const idB = b.id != null ? Number(b.id) : 0;
+          return idA - idB;
         });
       } else {
         finalFields = fields || existingForm.fields;

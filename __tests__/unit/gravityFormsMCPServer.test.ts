@@ -717,7 +717,7 @@ describe('GravityFormsMCPServer', () => {
       expect(htmlField.type).toBe('html');
     });
 
-    // TDD Test: This should FAIL initially - demonstrates the problem
+    // TDD Test: Should PASS after field merge implementation - preserves existing fields
     test('should preserve other fields when updating single field with partial_update', async () => {
       const { GravityFormsMCPServer } = await import('../../index');
       const server = new GravityFormsMCPServer();
@@ -745,7 +745,7 @@ describe('GravityFormsMCPServer', () => {
         ]
       });
 
-      // This test should FAIL because current implementation loses fields 1, 3, and 7
+      // Verify all fields are preserved during partial update
       const formData = verifyFieldPreservation(result, [1, 3, 6, 7]);
       
       // Verify field 6 was updated but preserved its choices
@@ -800,6 +800,53 @@ describe('GravityFormsMCPServer', () => {
       expect(formData.fields).toHaveLength(1);
       expect(formData.fields[0].id).toBe(6);
       expect(formData.fields[0].label).toBe('Only Field');
+    });
+
+    // Test new field addition during partial update
+    test('should add new fields during partial update while preserving existing fields', async () => {
+      const { GravityFormsMCPServer } = await import('../../index');
+      const server = new GravityFormsMCPServer();
+      
+      // Mock makeRequest 
+      server.makeRequest = jest.fn().mockImplementation((endpoint: string, method: string = 'GET', body?: any) => {
+        if (method === 'GET' && endpoint.includes('/forms/217')) {
+          return Promise.resolve(mockForm);
+        }
+        if (method === 'PUT' && endpoint.includes('/forms/217')) {
+          return Promise.resolve(body);
+        }
+        return Promise.reject(new Error('Unexpected request'));
+      });
+
+      const result = await (server as any).updateForm({
+        form_id: '217',
+        partial_update: true,
+        fields: [
+          {
+            id: 6,
+            label: 'Updated Checkbox'
+          },
+          {
+            id: 8,
+            type: 'text',
+            label: 'New Field',
+            isRequired: false
+          }
+        ]
+      });
+
+      // Should have all original fields plus new field 8
+      const formData = verifyFieldPreservation(result, [1, 3, 6, 7, 8]);
+      
+      // Verify new field was added
+      const newField = formData.fields.find((f: any) => f.id === 8);
+      expect(newField).toBeDefined();
+      expect(newField.type).toBe('text');
+      expect(newField.label).toBe('New Field');
+      
+      // Verify existing field was updated
+      const updatedField6 = formData.fields.find((f: any) => f.id === 6);
+      expect(updatedField6.label).toBe('Updated Checkbox');
     });
   });
 });
