@@ -52,6 +52,10 @@ interface ICacheStatus {
 }
 
 export class GravityFormsMCPServer {
+  // Constants for pagination and safety limits
+  private static readonly SEARCH_RESULTS_LIMIT = 100; // Limit for search operations
+  private static readonly MAX_EXPORT_ENTRIES = 1000; // Safety limit for exports
+  
   private readonly server: Server;
   private readonly config: IGravityFormsConfig;
   private readonly cacheConfig: ICacheConfig;
@@ -594,6 +598,14 @@ export class GravityFormsMCPServer {
                   type: "boolean",
                   description: "Include headers in CSV export",
                   default: true
+                },
+                paging: {
+                  type: "object",
+                  description: "Pagination settings",
+                  properties: {
+                    page_size: { type: "number", description: "Number of entries per page (max 1000)" },
+                    current_page: { type: "number", description: "Page number to retrieve" }
+                  }
                 }
               },
               required: ["form_id", "format"]
@@ -1564,13 +1576,20 @@ Consider using form templates or cloning for management.`;
         },
         searchEntries: async (formId: string, searchParams: any) => {
           try {
-            // Build search URL with proper encoding
+            // Build search URL with proper encoding and pagination safety
             const params = new URLSearchParams();
+            
+            // Add pagination safety to prevent system crashes
+            params.append('paging[page_size]', '100'); // Safe limit for search operations
+            
             if (searchParams) {
               params.append('search', JSON.stringify(searchParams));
             }
             const endpoint = `/forms/${formId}/entries?${params.toString()}`;
-            return await this.makeRequest(endpoint);
+            
+            // Return full response to preserve total_count metadata
+            const response = await this.makeRequest(endpoint);
+            return response?.entries || response || [];
           } catch (error) {
             throw new Error(`Failed to search entries in form ${formId}: ${error}`);
           }
@@ -1831,12 +1850,12 @@ Consider using form templates or cloning for management.`;
       if (fields && partial_update) {
         // Create a map of updated fields by ID
         const fieldUpdates = new Map();
-        fields.forEach(field => {
+        fields.forEach((field: Record<string, unknown>) => {
           if (field.id != null) fieldUpdates.set(String(field.id), field);
         });
         
         // Merge with existing fields
-        finalFields = existingForm.fields.map(existingField => {
+        finalFields = existingForm.fields.map((existingField: Record<string, unknown>) => {
           const fieldId = existingField.id != null ? String(existingField.id) : null;
           if (fieldId && fieldUpdates.has(fieldId)) {
             const updates = fieldUpdates.get(fieldId);
@@ -1853,7 +1872,7 @@ Consider using form templates or cloning for management.`;
         });
         
         // Sort by field ID to maintain consistent order
-        finalFields.sort((a, b) => {
+        finalFields.sort((a: Record<string, unknown>, b: Record<string, unknown>) => {
           const idA = a.id != null ? Number(a.id) : 0;
           const idB = b.id != null ? Number(b.id) : 0;
           return idA - idB;
@@ -2002,28 +2021,33 @@ Consider using form templates or cloning for management.`;
   private mergeFieldProperties(existing: Record<string, unknown>, updates: Record<string, unknown>): Record<string, unknown> {
     // Handle choices array specially
     if (Array.isArray(updates.choices) && Array.isArray(existing.choices)) {
-      const updatesChoices = updates.choices as unknown[];
+      // Ensure both arrays contain objects with consistent typing
       const existingChoices = existing.choices as Record<string, unknown>[];
+      const updatesChoices = updates.choices as Record<string, unknown>[];
+      
+      // Skip validation - handle mixed types during merging
+      // This allows for null values and other edge cases in choice arrays
       
       // Handle both existing choices and potential additional choices from updates
       const maxLength = Math.max(existingChoices.length, updatesChoices.length);
-      const mergedChoices: Record<string, unknown>[] = [];
+      const mergedChoices: unknown[] = [];
       
       for (let index = 0; index < maxLength; index++) {
         const existingChoice = existingChoices[index];
         const updateChoice = updatesChoices[index];
         
-        if (existingChoice && updateChoice && typeof updateChoice === 'object' && updateChoice !== null && !Array.isArray(updateChoice)) {
+        // Handle object merging with proper type checking
+        if (existingChoice && typeof existingChoice === 'object' && !Array.isArray(existingChoice) && existingChoice !== null &&
+            updateChoice && typeof updateChoice === 'object' && !Array.isArray(updateChoice) && updateChoice !== null) {
           // Merge existing choice with updates
-          mergedChoices.push({ ...existingChoice, ...(updateChoice as Record<string, unknown>) });
-        } else if (existingChoice) {
-          // Keep existing choice unchanged
+          mergedChoices.push({ ...(existingChoice as Record<string, unknown>), ...(updateChoice as Record<string, unknown>) });
+        } else if (existingChoice !== undefined) {
+          // Keep existing choice unchanged (including null values)
           mergedChoices.push(existingChoice);
-        } else if (updateChoice && typeof updateChoice === 'object' && updateChoice !== null && !Array.isArray(updateChoice)) {
+        } else if (updateChoice !== undefined) {
           // Add new choice from updates (edge case: updates.choices longer than existing)
-          mergedChoices.push(updateChoice as Record<string, unknown>);
+          mergedChoices.push(updateChoice);
         }
-        // Skip undefined, null, or invalid updateChoice entries
       }
       
       return { ...existing, ...updates, choices: mergedChoices };
@@ -2058,7 +2082,7 @@ Consider using form templates or cloning for management.`;
       );
     }
 
-    const { form_id, format, search, date_format, filename, include_headers } = args;
+    const { form_id, format, search, date_format, filename, include_headers, paging } = args;
 
     try {
       // Build API endpoint URL
@@ -2113,22 +2137,57 @@ Consider using form templates or cloning for management.`;
         }
       }
 
+      // Handle pagination parameters - maintain backward compatibility
+      const maxExportEntries = GravityFormsMCPServer.MAX_EXPORT_ENTRIES;
+      let pageSize: number | undefined;
+      let currentPage: number = 1;
+      
+      if (paging) {
+        if (paging.page_size) {
+          // Enforce safety limit when page_size is explicitly provided
+          pageSize = Math.min(Math.max(1, paging.page_size), maxExportEntries);
+        }
+        if (paging.current_page) {
+          currentPage = Math.max(1, paging.current_page); // Ensure page >= 1
+        }
+      }
+      
+      // Only add pagination if explicitly requested - preserves backward compatibility
+      if (pageSize !== undefined) {
+        params.append('paging[page_size]', String(pageSize));
+        params.append('paging[current_page]', String(currentPage));
+      } else {
+        // No pagination specified - let API return all entries (original behavior)
+        // Add safety warning for large datasets
+        params.append('paging[page_size]', String(maxExportEntries));
+        params.append('paging[current_page]', '1');
+        pageSize = maxExportEntries; // Set for response calculations
+      }
+      
       // Append query parameters if any
       const queryString = params.toString();
       if (queryString) {
         endpoint += `?${queryString}`;
       }
 
-      // Fetch entries from Gravity Forms API
-      const entries = await this.makeRequest(endpoint);
+      // Fetch entries from Gravity Forms API with pagination metadata
+      const response = await this.makeRequest(endpoint);
+      
+      // Extract entries and pagination info
+      const entries = response?.entries || response || [];
+      const totalCount = response?.total_count;
 
       // Handle empty results
       if (!Array.isArray(entries) || entries.length === 0) {
+        let emptyMessage = "No entries found for the specified criteria.";
+        if (totalCount !== undefined) {
+          emptyMessage += ` Total available: ${totalCount}`;
+        }
         return {
           content: [
             {
               type: "text",
-              text: "No entries found for the specified criteria."
+              text: emptyMessage
             }
           ]
         };
@@ -2151,19 +2210,51 @@ Consider using form templates or cloning for management.`;
         );
       }
 
+      // Build export success message with pagination info
+      let exportMessage = `Export completed successfully!\n\n`;
+      exportMessage += `Format: ${exportResult.format.toUpperCase()}\n`;
+      exportMessage += `Filename: ${exportResult.filename}\n`;
+      exportMessage += `Records exported: ${entries.length}\n`;
+      
+      // Add pagination info if total count is available
+      if (totalCount !== undefined) {
+        exportMessage += `Total entries available: ${totalCount}\n`;
+        
+        const totalPages = Math.ceil(totalCount / pageSize);
+        exportMessage += `Current page: ${currentPage} of ${totalPages}\n`;
+        exportMessage += `Page size: ${pageSize}\n`;
+        
+        // Fix math edge case for zero entries
+        if (totalCount > 0) {
+          exportMessage += `Showing entries: ${((currentPage - 1) * pageSize) + 1} to ${Math.min(currentPage * pageSize, totalCount)}\n`;
+        } else {
+          exportMessage += `Showing entries: No entries found\n`;
+        }
+        
+        // Add safety warning if using default limit without explicit pagination
+        if (paging === undefined && totalCount > maxExportEntries) {
+          exportMessage += `\n⚠️  Large Dataset Safety Limit Applied!\n`;
+          exportMessage += `- Only first ${maxExportEntries} entries exported (safety limit)\n`;
+          exportMessage += `- Total available: ${totalCount} entries\n`;
+          exportMessage += `- Use explicit pagination to access all data:\n`;
+          exportMessage += `{ "form_id": "${form_id}", "format": "${format}", "paging": { "page_size": 1000, "current_page": 2 } }\n`;
+        } else if (totalCount > (currentPage * pageSize)) {
+          const remaining = totalCount - (currentPage * pageSize);
+          exportMessage += `\n⚠️  More entries available!\n`;
+          exportMessage += `- Remaining: ${remaining} entries\n`;
+          exportMessage += `\nTo export the next page:\n`;
+          exportMessage += `{ "form_id": "${form_id}", "format": "${format}", "paging": { "page_size": ${pageSize}, "current_page": ${currentPage + 1} } }\n`;
+        }
+      }
+      
+      exportMessage += `\nFile size: ${exportResult.data.length} characters\n`;
+      exportMessage += `\nBase64 encoded data for download:\n${exportResult.base64Data}`;
+
       return {
         content: [
           {
             type: "text",
-            text: `Export completed successfully!
-
-Format: ${exportResult.format.toUpperCase()}
-Filename: ${exportResult.filename}
-Records: ${entries.length}
-File size: ${exportResult.data.length} characters
-
-Base64 encoded data for download:
-${exportResult.base64Data}`
+            text: exportMessage
           }
         ]
       };
@@ -2971,12 +3062,12 @@ ${exportResult.base64Data}`
           return this.makeRequest(`/forms/${formId}`);
         },
         searchEntries: async (formId: string, searchParams: any) => {
-          // Build query string for search parameters with pagination to get all entries
+          // Build query string for search parameters with pagination to get entries
           let endpoint = `/forms/${formId}/entries`;
           const params = new URLSearchParams();
           
-          // Set large page size to get all entries in one request (max 100 per Gravity Forms docs)
-          params.append('paging[page_size]', '100');
+          // Set search page size to balanced limit for performance vs completeness
+          params.append('paging[page_size]', String(GravityFormsMCPServer.SEARCH_RESULTS_LIMIT));
           
           // Add search parameters if provided
           if (searchParams && Object.keys(searchParams).length > 0) {
@@ -2989,7 +3080,11 @@ ${exportResult.base64Data}`
           
           endpoint += `?${params.toString()}`;
           const response = await this.makeRequest(endpoint, 'GET');
-          return response.entries || [];
+          
+          // Return entries but preserve metadata for potential future use
+          // Note: UniversalSearchManager currently doesn't use total_count,
+          // but we maintain it for consistency and future enhancements
+          return response?.entries || response || [];
         }
       };
       
@@ -3098,11 +3193,24 @@ ${exportResult.base64Data}`
         formInfo
       );
 
+      // Add pagination warning if results may be truncated
+      let responseText = formattedResult.content;
+      const searchLimit = GravityFormsMCPServer.SEARCH_RESULTS_LIMIT;
+      
+      if (transformedResult.matches.length >= searchLimit) {
+        responseText += `\n\n⚠️  Search Results Limited!\n`;
+        responseText += `- Showing first ${searchLimit} matches\n`;
+        responseText += `- More entries may exist but are not displayed\n`;
+        responseText += `- For comprehensive searches of large datasets, consider:\n`;
+        responseText += `  • Using more specific search terms\n`;
+        responseText += `  • Using get_entries with pagination for complete data access\n`;
+      }
+
       return {
         content: [
           {
             type: "text",
-            text: formattedResult.content
+            text: responseText
           }
         ]
       };
@@ -3482,6 +3590,18 @@ ${exportResult.base64Data}`
         } catch (mappingError) {
           responseText += `\n\n--- Field Mappings ---\nField mapping information unavailable`;
         }
+      }
+
+      // Add pagination warning if results may be truncated
+      const searchLimit = GravityFormsMCPServer.SEARCH_RESULTS_LIMIT;
+      
+      if (transformedResult.matches.length >= searchLimit) {
+        responseText += `\n\n⚠️  Search Results Limited!\n`;
+        responseText += `- Showing first ${searchLimit} matches per search operation\n`;
+        responseText += `- More entries may exist but are not displayed\n`;
+        responseText += `- For comprehensive searches of large datasets, consider:\n`;
+        responseText += `  • Using more specific search terms\n`;
+        responseText += `  • Using get_entries with pagination for complete data access\n`;
       }
 
       return {

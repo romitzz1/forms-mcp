@@ -9,6 +9,7 @@ An experiment in VibeCoding
 ## Features
 
 ### Core Functionality
+
 - 🔧 **Complete CRUD Operations**: Create, read, update, and delete forms and entries
 - 📝 **Form Submissions**: Submit forms with full validation and processing
 - 🔍 **Advanced Querying**: Search and filter entries with sorting and pagination
@@ -16,6 +17,7 @@ An experiment in VibeCoding
 - ✅ **Form Validation**: Validate submissions without saving
 
 ### Advanced Features
+
 - 📊 **Data Export**: Export entries to CSV/JSON with advanced formatting options
 - ⚡ **Bulk Operations**: Safely perform bulk delete, update, and status changes on entries
 - 🎨 **Template Management**: Create, manage, and clone form templates
@@ -24,6 +26,7 @@ An experiment in VibeCoding
 - 🔒 **Safety Mechanisms**: Confirmation required for destructive operations, rollback support
 
 ### Developer Experience (The Good Stuff!)
+
 - 📚 **Battle-Tested**: 281+ tests that would make a QA engineer weep tears of joy
 - 🚀 **TypeScript Supremacy**: Full type safety because nobody has time for runtime surprises
 - 🔧 **Modular Magic**: Clean utility classes that play together like a well-orchestrated symphony
@@ -40,11 +43,13 @@ An experiment in VibeCoding
 
 1. Clone or download this project
 2. Install dependencies:
+
 ```bash
 npm install
 ```
 
 3. Build the TypeScript code:
+
 ```bash
 npm run build
 ```
@@ -94,9 +99,11 @@ The server runs on stdio and can be connected to by MCP clients.
 ### Available Tools
 
 #### `get_forms`
+
 Get all forms or specific form details.
 
 **Parameters:**
+
 - `form_id` (optional): Specific form ID
 - `include_fields` (optional): Include full field details
 - `include_all` (optional): Include all forms from cache, including inactive forms (default: false)
@@ -104,6 +111,7 @@ Get all forms or specific form details.
 - `summary_mode` (optional): Return essential info only for large forms (default: false)
 
 **Examples:**
+
 ```javascript
 // Get all active forms
 { "form_id": null }
@@ -116,9 +124,11 @@ Get all forms or specific form details.
 ```
 
 #### `get_entries`
+
 Retrieve entries with filtering, sorting, and pagination.
 
 **Parameters:**
+
 - `form_id` (optional): Form ID to filter by
 - `entry_id` (optional): Specific entry ID
 - `search` (optional): Search criteria object
@@ -129,6 +139,7 @@ Retrieve entries with filtering, sorting, and pagination.
   - `offset`: Zero-based record number to start from (ignored if current_page is set)
 
 **Examples:**
+
 ```javascript
 // Get all entries from form 1
 { "form_id": "1" }
@@ -141,7 +152,7 @@ Retrieve entries with filtering, sorting, and pagination.
 
 // Get entries with offset-based pagination (20 results starting from record 15)
 {
-  "form_id": "1", 
+  "form_id": "1",
   "paging": { "page_size": 20, "offset": 15 }
 }
 
@@ -157,25 +168,30 @@ Retrieve entries with filtering, sorting, and pagination.
 **Important:** Use pagination to prevent database timeouts when working with large datasets. If both `current_page` and `offset` are provided, `current_page` takes priority per Gravity Forms API behavior.
 
 **Pagination Behavior:** The tool makes **single API calls** and returns one page at a time. When the API returns `total_count` metadata, the response includes:
+
 - Total number of entries available
-- Current page information  
+- Current page information
 - Clear instructions for retrieving additional pages
 - Indicator when more entries are available
 
 For datasets with 21 entries and `page_size: 20`, you'll need to make **two separate calls** to get all data:
+
 1. First call: `{ "paging": { "page_size": 20, "current_page": 1 } }` → Returns entries 1-20 + "More entries available" message
 2. Second call: `{ "paging": { "page_size": 20, "current_page": 2 } }` → Returns entry 21
 
 #### `submit_form`
+
 Submit a form with complete processing (validation, notifications, etc.).
 
 **Parameters:**
+
 - `form_id`: Form ID to submit to
 - `field_values`: Object with field values using input names
 - `source_page` (optional): Source page number
 - `target_page` (optional): Target page number
 
 **Example:**
+
 ```javascript
 {
   "form_id": "1",
@@ -188,40 +204,50 @@ Submit a form with complete processing (validation, notifications, etc.).
 ```
 
 #### `create_entry`
+
 Create an entry directly (bypasses form processing).
 
 **Parameters:**
+
 - `form_id`: Form ID
 - `field_values`: Field values object
 - `entry_meta` (optional): Additional metadata
 
 #### `update_entry`
+
 Update an existing entry.
 
 **Parameters:**
+
 - `entry_id`: Entry ID to update
 - `field_values`: Fields to update
 
 #### `delete_entry`
+
 Delete an entry (trash by default).
 
 **Parameters:**
+
 - `entry_id`: Entry ID to delete
 - `force` (optional): Permanently delete instead of trash
 
 #### `create_form`
+
 Create a new form.
 
 **Parameters:**
+
 - `title`: Form title
 - `description` (optional): Form description
 - `fields` (optional): Array of field objects
 - `settings` (optional): Form settings
 
 #### `update_form`
+
 Update an existing form with advanced capabilities including partial updates, field validation, and flexible response formats.
 
 **Parameters:**
+
 - `form_id` (required): ID of the form to update
 - `title` (optional*): Updated form title
 - `fields` (optional*): Updated array of field objects
@@ -244,9 +270,85 @@ Update an existing form with advanced capabilities including partial updates, fi
 4. **Settings & Notifications**: Update form confirmations and notifications
 5. **Debug Logging**: Performance timing and detailed operation logs
 
-**Examples:**
+## Partial Update Behavior
 
-Full update:
+When `partial_update: true` is used with a `fields` array, the server performs intelligent field-by-field merging:
+
+- **Existing fields** are preserved if not included in the update
+- **Updated fields** are merged by ID, preserving unmodified properties
+- **New fields** can be added during partial updates
+- **Nested properties** (like choices) are deep-merged intelligently
+- **Field order** is maintained automatically
+
+### Field Merging Examples
+
+**Update single field property without losing others:**
+
+```javascript
+{
+  "form_id": "217",
+  "partial_update": true,
+  "fields": [
+    {
+      "id": 6,
+      "label": "Updated Checkbox Label"
+      // All other properties (choices, validation, etc.) are preserved
+    }
+  ]
+}
+```
+
+**Update nested properties (choices in checkbox field):**
+
+```javascript
+{
+  "form_id": "217", 
+  "partial_update": true,
+  "fields": [
+    {
+      "id": 6,
+      "choices": [
+        { "text": "Yes, as event lead.", "inventory_limit": "1" },
+        { "text": "Yes, as primary instructor.", "inventory_limit": 7 }, // Updated limit
+        { "text": "Yes, as assistant.", "inventory_limit": "4" }
+      ]
+    }
+  ]
+}
+```
+
+**Add new field during partial update:**
+
+```javascript
+{
+  "form_id": "217",
+  "partial_update": true,
+  "fields": [
+    {
+      "id": 10, // New field ID
+      "type": "text",
+      "label": "Additional Information"
+    }
+  ]
+}
+```
+
+### Full vs Partial Updates
+
+**Full Update (`partial_update: false` or omitted):**
+- Replaces ALL form properties with provided values
+- Missing fields are removed from the form
+- Use when rebuilding entire form structure
+
+**Partial Update (`partial_update: true`):**
+- Merges provided fields with existing ones
+- Preserves fields not included in update
+- Use when modifying specific properties only
+
+### Complete Examples
+
+**Full form update:**
+
 ```javascript
 {
   "form_id": "1",
@@ -259,55 +361,71 @@ Full update:
     }
   ],
   "description": "Updated form description"
+  // This replaces ALL existing fields with just this one
 }
 ```
 
-Partial update (title only):
-```javascript
-{
-  "form_id": "1",
-  "title": "New Form Title",
-  "partial_update": true
-}
-```
+**Partial update with validation:**
 
-With field validation and compact response:
 ```javascript
 {
   "form_id": "1",
   "title": "Validated Form",
+  "partial_update": true,
   "fields": [
-    { "type": "email", "label": "Email Address" },
-    { "type": "phone", "label": "Phone Number" }
+    { "id": 2, "type": "email", "label": "Email Address" },
+    { "id": 3, "type": "phone", "label": "Phone Number" }
   ],
   "validate_fields": true,
   "response_format": "compact"
 }
 ```
 
-With debug logging:
+**Debug mode for troubleshooting:**
+
 ```javascript
 {
   "form_id": "1",
   "title": "Debug Form",
-  "fields": [{ "type": "text", "label": "Test Field" }],
+  "partial_update": true,
+  "fields": [{ "id": 1, "label": "Updated Field Label" }],
   "debug": true
 }
 ```
 
+### Troubleshooting Partial Updates
+
+**Common Issues:**
+
+1. **Fields without IDs are ignored**: Always include field `id` when using `partial_update: true`
+2. **Nested properties not updating**: Use arrays with complete choice objects, not partial ones
+3. **Field order changes**: Fields are automatically sorted by ID for consistency
+4. **Validation errors**: Enable `debug: true` to see detailed operation logs
+
+**Best Practices:**
+
+- Use `partial_update: true` when modifying existing forms to preserve data
+- Always include field IDs in your updates
+- Test with `debug: true` first to understand the merge behavior
+- Use `validate_fields: true` to catch field type issues early
+
 #### `validate_form`
+
 Validate form submission without saving.
 
 **Parameters:**
+
 - `form_id`: Form ID to validate against
 - `field_values`: Values to validate
 
 ### Advanced Tools
 
 #### `export_entries_formatted`
+
 Export entries from a form in CSV or JSON format with advanced formatting options.
 
 **Parameters:**
+
 - `form_id`: Form ID to export entries from
 - `format`: Export format ('csv' or 'json')
 - `search` (optional): Search criteria to filter entries
@@ -316,6 +434,7 @@ Export entries from a form in CSV or JSON format with advanced formatting option
 - `include_headers` (optional): Include headers in CSV export (default: true)
 
 **Example:**
+
 ```javascript
 {
   "form_id": "1",
@@ -327,15 +446,18 @@ Export entries from a form in CSV or JSON format with advanced formatting option
 ```
 
 #### `process_entries_bulk`
+
 ⚠️ **DESTRUCTIVE OPERATION** - The nuclear option for bulk operations! Handle with care, like a monster truck at a pottery convention.
 
 **Parameters:**
+
 - `entry_ids`: Array of entry IDs to process (max 100)
 - `operation_type`: Operation to perform ('delete', 'update_status', 'update_fields')
 - `confirm`: Must be `true` for safety confirmation
 - `data` (optional): Required for update operations
 
 **Examples:**
+
 ```javascript
 // Bulk delete entries
 {
@@ -356,29 +478,36 @@ Export entries from a form in CSV or JSON format with advanced formatting option
 ### Template Management Tools
 
 #### `list_form_templates`
+
 Browse available form templates (forms with '-template' suffix).
 
 **Parameters:**
+
 - `search_term` (optional): Filter templates by name
 - `sort_by` (optional): Sort by 'name' or 'date'
 - `sort_order` (optional): 'asc' or 'desc'
 
 #### `save_form_as_template`
+
 Save an existing form as a reusable template.
 
 **Parameters:**
+
 - `form_id`: Source form ID to save as template
 - `template_name` (optional): Custom template name (defaults to form title + '-template')
 
 #### `create_form_from_template`
+
 Create a new form from an existing template with customizations.
 
 **Parameters:**
+
 - `template_id`: Template form ID to clone from
 - `new_form_title`: Title for the new form
 - `field_renames` (optional): Array of field label renames
 
 **Example:**
+
 ```javascript
 {
   "template_id": "5",
@@ -390,24 +519,30 @@ Create a new form from an existing template with customizations.
 ```
 
 #### `clone_form_with_modifications`
+
 Clone an existing form with intelligent modifications.
 
 **Parameters:**
+
 - `source_form_id`: Form ID to clone
 - `modifications`: Object with title and field modifications
 
 ### Import/Export Tools
 
 #### `export_form_json`
+
 Export form definition as JSON for backup or migration.
 
 **Parameters:**
+
 - `form_id`: Form ID to export
 
 #### `import_form_json`
+
 Import form from JSON with conflict handling.
 
 **Parameters:**
+
 - `form_json`: JSON string of form definition
 - `force_import` (optional): Overwrite existing forms with same ID
 
@@ -424,6 +559,7 @@ You can find exact input names by inspecting the form HTML in your browser's dev
 ## Error Handling
 
 The server provides detailed error messages for:
+
 - Authentication failures
 - Invalid API credentials
 - Missing required parameters
@@ -489,6 +625,7 @@ npm run clean
 ### Debug Logging
 
 Enable logging in Gravity Forms:
+
 1. Go to **Forms → Settings → Logging**
 2. Enable **"Gravity Forms API"**
 3. Set to log all messages
@@ -501,10 +638,6 @@ Enable logging in Gravity Forms:
 3. Make your changes
 4. Add tests if applicable
 5. Submit a pull request
-
-## License
-
-MIT License - see LICENSE file for details.
 
 ## Related Links
 
