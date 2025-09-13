@@ -6,6 +6,97 @@ The ultimate Model Context Protocol (MCP) server that transforms your Gravity Fo
 
 An experiment in VibeCoding
 
+## 🚀 Quick Start for Claude Desktop
+
+**Want to use this with Claude Desktop? Here's the simplest way to get started:**
+
+### What This Does
+This tool lets Claude directly interact with your WordPress Gravity Forms - view entries, submit forms, export data, and much more. Think of it as giving Claude superpowers for your forms!
+
+### Before You Start
+1. **WordPress site** with Gravity Forms installed
+2. **Claude Desktop app** installed on your computer
+3. **5 minutes** of your time
+
+### Step-by-Step Setup
+
+#### 1. Get Your API Credentials
+1. In your WordPress admin, go to **Forms → Settings → REST API**
+2. Check **"Enabled"** to turn on the API
+3. Click **"Add Key"**
+4. Give it a name like "Claude MCP"
+5. Select a user (your admin user is fine)
+6. Copy the **Consumer Key** and **Consumer Secret** - you'll need these!
+7. **Important:** Save these somewhere safe - WordPress won't show them again
+
+#### 2. Download and Setup
+```bash
+# Download this project (or clone it)
+# Navigate to the project folder in Terminal/Command Prompt
+
+npm install          # Install dependencies
+npm run build        # Build the project
+```
+
+#### 3. Add to Claude Desktop
+1. Open your Claude Desktop settings (gear icon)
+2. Go to the **MCP** tab
+3. Add this configuration (replace YOUR_VALUES with your actual info):
+
+```json
+{
+  "mcpServers": {
+    "gravity-forms": {
+      "command": "node",
+      "args": [
+        "/path/to/your/gravity-forms-mcp-server/dist/index.js"
+      ],
+      "env": {
+        "GRAVITY_FORMS_BASE_URL": "https://yourwebsite.com",
+        "GRAVITY_FORMS_CONSUMER_KEY": "ck_your_key_here",
+        "GRAVITY_FORMS_CONSUMER_SECRET": "cs_your_secret_here"
+      }
+    }
+  }
+}
+```
+
+#### 4. Update the Path
+- Replace `/path/to/your/gravity-forms-mcp-server/` with the actual path where you downloaded this project
+- On **Windows**: Use forward slashes like `C:/Users/YourName/Downloads/gravity-forms-mcp-server/`
+- On **Mac**: Use something like `/Users/YourName/Downloads/gravity-forms-mcp-server/`
+
+#### 5. Restart Claude Desktop
+Close and reopen Claude Desktop completely.
+
+### 🎉 Test It Works
+Try asking Claude something like:
+> "Show me all my Gravity Forms"
+
+or
+
+> "Get the latest 5 entries from my contact form"
+
+If Claude can see your forms, you're all set!
+
+### 🔧 Common Issues
+
+**"No forms found" or connection errors:**
+- Double-check your website URL (should start with https://)
+- Verify your API keys are correct
+- Make sure REST API is enabled in Gravity Forms settings
+
+**"Module not found" or path errors:**
+- Check the file path in your MCP configuration
+- Make sure you ran `npm install` and `npm run build`
+- Try using the full absolute path to the dist/index.js file
+
+**Still having trouble?**
+- Check the [detailed installation instructions](#installation) below
+- Look at the [troubleshooting section](#troubleshooting) for more help
+
+---
+
 ## Features
 
 ### Core Functionality
@@ -13,7 +104,7 @@ An experiment in VibeCoding
 - 🔧 **Complete CRUD Operations**: Create, read, update, and delete forms and entries
 - 📝 **Form Submissions**: Submit forms with full validation and processing
 - 🔍 **Advanced Querying**: Search and filter entries with sorting and pagination
-- 🛡️ **Secure Authentication**: Supports Basic Authentication (OAuth 1.0a coming soon)
+- 🛡️ **Secure Authentication**: Supports Basic Authentication with API credentials
 - ✅ **Form Validation**: Validate submissions without saving
 
 ### Advanced Features
@@ -27,7 +118,7 @@ An experiment in VibeCoding
 
 ### Developer Experience (The Good Stuff!)
 
-- 📚 **Battle-Tested**: 281+ tests that would make a QA engineer weep tears of joy
+- 📚 **Battle-Tested**: Comprehensive test suite that would make a QA engineer weep tears of joy
 - 🚀 **TypeScript Supremacy**: Full type safety because nobody has time for runtime surprises
 - 🔧 **Modular Magic**: Clean utility classes that play together like a well-orchestrated symphony
 - 📖 **Documentation That Actually Helps**: Unlike those other projects... you know the ones 😉
@@ -58,7 +149,7 @@ npm run build
 
 ## Configuration
 
-Create a `.env` file or set environment variables:
+Set environment variables:
 
 ```bash
 # Required: Your WordPress site URL
@@ -166,18 +257,6 @@ Retrieve entries with filtering, sorting, and pagination.
 ```
 
 **Important:** Use pagination to prevent database timeouts when working with large datasets. If both `current_page` and `offset` are provided, `current_page` takes priority per Gravity Forms API behavior.
-
-**Pagination Behavior:** The tool makes **single API calls** and returns one page at a time. When the API returns `total_count` metadata, the response includes:
-
-- Total number of entries available
-- Current page information
-- Clear instructions for retrieving additional pages
-- Indicator when more entries are available
-
-For datasets with 21 entries and `page_size: 20`, you'll need to make **two separate calls** to get all data:
-
-1. First call: `{ "paging": { "page_size": 20, "current_page": 1 } }` → Returns entries 1-20 + "More entries available" message
-2. Second call: `{ "paging": { "page_size": 20, "current_page": 2 } }` → Returns entry 21
 
 #### `submit_form`
 
@@ -599,25 +678,44 @@ npm run clean
 
 - Keep your API credentials secure and never commit them to version control
 - Use environment variables or secure credential management
-- Consider implementing OAuth 1.0a for enhanced security
+- Use secure credential management practices
 - Regularly rotate API keys
 - Use HTTPS for all API communications
 
 ## Troubleshooting
 
-### Common Issues
+### Common Claude Desktop Issues
 
-1. **Authentication Errors**
+1. **"No forms found" or "Cannot connect"**
+   - **Check your website URL**: Must start with `https://` (not `http://`)
+   - **Verify API credentials**: Copy/paste them exactly from WordPress - no extra spaces
+   - **Test the website**: Make sure your WordPress site is online and accessible
+   - **Check Gravity Forms REST API**: Go to Forms → Settings → REST API and ensure it's "Enabled"
+
+2. **"Module not found" or "Command failed"**
+   - **Wrong file path**: Check the path to `dist/index.js` in your MCP config
+   - **Missing build**: Run `npm run build` in the project folder
+   - **Node.js not installed**: Install Node.js from nodejs.org
+   - **Use full paths**: Try the complete path like `/Users/YourName/Downloads/gravity-forms-mcp-server/dist/index.js`
+
+3. **Claude doesn't see the forms after setup**
+   - **Restart Claude Desktop**: Close it completely and reopen
+   - **Check MCP config**: Look for syntax errors in your JSON (missing commas, quotes, etc.)
+   - **Test with simple commands**: Try "What MCP tools do you have?" to see if Claude sees the server
+
+### Technical Issues
+
+4. **Authentication Errors**
    - Verify API credentials are correct
    - Check that REST API is enabled in Gravity Forms
    - Ensure user has required permissions
 
-2. **Connection Errors**
+5. **Connection Errors**
    - Verify base URL is correct and accessible
    - Check SSL certificate if using HTTPS
    - Ensure WordPress site allows external API requests
 
-3. **Form Submission Failures**
+6. **Form Submission Failures**
    - Verify field input names match form structure
    - Check required field validation
    - Review form conditional logic settings

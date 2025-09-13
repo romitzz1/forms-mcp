@@ -8,7 +8,7 @@ Claude's name in this project is "TurboMan", and likes to talk about itself in t
 
 This is an **Enhanced** Model Context Protocol (MCP) server that provides comprehensive tools for interacting with Gravity Forms through its REST API v2. The server enables AI assistants and MCP clients to manage WordPress Gravity Forms with advanced capabilities including bulk operations, template management, data export, and form import/export functionality.
 
-**What makes this special:** This isn't just a basic API wrapper - it's a full-featured, battle-tested MCP server with 17 tools, 281+ tests, and enterprise-grade safety mechanisms. Think of it as the Swiss Army knife of Gravity Forms automation!
+**What makes this special:** This isn't just a basic API wrapper - it's a full-featured, battle-tested MCP server with 21 tools, comprehensive test coverage, and enterprise-grade safety mechanisms. Think of it as the Swiss Army knife of Gravity Forms automation!
 
 ## Development Commands
 
@@ -31,7 +31,7 @@ npm run watch
 # Clean build directory
 npm run clean
 
-# Run comprehensive test suite (281+ tests!)
+# Run comprehensive test suite
 npm test
 
 # Run tests with coverage reporting
@@ -46,7 +46,7 @@ npm run test:watch
 ### Core Components
 
 - **Main Server Class**: `GravityFormsMCPServer` in `index.ts`
-  - Comprehensive MCP server with 17 total tools
+  - Comprehensive MCP server with 21 total tools
   - Uses Model Context Protocol SDK for server infrastructure
   - Handles stdio communication with MCP clients
   - Modular utility class architecture for maintainability
@@ -63,7 +63,7 @@ npm run test:watch
 8. `update_form` - Update existing forms
 9. `validate_form` - Validate submissions without saving
 
-### Enhanced Tools (New 8)
+### Enhanced Tools (New 12)
 
 10. `export_entries_formatted` - Export entries to CSV/JSON with advanced formatting
 11. `process_entries_bulk` - Bulk operations with safety confirmations and audit trails
@@ -73,15 +73,37 @@ npm run test:watch
 15. `clone_form_with_modifications` - Intelligent form cloning with modifications
 16. `export_form_json` - Export form definitions for backup/migration
 17. `import_form_json` - Import forms from JSON with conflict resolution
+18. `get_cache_status` - Monitor FormCache status and statistics
+19. `search_entries_by_name` - Search form entries by name fields automatically
+20. `search_entries_universal` - Advanced multi-field search with custom targeting
+21. `get_field_mappings` - Analyze form structure and show detected field types
 
 ### Utility Classes
 
+#### Core Operations
 - **DataExporter** (`utils/dataExporter.ts`) - CSV/JSON export with base64 encoding
 - **ValidationHelper** (`utils/validation.ts`) - Comprehensive input validation and sanitization
 - **BulkOperationsManager** (`utils/bulkOperations.ts`) - Safe bulk operations with rollback
+
+#### Template & Form Management
 - **TemplateManager** (`utils/templateManager.ts`) - Template identification and listing
 - **TemplateCreator** (`utils/templateCreator.ts`) - Safe template modifications and cloning
 - **FormImporter** (`utils/formImporter.ts`) - JSON form import with conflict handling
+
+#### Caching & Performance
+- **FormCache** (`utils/formCache.ts`) - SQLite-based form caching system
+- **FieldMappingCache** (`utils/fieldMappingCache.ts`) - Cache for field type detection
+- **SearchResultsCache** (`utils/searchResultsCache.ts`) - Caching for search operations
+- **PerformanceMonitor** (`utils/performanceMonitor.ts`) - Performance tracking and monitoring
+
+#### Search & Data Processing
+- **UniversalSearchManager** (`utils/universalSearchManager.ts`) - Advanced multi-field search capabilities
+- **FieldTypeDetector** (`utils/fieldTypeDetector.ts`) - Automatic field type detection
+- **SearchResultsFormatter** (`utils/searchResultsFormatter.ts`) - Search result formatting
+- **SearchApiClient** (`utils/searchApiClient.ts`) - API client for search operations
+
+#### System Infrastructure
+- **ErrorHandlingSystem** (`utils/errorHandlingSystem.ts`) - Comprehensive error handling and recovery
 
 ### Authentication & Configuration
 
@@ -93,6 +115,10 @@ npm run test:watch
   - `GRAVITY_FORMS_AUTH_METHOD` - Authentication method (currently only 'basic')
   - `GRAVITY_FORMS_MIN_FORM_ID` - Minimum form ID for gap detection (optional, defaults to lowest existing ID)
   - `GRAVITY_FORMS_FULL_SYNC_INTERVAL_HOURS` - Hours between comprehensive form discovery (default: 24)
+  - `GRAVITY_FORMS_CACHE_ENABLED` - Enable/disable form caching (default: true)
+  - `GRAVITY_FORMS_CACHE_DB_PATH` - SQLite database path (default: ./data/forms-cache.db)
+  - `GRAVITY_FORMS_CACHE_MAX_AGE_SECONDS` - Cache entry max age (default: 3600)
+  - `GRAVITY_FORMS_CACHE_AUTO_SYNC` - Automatic cache synchronization (default: true)
 
 ### API Integration
 
@@ -116,6 +142,7 @@ Use the provided `claude-config.json` as a template for MCP client configuration
 
 ### Production
 - `@modelcontextprotocol/sdk` - Core MCP protocol implementation
+- `better-sqlite3` - SQLite database for caching and performance optimization
 - Node.js 18+ required for runtime
 
 ### Development & Testing
@@ -124,7 +151,7 @@ Use the provided `claude-config.json` as a template for MCP client configuration
 - `@types/jest` - TypeScript definitions for Jest
 
 ### Notable Features
-- **281+ Tests**: Unit tests covering all utility classes and tool implementations
+- **Comprehensive Test Coverage**: Unit tests covering all utility classes and tool implementations
 - **TypeScript Strict Mode**: Maximum type safety and error prevention
 - **Modular Architecture**: Clean separation of concerns with utility classes
 - **Comprehensive Error Handling**: Proper error propagation and user-friendly messages
@@ -147,7 +174,7 @@ Inspect form HTML in browser developer tools to find exact input names.
 - **Getting Forms API Guide**: https://docs.gravityforms.com/getting-forms-with-the-rest-api-v2/
 - **REST API v2 Main Docs**: https://docs.gravityforms.com/rest-api-v2/
 
-**Key API Format Notes (Discovered 2024-01-XX):**
+**Key API Format Notes:**
 - ✅ `is_active` field returns **string** `"1"`/`"0"`, NOT boolean `true`/`false`
 - ✅ `is_trash` field returns **string** `"1"`/`"0"`, NOT boolean `true`/`false` 
 - ✅ Form IDs return as **strings** `"123"`, NOT numbers `123`
@@ -156,6 +183,6 @@ Inspect form HTML in browser developer tools to find exact input names.
 **Code Implementation:**
 - Use `FormCache.insertFormFromApi()` for API data (handles string→boolean conversion)
 - Use `FormCache.insertForm()` for internal data (expects proper booleans)
-- Mock data updated to match real API format in `/tests/mocks/gravityFormsMocks.ts`
+- Mock data matches real API format in `/tests/mocks/gravityFormsMocks.ts`
 
 **When in doubt about API format, ALWAYS check the official documentation first rather than assuming data types!**
