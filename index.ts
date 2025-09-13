@@ -1460,16 +1460,22 @@ Consider using form templates or cloning for management.`;
     
     const response = await this.makeRequest(fullEndpoint);
     
-    // Extract entries array from API response
+    // Extract entries and pagination info from API response
     const entries = response?.entries || response || [];
+    const totalCount = response?.total_count;
+    const hasMorePages = totalCount && entries.length && paging?.page_size && totalCount > (paging.page_size * (paging.current_page || 1));
     
     // Handle empty results
     if (!entries || !Array.isArray(entries) || entries.length === 0) {
+      let emptyMessage = "No entries found for the specified criteria.";
+      if (totalCount !== undefined) {
+        emptyMessage += ` Total available: ${totalCount}`;
+      }
       return {
         content: [
           {
             type: "text",
-            text: "No entries found for the specified criteria."
+            text: emptyMessage
           }
         ]
       };
@@ -1501,13 +1507,35 @@ Consider using form templates or cloning for management.`;
       }
     }
 
-    // Build final response text
+    // Build final response text with pagination info
+    let paginationInfo = '';
+    if (totalCount !== undefined) {
+      const currentPage = paging?.current_page || 1;
+      const pageSize = paging?.page_size || entries.length;
+      const totalPages = Math.ceil(totalCount / pageSize);
+      
+      paginationInfo = `\n📊 Pagination Info:\n`;
+      paginationInfo += `- Total entries: ${totalCount}\n`;
+      paginationInfo += `- Current page: ${currentPage}\n`;
+      paginationInfo += `- Page size: ${pageSize}\n`;
+      paginationInfo += `- Total pages: ${totalPages}\n`;
+      paginationInfo += `- Showing entries: ${((currentPage - 1) * pageSize) + 1} to ${Math.min(currentPage * pageSize, totalCount)}\n`;
+      
+      if (hasMorePages) {
+        paginationInfo += `\n⚠️  More entries available! To get the next page, call with:\n`;
+        paginationInfo += `{ "paging": { "page_size": ${pageSize}, "current_page": ${currentPage + 1} } }\n`;
+      }
+    }
+
     if (wasSummarized) {
       responseText = `Response summarized to prevent context overflow.\n\n`;
-      responseText += `Found ${entries.length} ${entries.length === 1 ? 'entry' : 'entries'}:\n\n`;
-      responseText += JSON.stringify(processedEntries, null, 2);
+      responseText += `Found ${entries.length} ${entries.length === 1 ? 'entry' : 'entries'}:\n`;
+      responseText += paginationInfo;
+      responseText += `\n📋 Entries:\n${JSON.stringify(processedEntries, null, 2)}`;
     } else {
-      responseText = `Entries:\n${JSON.stringify(processedEntries, null, 2)}`;
+      responseText = `Found ${entries.length} ${entries.length === 1 ? 'entry' : 'entries'}`;
+      responseText += paginationInfo;
+      responseText += `\n📋 Entries:\n${JSON.stringify(processedEntries, null, 2)}`;
     }
 
     return {

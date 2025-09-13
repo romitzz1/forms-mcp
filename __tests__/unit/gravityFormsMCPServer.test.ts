@@ -1158,4 +1158,205 @@ describe('GravityFormsMCPServer', () => {
       expect(field6.choices[1].text).toBe('Yes, as a primary instructor.');
     });
   });
+
+  // Test get_entries pagination behavior
+  describe('get_entries pagination', () => {
+    let server: any;
+    let mockMakeRequest: jest.Mock;
+
+    beforeEach(async () => {
+      const { GravityFormsMCPServer } = await import('../../index');
+      server = new GravityFormsMCPServer();
+      mockMakeRequest = jest.fn();
+      server.makeRequest = mockMakeRequest;
+    });
+
+    test('should format paging parameters correctly according to API documentation', async () => {
+      // Mock response with entries
+      mockMakeRequest.mockResolvedValue([
+        { id: '1', form_id: '1', field_1: 'Entry 1' },
+        { id: '2', form_id: '1', field_1: 'Entry 2' }
+      ]);
+
+      await server.getEntries({
+        form_id: '1',
+        paging: {
+          page_size: 20,
+          current_page: 2
+        }
+      });
+
+      // Verify the API call was made with correct paging format
+      expect(mockMakeRequest).toHaveBeenCalledWith(
+        '/forms/1/entries?paging%5Bpage_size%5D=20&paging%5Bcurrent_page%5D=2'
+      );
+    });
+
+    test('should use offset when current_page is not specified', async () => {
+      mockMakeRequest.mockResolvedValue([
+        { id: '16', form_id: '1', field_1: 'Entry 16' }
+      ]);
+
+      await server.getEntries({
+        form_id: '1',
+        paging: {
+          page_size: 20,
+          offset: 15
+        }
+      });
+
+      // Verify offset is used correctly (15 = starting from 16th row, zero-based)
+      expect(mockMakeRequest).toHaveBeenCalledWith(
+        '/forms/1/entries?paging%5Bpage_size%5D=20&paging%5Boffset%5D=15'
+      );
+    });
+
+    test('should handle current_page priority over offset as per API docs', async () => {
+      mockMakeRequest.mockResolvedValue([
+        { id: '6', form_id: '1', field_1: 'Page 2 Entry 1' }
+      ]);
+
+      // When both current_page and offset are provided, current_page should take priority
+      await server.getEntries({
+        form_id: '1',
+        paging: {
+          page_size: 5,
+          current_page: 2,
+          offset: 10 // This should be ignored according to API docs
+        }
+      });
+
+      // Both parameters are sent, but API will prioritize current_page and ignore offset
+      expect(mockMakeRequest).toHaveBeenCalledWith(
+        '/forms/1/entries?paging%5Bpage_size%5D=5&paging%5Bcurrent_page%5D=2&paging%5Boffset%5D=10'
+      );
+    });
+
+    test('should work with just page_size for basic pagination', async () => {
+      mockMakeRequest.mockResolvedValue([
+        { id: '1', form_id: '1', field_1: 'Entry 1' },
+        { id: '2', form_id: '1', field_1: 'Entry 2' },
+        { id: '3', form_id: '1', field_1: 'Entry 3' }
+      ]);
+
+      await server.getEntries({
+        form_id: '1',
+        paging: {
+          page_size: 3
+        }
+      });
+
+      expect(mockMakeRequest).toHaveBeenCalledWith(
+        '/forms/1/entries?paging%5Bpage_size%5D=3'
+      );
+    });
+
+    test('should handle paging with search and sorting combined', async () => {
+      mockMakeRequest.mockResolvedValue([
+        { id: '5', form_id: '1', field_1: 'Filtered Entry' }
+      ]);
+
+      await server.getEntries({
+        form_id: '1',
+        search: {
+          status: 'active'
+        },
+        sorting: {
+          key: 'date_created',
+          direction: 'DESC'
+        },
+        paging: {
+          page_size: 10,
+          current_page: 1
+        }
+      });
+
+      // Verify all parameters are correctly formatted
+      const expectedCall = mockMakeRequest.mock.calls[0][0];
+      expect(expectedCall).toContain('paging%5Bpage_size%5D=10');
+      expect(expectedCall).toContain('paging%5Bcurrent_page%5D=1');
+      expect(expectedCall).toContain('sorting%5Bkey%5D=date_created');
+      expect(expectedCall).toContain('sorting%5Bdirection%5D=DESC');
+      expect(expectedCall).toContain('search=');
+    });
+
+    test('should handle Gravity Forms API response with total_count and provide pagination info', async () => {
+      // Mock API response with total_count (realistic API response)
+      mockMakeRequest.mockResolvedValue({
+        total_count: 21,
+        entries: [
+          { id: '1', form_id: '1', field_1: 'Entry 1' },
+          { id: '2', form_id: '1', field_1: 'Entry 2' },
+          // ... 18 more entries for page_size=20
+        ]
+      });
+
+      const result = await server.getEntries({
+        form_id: '1',
+        paging: {
+          page_size: 20,
+          current_page: 1
+        }
+      });
+
+      // Should indicate there are more entries available with pagination info
+      const responseText = result.content[0].text;
+      expect(responseText).toContain('Total entries: 21');
+      expect(responseText).toContain('Current page: 1');
+      expect(responseText).toContain('Total pages: 2');
+      expect(responseText).toContain('More entries available');
+      expect(responseText).toContain('current_page": 2');
+    });
+
+    test('should show when entries span multiple pages', async () => {
+      mockMakeRequest.mockResolvedValue({
+        total_count: 45,
+        entries: Array.from({ length: 20 }, (_, i) => ({
+          id: String(i + 1),
+          form_id: '1',
+          field_1: `Entry ${i + 1}`
+        }))
+      });
+
+      const result = await server.getEntries({
+        form_id: '1',
+        paging: {
+          page_size: 20,
+          current_page: 1
+        }
+      });
+
+      const responseText = result.content[0].text;
+      expect(responseText).toContain('Total entries: 45'); 
+      expect(responseText).toContain('Found 20 entries');
+      expect(responseText).toContain('Total pages: 3');
+      expect(responseText).toContain('More entries available');
+    });
+
+    test('should not show "more entries available" when on the last page', async () => {
+      mockMakeRequest.mockResolvedValue({
+        total_count: 25,
+        entries: Array.from({ length: 5 }, (_, i) => ({
+          id: String(i + 21),
+          form_id: '1',
+          field_1: `Entry ${i + 21}`
+        }))
+      });
+
+      const result = await server.getEntries({
+        form_id: '1',
+        paging: {
+          page_size: 20,
+          current_page: 2 // Last page (21-25 of 25 total)
+        }
+      });
+
+      const responseText = result.content[0].text;
+      expect(responseText).toContain('Total entries: 25');
+      expect(responseText).toContain('Found 5 entries');
+      expect(responseText).toContain('Current page: 2');
+      expect(responseText).toContain('Showing entries: 21 to 25');
+      expect(responseText).not.toContain('More entries available');
+    });
+  });
 });

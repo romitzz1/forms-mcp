@@ -99,14 +99,20 @@ Get all forms or specific form details.
 **Parameters:**
 - `form_id` (optional): Specific form ID
 - `include_fields` (optional): Include full field details
+- `include_all` (optional): Include all forms from cache, including inactive forms (default: false)
+- `exclude_trash` (optional): When used with include_all=true, exclude trashed forms (default: false)
+- `summary_mode` (optional): Return essential info only for large forms (default: false)
 
 **Examples:**
 ```javascript
-// Get all forms
+// Get all active forms
 { "form_id": null }
 
 // Get specific form with full details
 { "form_id": "1", "include_fields": true }
+
+// Get all forms including inactive ones, but exclude trashed forms
+{ "include_all": true, "exclude_trash": true }
 ```
 
 #### `get_entries`
@@ -118,24 +124,47 @@ Retrieve entries with filtering, sorting, and pagination.
 - `search` (optional): Search criteria object
 - `sorting` (optional): Sort configuration
 - `paging` (optional): Pagination settings
+  - `page_size`: Number of results per page
+  - `current_page`: Page number to retrieve (takes priority over offset)
+  - `offset`: Zero-based record number to start from (ignored if current_page is set)
 
 **Examples:**
 ```javascript
 // Get all entries from form 1
 { "form_id": "1" }
 
-// Get entries with pagination and sorting
+// Get entries with pagination (page 2, 20 results per page)
 {
   "form_id": "1",
+  "paging": { "page_size": 20, "current_page": 2 }
+}
+
+// Get entries with offset-based pagination (20 results starting from record 15)
+{
+  "form_id": "1", 
+  "paging": { "page_size": 20, "offset": 15 }
+}
+
+// Combined: pagination, sorting, and search
+{
+  "form_id": "1",
+  "search": { "field_filters": [{ "key": "1", "value": "John" }] },
   "sorting": { "key": "date_created", "direction": "DESC" },
   "paging": { "page_size": 10, "current_page": 1 }
 }
-
-// Search entries by field value
-{
-  "search": { "field_filters": [{ "key": "1", "value": "John" }] }
-}
 ```
+
+**Important:** Use pagination to prevent database timeouts when working with large datasets. If both `current_page` and `offset` are provided, `current_page` takes priority per Gravity Forms API behavior.
+
+**Pagination Behavior:** The tool makes **single API calls** and returns one page at a time. When the API returns `total_count` metadata, the response includes:
+- Total number of entries available
+- Current page information  
+- Clear instructions for retrieving additional pages
+- Indicator when more entries are available
+
+For datasets with 21 entries and `page_size: 20`, you'll need to make **two separate calls** to get all data:
+1. First call: `{ "paging": { "page_size": 20, "current_page": 1 } }` → Returns entries 1-20 + "More entries available" message
+2. Second call: `{ "paging": { "page_size": 20, "current_page": 2 } }` → Returns entry 21
 
 #### `submit_form`
 Submit a form with complete processing (validation, notifications, etc.).
