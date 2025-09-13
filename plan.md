@@ -124,7 +124,7 @@ These tests should fail with current implementation.
 
 **Status**: ✅ **COMPLETED** - Two failing tests created successfully. First test fails as expected (shows only 1 field instead of 4, demonstrating field loss problem). Second test passes (shows non-partial updates work correctly). MockRequest properly configured. Tests demonstrate current issue and will validate fix in Prompt 3.
 
-### Prompt 3: Basic Field Merge Implementation
+### Prompt 3: Basic Field Merge Implementation ✅ COMPLETED
 ```text
 Implement basic field merging logic to make tests pass.
 
@@ -160,6 +160,8 @@ Implement basic field merging logic to make tests pass.
 
 The basic field merge tests should now pass.
 ```
+
+**Status**: ✅ **COMPLETED** - Field-by-field merging implemented successfully. Replaced line 1801 simple fallback with Map-based field ID matching. Tests now pass: preserves all 4 fields (IDs 1,3,6,7) during partial updates while correctly merging field 6 properties. Non-partial behavior unchanged. TDD Green phase achieved!
 
 ### Prompt 4: Nested Property Merge Test
 ```text

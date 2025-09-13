@@ -313,6 +313,11 @@ export class GravityFormsMCPServer {
                   description: "Include all forms (active and inactive) from local cache. If true, performs complete form discovery including hidden/inactive forms.",
                   default: false
                 },
+                exclude_trash: {
+                  type: "boolean",
+                  description: "When used with include_all=true, exclude forms marked as trash from results.",
+                  default: false
+                },
                 summary_mode: {
                   type: "boolean", 
                   description: "Return only essential form info for large forms to prevent context overflow. Auto-enabled for forms >20k tokens.",
@@ -1170,7 +1175,7 @@ Consider using form templates or cloning for management.`;
 
   // Tool implementation methods
   private async getForms(args: any) {
-    const { form_id, include_fields, include_all, summary_mode } = args;
+    const { form_id, include_fields, include_all, exclude_trash, summary_mode } = args;
     
     // When form_id is specified, always use API (ignore include_all)
     if (form_id) {
@@ -1230,7 +1235,7 @@ Consider using form templates or cloning for management.`;
         }
         
         // Get all forms from cache
-        const allForms = await this.formCache.getAllForms();
+        const allForms = await this.formCache.getAllForms(false, exclude_trash);
         
         // Transform cached form data to match API format
         const formsData = allForms.map(form => {
@@ -1238,7 +1243,8 @@ Consider using form templates or cloning for management.`;
             id: form.id.toString(),
             title: form.title,
             entry_count: form.entry_count,
-            is_active: form.is_active ? '1' : '0'
+            is_active: form.is_active ? '1' : '0',
+            is_trash: form.is_trash ? '1' : '0'
           };
           
           // Include full form data when include_fields is true or form_data exists
@@ -1792,7 +1798,27 @@ Consider using form templates or cloning for management.`;
       
       // Use existing values if not provided
       finalTitle = title || existingForm.title;
-      finalFields = fields || existingForm.fields;
+      
+      // Field merging logic for partial updates
+      if (fields && partial_update) {
+        // Create a map of updated fields by ID
+        const fieldUpdates = new Map();
+        fields.forEach(field => {
+          if (field.id) fieldUpdates.set(field.id.toString(), field);
+        });
+        
+        // Merge with existing fields
+        finalFields = existingForm.fields.map(existingField => {
+          const fieldId = existingField.id?.toString();
+          if (fieldId && fieldUpdates.has(fieldId)) {
+            return { ...existingField, ...fieldUpdates.get(fieldId) };
+          }
+          return existingField;
+        });
+      } else {
+        finalFields = fields || existingForm.fields;
+      }
+      
       finalDescription = description !== undefined ? description : existingForm.description;
       finalSettings = settings || existingForm.settings;
       finalConfirmations = confirmations || existingForm.confirmations;

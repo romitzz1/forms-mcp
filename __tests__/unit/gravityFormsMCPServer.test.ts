@@ -722,24 +722,14 @@ describe('GravityFormsMCPServer', () => {
       const { GravityFormsMCPServer } = await import('../../index');
       const server = new GravityFormsMCPServer();
       
-      // Mock makeRequest to return existing form for GET, updated form for PUT
-      server.makeRequest = jest.fn().mockImplementation((endpoint: string, method: string = 'GET') => {
+      // Mock makeRequest to return existing form for GET, echo back the request body for PUT
+      server.makeRequest = jest.fn().mockImplementation((endpoint: string, method: string = 'GET', body?: any) => {
         if (method === 'GET' && endpoint.includes('/forms/217')) {
           return Promise.resolve(mockForm);
         }
         if (method === 'PUT' && endpoint.includes('/forms/217')) {
-          return Promise.resolve({
-            ...mockForm,
-            fields: [
-              {
-                id: 6,
-                type: 'checkbox',
-                label: 'Updated Checkbox',
-                choices: mockForm.fields.find((f: any) => f.id === 6).choices,
-                isRequired: false
-              }
-            ]
-          });
+          // Return the merged form data that was sent in the request body
+          return Promise.resolve(body);
         }
         return Promise.reject(new Error('Unexpected request'));
       });
