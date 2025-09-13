@@ -667,7 +667,22 @@ describe('GravityFormsMCPServer', () => {
     // Helper function to verify field preservation
     const verifyFieldPreservation = (result: any, expectedFieldIds: number[]) => {
       const resultText = result.content[0].text;
-      const formData = JSON.parse(resultText.replace('Form updated successfully:\n', ''));
+      
+      // Handle the actual response format: "Successfully updated form:\n{json}"
+      let formData;
+      if (resultText.includes('Successfully updated form:')) {
+        formData = JSON.parse(resultText.replace('Successfully updated form:\n', ''));
+      } else if (resultText.startsWith('{')) {
+        formData = JSON.parse(resultText);
+      } else {
+        // Try to find JSON within the text
+        const jsonMatch = resultText.match(/\{.*\}/s);
+        if (jsonMatch) {
+          formData = JSON.parse(jsonMatch[0]);
+        } else {
+          throw new Error(`Could not find JSON in response: ${resultText}`);
+        }
+      }
       
       expect(formData.fields).toHaveLength(expectedFieldIds.length);
       
@@ -700,6 +715,101 @@ describe('GravityFormsMCPServer', () => {
       expect(checkboxField.choices).toHaveLength(3);
       expect(htmlField).toBeDefined();
       expect(htmlField.type).toBe('html');
+    });
+
+    // TDD Test: This should FAIL initially - demonstrates the problem
+    test('should preserve other fields when updating single field with partial_update', async () => {
+      const { GravityFormsMCPServer } = await import('../../index');
+      const server = new GravityFormsMCPServer();
+      
+      // Mock makeRequest to return existing form for GET, updated form for PUT
+      server.makeRequest = jest.fn().mockImplementation((endpoint: string, method: string = 'GET') => {
+        if (method === 'GET' && endpoint.includes('/forms/217')) {
+          return Promise.resolve(mockForm);
+        }
+        if (method === 'PUT' && endpoint.includes('/forms/217')) {
+          return Promise.resolve({
+            ...mockForm,
+            fields: [
+              {
+                id: 6,
+                type: 'checkbox',
+                label: 'Updated Checkbox',
+                choices: mockForm.fields.find((f: any) => f.id === 6).choices,
+                isRequired: false
+              }
+            ]
+          });
+        }
+        return Promise.reject(new Error('Unexpected request'));
+      });
+
+      const result = await (server as any).updateForm({
+        form_id: '217',
+        partial_update: true,
+        fields: [
+          {
+            id: 6,
+            label: 'Updated Checkbox'
+          }
+        ]
+      });
+
+      // This test should FAIL because current implementation loses fields 1, 3, and 7
+      const formData = verifyFieldPreservation(result, [1, 3, 6, 7]);
+      
+      // Verify field 6 was updated but preserved its choices
+      const updatedField6 = formData.fields.find((f: any) => f.id === 6);
+      expect(updatedField6.label).toBe('Updated Checkbox');
+      expect(updatedField6.choices).toHaveLength(3);
+      
+      // Verify other fields remain unchanged
+      const field1 = formData.fields.find((f: any) => f.id === 1);
+      const field3 = formData.fields.find((f: any) => f.id === 3);
+      const field7 = formData.fields.find((f: any) => f.id === 7);
+      
+      expect(field1.label).toBe('Full Name');
+      expect(field3.label).toBe('Email');
+      expect(field7.type).toBe('html');
+    });
+
+    // TDD Test: This should PASS - demonstrates current behavior works correctly
+    test('should replace all fields when partial_update is false', async () => {
+      const { GravityFormsMCPServer } = await import('../../index');
+      const server = new GravityFormsMCPServer();
+      
+      // Mock makeRequest to return updated form with only field 6
+      server.makeRequest = jest.fn().mockResolvedValue({
+        ...mockForm,
+        fields: [
+          {
+            id: 6,
+            type: 'checkbox',
+            label: 'Only Field',
+            isRequired: false
+          }
+        ]
+      });
+
+      const result = await (server as any).updateForm({
+        form_id: '217',
+        partial_update: false,
+        title: 'Updated Form',
+        fields: [
+          {
+            id: 6,
+            type: 'checkbox',
+            label: 'Only Field',
+            isRequired: false
+          }
+        ]
+      });
+
+      // This should PASS - only field 6 should exist
+      const formData = verifyFieldPreservation(result, [6]);
+      expect(formData.fields).toHaveLength(1);
+      expect(formData.fields[0].id).toBe(6);
+      expect(formData.fields[0].label).toBe('Only Field');
     });
   });
 });

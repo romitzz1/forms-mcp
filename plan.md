@@ -102,7 +102,7 @@ The test should fail initially since we haven't set up the mocks yet.
 
 **Status**: ✅ **COMPLETED** - Test infrastructure established with mock form fixture containing 4 fields (name, email, checkbox with choices, html). Helper function created for field preservation verification. Infrastructure test passes confirming proper setup.
 
-### Prompt 2: Basic Field Merge Test
+### Prompt 2: Basic Field Merge Test ✅ COMPLETED
 ```text
 Write failing tests for basic field merging functionality.
 
@@ -121,6 +121,8 @@ Write failing tests for basic field merging functionality.
 
 These tests should fail with current implementation.
 ```
+
+**Status**: ✅ **COMPLETED** - Two failing tests created successfully. First test fails as expected (shows only 1 field instead of 4, demonstrating field loss problem). Second test passes (shows non-partial updates work correctly). MockRequest properly configured. Tests demonstrate current issue and will validate fix in Prompt 3.
 
 ### Prompt 3: Basic Field Merge Implementation
 ```text
