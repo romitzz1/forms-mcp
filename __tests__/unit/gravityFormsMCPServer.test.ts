@@ -848,5 +848,153 @@ describe('GravityFormsMCPServer', () => {
       const updatedField6 = formData.fields.find((f: any) => f.id === 6);
       expect(updatedField6.label).toBe('Updated Checkbox');
     });
+
+    // TDD Test: Should FAIL initially - nested choice merging not implemented yet
+    test('should merge nested choices array in checkbox field', async () => {
+      const { GravityFormsMCPServer } = await import('../../index');
+      const server = new GravityFormsMCPServer();
+      
+      // Mock makeRequest
+      server.makeRequest = jest.fn().mockImplementation((endpoint: string, method: string = 'GET', body?: any) => {
+        if (method === 'GET' && endpoint.includes('/forms/217')) {
+          return Promise.resolve(mockForm);
+        }
+        if (method === 'PUT' && endpoint.includes('/forms/217')) {
+          return Promise.resolve(body);
+        }
+        return Promise.reject(new Error('Unexpected request'));
+      });
+
+      const result = await (server as any).updateForm({
+        form_id: '217',
+        partial_update: true,
+        fields: [
+          {
+            id: 6,
+            choices: [
+              { text: 'Yes, as event lead.', inventory_limit: '1' },
+              { text: 'Yes, as a primary instructor.', inventory_limit: '7' }, // Changed from 5 to 7
+              { text: 'Yes, as an assistant instructor (Shadow).', inventory_limit: '4' }
+            ]
+          }
+        ]
+      });
+
+      const formData = verifyFieldPreservation(result, [1, 3, 6, 7]);
+      const field6 = formData.fields.find((f: any) => f.id === 6);
+      
+      // Verify choices were merged, not replaced
+      expect(field6.choices).toHaveLength(3);
+      expect(field6.choices[0].inventory_limit).toBe('1'); // Unchanged
+      expect(field6.choices[1].inventory_limit).toBe('7'); // Updated
+      expect(field6.choices[2].inventory_limit).toBe('4'); // Unchanged
+      
+      // Verify other field properties preserved
+      expect(field6.label).toBe('I will help out');
+      expect(field6.type).toBe('checkbox');
+    });
+
+    // TDD Test: Should FAIL initially - partial choice updates not supported
+    test('should handle partial choice updates', async () => {
+      const { GravityFormsMCPServer } = await import('../../index');
+      const server = new GravityFormsMCPServer();
+      
+      server.makeRequest = jest.fn().mockImplementation((endpoint: string, method: string = 'GET', body?: any) => {
+        if (method === 'GET' && endpoint.includes('/forms/217')) {
+          return Promise.resolve(mockForm);
+        }
+        if (method === 'PUT' && endpoint.includes('/forms/217')) {
+          return Promise.resolve(body);
+        }
+        return Promise.reject(new Error('Unexpected request'));
+      });
+
+      const result = await (server as any).updateForm({
+        form_id: '217',
+        partial_update: true,
+        fields: [
+          {
+            id: 6,
+            choices: [
+              undefined, // Skip first choice
+              { inventory_limit: '8' }, // Update only inventory_limit, preserve text
+              undefined // Skip third choice
+            ]
+          }
+        ]
+      });
+
+      const formData = verifyFieldPreservation(result, [1, 3, 6, 7]);
+      const field6 = formData.fields.find((f: any) => f.id === 6);
+      
+      // Original text should be preserved, inventory_limit updated
+      expect(field6.choices[1].text).toBe('Yes, as a primary instructor.');
+      expect(field6.choices[1].inventory_limit).toBe('8');
+    });
+
+    // TDD Test: Should FAIL initially - conditional logic not preserved during merge
+    test('should preserve conditional logic when updating other properties', async () => {
+      const { GravityFormsMCPServer } = await import('../../index');
+      const server = new GravityFormsMCPServer();
+      
+      // Create mock form with conditional logic
+      const mockFormWithConditional = {
+        ...mockForm,
+        fields: mockForm.fields.map((field: any) => {
+          if (field.id === 6) {
+            return {
+              ...field,
+              conditionalLogic: {
+                actionType: 'show',
+                logicType: 'all',
+                rules: [
+                  {
+                    fieldId: '3',
+                    operator: 'is',
+                    value: 'test@example.com'
+                  }
+                ]
+              }
+            };
+          }
+          return field;
+        })
+      };
+      
+      server.makeRequest = jest.fn().mockImplementation((endpoint: string, method: string = 'GET', body?: any) => {
+        if (method === 'GET' && endpoint.includes('/forms/217')) {
+          return Promise.resolve(mockFormWithConditional);
+        }
+        if (method === 'PUT' && endpoint.includes('/forms/217')) {
+          return Promise.resolve(body);
+        }
+        return Promise.reject(new Error('Unexpected request'));
+      });
+
+      const result = await (server as any).updateForm({
+        form_id: '217',
+        partial_update: true,
+        fields: [
+          {
+            id: 6,
+            label: 'Updated Label Only'
+          }
+        ]
+      });
+
+      const formData = verifyFieldPreservation(result, [1, 3, 6, 7]);
+      const field6 = formData.fields.find((f: any) => f.id === 6);
+      
+      // Label should be updated
+      expect(field6.label).toBe('Updated Label Only');
+      
+      // Conditional logic should be preserved
+      expect(field6.conditionalLogic).toBeDefined();
+      expect(field6.conditionalLogic.actionType).toBe('show');
+      expect(field6.conditionalLogic.rules[0].fieldId).toBe('3');
+      
+      // Choices should remain intact
+      expect(field6.choices).toHaveLength(3);
+    });
   });
 });

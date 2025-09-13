@@ -1811,7 +1811,8 @@ Consider using form templates or cloning for management.`;
         finalFields = existingForm.fields.map(existingField => {
           const fieldId = existingField.id != null ? String(existingField.id) : null;
           if (fieldId && fieldUpdates.has(fieldId)) {
-            const updatedField = { ...existingField, ...fieldUpdates.get(fieldId) };
+            const updates = fieldUpdates.get(fieldId);
+            const updatedField = this.mergeFieldProperties(existingField, updates);
             fieldUpdates.delete(fieldId); // Mark as processed
             return updatedField;
           }
@@ -1965,6 +1966,25 @@ Consider using form templates or cloning for management.`;
         }
       ]
     };
+  }
+
+  /**
+   * Deep merge field properties for partial updates
+   */
+  private mergeFieldProperties(existing: any, updates: any): any {
+    // Handle choices array specially
+    if (updates.choices && existing.choices) {
+      const mergedChoices = existing.choices.map((existingChoice: any, index: number) => {
+        if (updates.choices[index]) {
+          return { ...existingChoice, ...updates.choices[index] };
+        }
+        return existingChoice;
+      });
+      return { ...existing, ...updates, choices: mergedChoices };
+    }
+    
+    // Default shallow merge for other properties
+    return { ...existing, ...updates };
   }
 
   private async validateForm(args: any) {

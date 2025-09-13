@@ -163,7 +163,7 @@ The basic field merge tests should now pass.
 
 **Status**: ✅ **COMPLETED** - Field-by-field merging implemented successfully. Replaced line 1801 simple fallback with Map-based field ID matching. Tests now pass: preserves all 4 fields (IDs 1,3,6,7) during partial updates while correctly merging field 6 properties. Non-partial behavior unchanged. TDD Green phase achieved!
 
-### Prompt 4: Nested Property Merge Test
+### Prompt 4: Nested Property Merge Test ✅ COMPLETED
 ```text
 Write tests for merging nested properties like choices in checkbox fields.
 
@@ -185,7 +185,9 @@ Write tests for merging nested properties like choices in checkbox fields.
 These tests will fail because shallow merge doesn't handle nested properties.
 ```
 
-### Prompt 5: Nested Property Merge Implementation
+**Status**: ✅ **COMPLETED** - Three nested property tests created successfully. Tests demonstrate current behavior: basic choices arrays work with shallow merge (pass), partial choice updates fail (expected), and conditional logic is preserved (pass). One failing test "should handle partial choice updates" identifies the exact functionality needed for Prompt 5 implementation.
+
+### Prompt 5: Nested Property Merge Implementation ✅ COMPLETED
 ```text
 Implement deep merging for nested field properties.
 
@@ -225,6 +227,8 @@ Implement deep merging for nested field properties.
 
 Nested property tests should now pass.
 ```
+
+**Status**: ✅ **COMPLETED** - Deep merging functionality implemented successfully. Added mergeFieldProperties private method in index.ts after updateForm method (lines 1970-1987). Updated field merging logic at lines 1814-1815 to use deep merge instead of shallow merge. All nested property tests now pass: "should merge nested choices array", "should handle partial choice updates", and "should preserve conditional logic when updating". TDD Green phase achieved!
 
 ### Prompt 6: New Field Addition Test
 ```text

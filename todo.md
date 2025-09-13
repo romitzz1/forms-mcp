@@ -14,10 +14,10 @@
 - [x] Verify basic field preservation tests pass ✅ COMPLETED  
 - [x] Debug any merge logic issues ✅ COMPLETED
 
-#### Phase 3: Nested Properties 📋
-- [ ] **Prompt 4**: Write tests for choices array merging
-- [ ] **Prompt 5**: Implement deep merge for nested properties
-- [ ] Test conditional logic preservation
+#### Phase 3: Nested Properties ✅ COMPLETED
+- [x] **Prompt 4**: Write tests for choices array merging ✅ COMPLETED
+- [x] **Prompt 5**: Implement deep merge for nested properties ✅ COMPLETED
+- [x] Test conditional logic preservation ✅ COMPLETED
 
 #### Phase 4: New Field Handling 📋
 - [ ] **Prompt 6**: Write tests for adding new fields
