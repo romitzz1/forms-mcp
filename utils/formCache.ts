@@ -1784,7 +1784,10 @@ export class FormCache {
 
       // Phase 2: Detect ID gaps and probe missing IDs
       reportProgress('probing-gaps', 0, 0);
-      
+
+      // Reset consecutive failures counter for gap detection phase
+      this.consecutiveFailures = 0;
+
       if (activeFormIds.length > 0) {
         const gapIds = this.generateProbeList(activeFormIds);
         

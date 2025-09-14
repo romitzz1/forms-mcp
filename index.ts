@@ -1238,7 +1238,7 @@ Consider using form templates or cloning for management.`;
         }
         
         // Check if cache is stale and sync if needed
-        if (await this.formCache.isStale()) {
+        if (await this.formCache.isStale(this.cacheConfig.maxAgeSeconds * 1000)) {
           await this.formCache.performHybridSync(
             this.makeRequest.bind(this), 
             this.cacheConfig.fullSyncIntervalHours,
@@ -2432,7 +2432,7 @@ Consider using form templates or cloning for management.`;
             }
 
             // Check if cache needs sync
-            if (await this.formCache.isStale()) {
+            if (await this.formCache.isStale(this.cacheConfig.maxAgeSeconds * 1000)) {
               await this.formCache.performHybridSync(
                 this.makeRequest.bind(this), 
                 this.cacheConfig.fullSyncIntervalHours,

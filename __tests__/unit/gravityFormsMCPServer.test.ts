@@ -2341,4 +2341,53 @@ describe('GravityFormsMCPServer', () => {
       expect(responseText).not.toContain('More entries may exist');
     });
   });
+
+});
+
+// Isolated test for cache staleness bug - outside the main describe block to avoid beforeEach/afterEach
+describe('Cache Staleness Configuration Bug (Isolated)', () => {
+  let originalEnv: NodeJS.ProcessEnv;
+
+  beforeEach(() => {
+    // Save original environment
+    originalEnv = { ...process.env };
+  });
+
+  afterEach(() => {
+    // Restore original environment
+    process.env = originalEnv;
+    // Reset modules after each test
+    jest.resetModules();
+  });
+
+  it('should pass configured maxAgeSeconds to cache isStale() method', async () => {
+    // Import the server class
+    const { GravityFormsMCPServer } = await import('../../index');
+
+    // Create a server with default environment
+    const server = new GravityFormsMCPServer();
+
+    // Directly modify the cacheConfig to test the behavior
+    (server as any).cacheConfig.maxAgeSeconds = 10;
+
+    // Mock a successful API response
+    (server as any).makeRequest = jest.fn().mockResolvedValue({});
+
+    // Create spy on FormCache isStale method
+    const isStalespy = jest.fn().mockResolvedValue(true);
+
+    // Mock formCache with spy
+    (server as any).formCache = {
+      isReady: jest.fn().mockReturnValue(true),
+      isStale: isStalespy,
+      performHybridSync: jest.fn().mockResolvedValue({ discovered: 0, updated: 0, errors: [], duration: 0 }),
+      getAllForms: jest.fn().mockResolvedValue([])
+    };
+
+    // Call getForms with include_all=true to trigger staleness check
+    await (server as any).getForms({ include_all: true });
+
+    // ASSERTION: The isStale method should be called with the configured maxAgeSeconds
+    expect(isStalespy).toHaveBeenCalledWith(10000); // 10 seconds converted to milliseconds
+  });
 });
