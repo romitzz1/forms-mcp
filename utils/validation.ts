@@ -14,10 +14,17 @@ export interface ExportEntriesParams {
     field_filters?: Array<{ key: string; value: string }>;
     date_range?: { start: string; end: string };
     status?: string;
+    // LLM-friendly date format alternatives
+    start_date?: string;
+    end_date?: string;
   };
   date_format?: string;
   filename?: string;
   include_headers?: boolean;
+  save_to_disk?: boolean;
+  output_path?: string;
+  skip_base64?: boolean;
+  field_ids?: string[];
 }
 
 export interface BulkProcessParams {
@@ -211,20 +218,122 @@ export class ValidationHelper {
       result.errors.push('Filename contains invalid characters');
     }
 
-    // Validate search parameters
-    if (params.search?.date_range) {
-      const { start, end } = params.search.date_range;
-      if (start && end) {
-        const startDate = new Date(start);
-        const endDate = new Date(end);
-        
-        // Check for invalid dates
-        if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+    // Validate save_to_disk parameter
+    if (params.save_to_disk !== undefined && typeof params.save_to_disk !== 'boolean') {
+      result.isValid = false;
+      result.errors.push('save_to_disk must be a boolean value');
+    }
+
+    // Validate skip_base64 parameter
+    if (params.skip_base64 !== undefined && typeof params.skip_base64 !== 'boolean') {
+      result.isValid = false;
+      result.errors.push('skip_base64 must be a boolean value');
+    }
+
+    // Validate output_path parameter
+    if (params.output_path) {
+      if (typeof params.output_path !== 'string') {
+        result.isValid = false;
+        result.errors.push('output_path must be a string');
+      } else if (params.output_path.trim().length === 0) {
+        result.isValid = false;
+        result.errors.push('output_path cannot be empty');
+      } else if (this.containsInvalidPathChars(params.output_path)) {
+        result.isValid = false;
+        result.errors.push('output_path contains invalid characters');
+      }
+    }
+
+    // Validate search parameters - support multiple date formats
+    if (params.search) {
+      let startDateStr: string | undefined;
+      let endDateStr: string | undefined;
+
+      // Extract dates from either format
+      if (params.search.date_range) {
+        startDateStr = params.search.date_range.start;
+        endDateStr = params.search.date_range.end;
+      }
+
+      // LLM-friendly format takes precedence if both are provided
+      if (params.search.start_date) {
+        startDateStr = params.search.start_date;
+      }
+      if (params.search.end_date) {
+        endDateStr = params.search.end_date;
+      }
+
+      // Validate individual dates if provided
+      if (startDateStr) {
+        const startDate = new Date(startDateStr);
+        if (isNaN(startDate.getTime())) {
           result.isValid = false;
-          result.errors.push('Invalid date format in date range');
-        } else if (startDate >= endDate) {
+          result.errors.push('Invalid start date format');
+        }
+      }
+
+      if (endDateStr) {
+        const endDate = new Date(endDateStr);
+        if (isNaN(endDate.getTime())) {
           result.isValid = false;
-          result.errors.push('Date range start must be before end date');
+          result.errors.push('Invalid end date format');
+        }
+      }
+
+      // Validate date range if both are provided
+      if (startDateStr && endDateStr) {
+        const startDate = new Date(startDateStr);
+        const endDate = new Date(endDateStr);
+
+        // Only check range if both dates are valid
+        if (!isNaN(startDate.getTime()) && !isNaN(endDate.getTime())) {
+          if (startDate > endDate) {
+            result.isValid = false;
+            result.errors.push('Date range start must be before or equal to end date');
+          }
+        }
+      }
+    }
+
+    // Validate field_ids parameter
+    if (params.field_ids !== undefined) {
+      let fieldIds = params.field_ids;
+
+      // Handle case where field_ids might be passed as a JSON string from MCP interface
+      if (typeof fieldIds === 'string') {
+        try {
+          fieldIds = JSON.parse(fieldIds);
+          // Store the parsed value for later use without mutating original params
+          result.sanitizedValue = { ...params, field_ids: fieldIds };
+        } catch {
+          result.isValid = false;
+          result.errors.push('field_ids must be a valid JSON array of strings');
+          return result;
+        }
+      }
+
+      if (!Array.isArray(fieldIds)) {
+        result.isValid = false;
+        result.errors.push('field_ids must be an array');
+      } else {
+        // Check that all elements are strings and not empty
+        for (let i = 0; i < fieldIds.length; i++) {
+          const fieldId = fieldIds[i];
+          if (typeof fieldId !== 'string') {
+            result.isValid = false;
+            result.errors.push('field_ids array must contain only string values');
+            break;
+          }
+          if (fieldId.trim() === '') {
+            result.isValid = false;
+            result.errors.push('field_ids cannot contain empty strings');
+            break;
+          }
+        }
+
+        // Store sanitized value if we haven't already
+        if (!result.sanitizedValue && result.isValid) {
+          result.sanitizedValue = { ...params, field_ids: fieldIds };
         }
       }
     }
@@ -392,6 +501,18 @@ export class ValidationHelper {
     ];
 
     return invalidPatterns.some(pattern => pattern.test(filename));
+  }
+
+  private containsInvalidPathChars(filePath: string): boolean {
+    // More permissive validation for full paths - allow directory separators but check for dangerous patterns
+    const invalidPatterns = [
+      /[<>:"|?*]/,   // Invalid path characters (but allow slashes)
+      /\.\./,        // Directory traversal
+      /\/\//,        // Double slashes (except for UNC paths starting with //)
+      /^(con|prn|aux|nul|com[1-9]|lpt[1-9])[\/\\]/i, // Reserved Windows names as directory components
+    ];
+
+    return invalidPatterns.some(pattern => pattern.test(filePath));
   }
 
   // Utility method to sanitize string inputs

@@ -61,3 +61,6 @@ data/*.sqlite3
 local.claude-config.json
 .mcp.json
 .claude/settings.local.json
+
+data/
+exports/

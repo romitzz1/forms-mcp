@@ -3,12 +3,26 @@
 
 import type { ExportFormat, ExportOptions} from '../../utils/dataExporter';
 import { DataExporter, ExportResult } from '../../utils/dataExporter';
+import * as fs from 'fs';
+import * as path from 'path';
 
 describe('DataExporter', () => {
   let dataExporter: DataExporter;
+  const testExportDir = './test-exports';
 
   beforeEach(() => {
     dataExporter = new DataExporter();
+    // Clean up test exports directory
+    if (fs.existsSync(testExportDir)) {
+      fs.rmSync(testExportDir, { recursive: true, force: true });
+    }
+  });
+
+  afterEach(() => {
+    // Clean up test exports directory
+    if (fs.existsSync(testExportDir)) {
+      fs.rmSync(testExportDir, { recursive: true, force: true });
+    }
   });
 
   describe('Interfaces and Types', () => {
@@ -20,16 +34,20 @@ describe('DataExporter', () => {
       expect(jsonFormat).toBe('json');
     });
 
-    it('should accept valid ExportOptions', () => {
+    it('should accept valid ExportOptions including file saving options', () => {
       const options: ExportOptions = {
         dateFormat: 'YYYY-MM-DD',
         includeHeaders: true,
-        filename: 'test-export'
+        filename: 'test-export',
+        saveToDisk: true,
+        outputPath: './custom/path'
       };
-      
+
       expect(options.dateFormat).toBe('YYYY-MM-DD');
       expect(options.includeHeaders).toBe(true);
       expect(options.filename).toBe('test-export');
+      expect(options.saveToDisk).toBe(true);
+      expect(options.outputPath).toBe('./custom/path');
     });
   });
 
@@ -296,6 +314,338 @@ describe('DataExporter', () => {
       const jsonResult = await dataExporter.export(entries, 'json');
       const parsedData = JSON.parse(jsonResult.data);
       expect(parsedData[0]['1']).toBe(largeText);
+    });
+  });
+
+  describe('File Saving Functionality', () => {
+    it('should save CSV file to disk when saveToDisk is true', async () => {
+      const entries = [
+        { id: '1', '1': 'John', '2': 'Doe', '3': 'john@example.com' },
+        { id: '2', '1': 'Jane', '2': 'Smith', '3': 'jane@example.com' }
+      ];
+
+      const result = await dataExporter.export(entries, 'csv', {
+        saveToDisk: true,
+        outputPath: path.join(testExportDir, 'test-export.csv')
+      }, 'test-form');
+
+      // Check that result includes file path
+      expect(result.filePath).toBeDefined();
+      expect(result.filePath).toContain('test-export.csv');
+
+      // Check that file actually exists
+      expect(fs.existsSync(result.filePath!)).toBe(true);
+
+      // Check file content matches export data
+      const fileContent = fs.readFileSync(result.filePath!, 'utf8');
+      expect(fileContent).toBe(result.data);
+      expect(fileContent).toContain('id,1,2,3');
+      expect(fileContent).toContain('John,Doe,john@example.com');
+    });
+
+    it('should save JSON file to disk when saveToDisk is true', async () => {
+      const entries = [
+        { id: '1', '1': 'John', '2': 'Doe' }
+      ];
+
+      const result = await dataExporter.export(entries, 'json', {
+        saveToDisk: true,
+        outputPath: path.join(testExportDir, 'test-export.json')
+      });
+
+      expect(result.filePath).toBeDefined();
+      expect(result.filePath).toContain('test-export.json');
+      expect(fs.existsSync(result.filePath!)).toBe(true);
+
+      const fileContent = fs.readFileSync(result.filePath!, 'utf8');
+      expect(fileContent).toBe(result.data);
+
+      // Verify it's valid JSON
+      const parsedContent = JSON.parse(fileContent);
+      expect(parsedContent).toHaveLength(1);
+      expect(parsedContent[0]).toEqual({ id: '1', '1': 'John', '2': 'Doe' });
+    });
+
+    it('should use default export directory structure when no outputPath provided', async () => {
+      process.env.GRAVITY_FORMS_EXPORT_DIR = testExportDir;
+
+      const entries = [{ id: '1', '1': 'Test' }];
+      const result = await dataExporter.export(entries, 'csv', {
+        saveToDisk: true
+      }, 'form-123');
+
+      expect(result.filePath).toBeDefined();
+      expect(result.filePath).toContain('test-exports'); // Path normalization removes ./
+      expect(result.filePath).toContain('form-123');
+      expect(result.filePath).toContain(new Date().toISOString().slice(0, 10)); // Today's date
+      expect(fs.existsSync(result.filePath!)).toBe(true);
+
+      delete process.env.GRAVITY_FORMS_EXPORT_DIR;
+    });
+
+    it('should create directory structure automatically', async () => {
+      const deepPath = path.join(testExportDir, 'nested', 'deep', 'structure', 'export.csv');
+      const entries = [{ id: '1', '1': 'Test' }];
+
+      const result = await dataExporter.export(entries, 'csv', {
+        saveToDisk: true,
+        outputPath: deepPath
+      });
+
+      expect(result.filePath).toBe(path.resolve(deepPath));
+      expect(fs.existsSync(result.filePath!)).toBe(true);
+      expect(fs.existsSync(path.dirname(result.filePath!))).toBe(true);
+    });
+
+    it('should handle relative paths correctly', async () => {
+      const relativePath = './test-exports/relative-export.csv';
+      const entries = [{ id: '1', '1': 'Test' }];
+
+      const result = await dataExporter.export(entries, 'csv', {
+        saveToDisk: true,
+        outputPath: relativePath
+      });
+
+      expect(result.filePath).toBe(path.resolve(relativePath));
+      expect(fs.existsSync(result.filePath!)).toBe(true);
+    });
+
+    it('should not save file when saveToDisk is false', async () => {
+      const entries = [{ id: '1', '1': 'Test' }];
+      const result = await dataExporter.export(entries, 'csv', {
+        saveToDisk: false,
+        outputPath: path.join(testExportDir, 'should-not-exist.csv')
+      });
+
+      expect(result.filePath).toBeUndefined();
+      expect(fs.existsSync(path.join(testExportDir, 'should-not-exist.csv'))).toBe(false);
+    });
+
+    it('should not save file when saveToDisk is undefined', async () => {
+      const entries = [{ id: '1', '1': 'Test' }];
+      const result = await dataExporter.export(entries, 'csv', {
+        outputPath: path.join(testExportDir, 'should-not-exist.csv')
+      });
+
+      expect(result.filePath).toBeUndefined();
+      expect(fs.existsSync(path.join(testExportDir, 'should-not-exist.csv'))).toBe(false);
+    });
+
+    it('should return both file path and base64 data when saving to disk', async () => {
+      const entries = [{ id: '1', '1': 'Test Data' }];
+      const result = await dataExporter.export(entries, 'csv', {
+        saveToDisk: true,
+        outputPath: path.join(testExportDir, 'dual-output.csv')
+      });
+
+      // Should have both file path and base64 data
+      expect(result.filePath).toBeDefined();
+      expect(result.base64Data).toBeDefined();
+      expect(result.data).toBeDefined();
+
+      // File content should match in-memory data
+      const fileContent = fs.readFileSync(result.filePath!, 'utf8');
+      expect(fileContent).toBe(result.data);
+
+      // Base64 should decode to the same content
+      const decodedBase64 = Buffer.from(result.base64Data!, 'base64').toString('utf8');
+      expect(decodedBase64).toBe(result.data);
+    });
+
+    it('should throw error for invalid file paths', async () => {
+      const entries = [{ id: '1', '1': 'Test' }];
+
+      // Test with invalid characters (this may vary by OS)
+      await expect(dataExporter.export(entries, 'csv', {
+        saveToDisk: true,
+        outputPath: '/invalid<>path/file.csv'
+      })).rejects.toThrow();
+    });
+
+    it('should handle filename with custom extension correctly', async () => {
+      const entries = [{ id: '1', '1': 'Test' }];
+      const customPath = path.join(testExportDir, 'custom-name.csv');
+
+      const result = await dataExporter.export(entries, 'csv', {
+        saveToDisk: true,
+        outputPath: customPath,
+        filename: 'ignored-when-path-provided'
+      });
+
+      expect(result.filePath).toBe(path.resolve(customPath));
+      expect(fs.existsSync(result.filePath!)).toBe(true);
+    });
+
+    it('should use environment variable for default export directory', async () => {
+      const customExportDir = path.join(testExportDir, 'custom-env-dir');
+      process.env.GRAVITY_FORMS_EXPORT_DIR = customExportDir;
+
+      const entries = [{ id: '1', '1': 'Test' }];
+      const result = await dataExporter.export(entries, 'csv', {
+        saveToDisk: true
+      }, 'form-456');
+
+      expect(result.filePath).toContain(customExportDir);
+      expect(result.filePath).toContain('form-456');
+      expect(fs.existsSync(result.filePath!)).toBe(true);
+
+      delete process.env.GRAVITY_FORMS_EXPORT_DIR;
+    });
+
+    it('should generate unique filenames with timestamps', async () => {
+      const entries = [{ id: '1', '1': 'Test' }];
+
+      // Export two files quickly
+      const result1 = await dataExporter.export(entries, 'csv', {
+        saveToDisk: true,
+        outputPath: path.join(testExportDir, 'file1')
+      });
+
+      // Small delay to ensure different timestamp
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      const result2 = await dataExporter.export(entries, 'csv', {
+        saveToDisk: true,
+        outputPath: path.join(testExportDir, 'file2')
+      });
+
+      expect(result1.filePath).not.toBe(result2.filePath);
+      expect(fs.existsSync(result1.filePath!)).toBe(true);
+      expect(fs.existsSync(result2.filePath!)).toBe(true);
+    });
+  });
+
+  describe('Base64 Encoding Control', () => {
+    it('should skip base64 encoding when skip_base64 is true', async () => {
+      const entries = [
+        { id: '1', '1': 'John', '2': 'Doe', '3': 'john@example.com' }
+      ];
+
+      const result = await dataExporter.export(entries, 'csv', {
+        skipBase64: true
+      });
+
+      expect(result.base64Data).toBeUndefined();
+      expect(result.data).toBeDefined();
+      expect(result.filename).toBeDefined();
+      expect(result.format).toBe('csv');
+    });
+
+    it('should include base64 encoding when skip_base64 is false (default)', async () => {
+      const entries = [
+        { id: '1', '1': 'John', '2': 'Doe' }
+      ];
+
+      const result = await dataExporter.export(entries, 'csv', {
+        skipBase64: false
+      });
+
+      expect(result.base64Data).toBeDefined();
+      expect(result.data).toBeDefined();
+      expect(typeof result.base64Data).toBe('string');
+
+      // Verify base64 decodes correctly
+      const decoded = Buffer.from(result.base64Data!, 'base64').toString('utf8');
+      expect(decoded).toBe(result.data);
+    });
+
+    it('should include base64 encoding by default when skipBase64 is not specified', async () => {
+      const entries = [
+        { id: '1', '1': 'Test' }
+      ];
+
+      const result = await dataExporter.export(entries, 'json');
+
+      expect(result.base64Data).toBeDefined();
+      expect(result.data).toBeDefined();
+    });
+
+    it('should skip base64 but still save to disk when both options are enabled', async () => {
+      const entries = [
+        { id: '1', '1': 'Large data that would bloat context', '2': 'More data' }
+      ];
+
+      const result = await dataExporter.export(entries, 'csv', {
+        saveToDisk: true,
+        skipBase64: true,
+        outputPath: path.join(testExportDir, 'no-base64.csv')
+      });
+
+      // Should have file path but no base64
+      expect(result.filePath).toBeDefined();
+      expect(result.base64Data).toBeUndefined();
+      expect(result.data).toBeDefined();
+
+      // File should exist and contain correct data
+      expect(fs.existsSync(result.filePath!)).toBe(true);
+      const fileContent = fs.readFileSync(result.filePath!, 'utf8');
+      expect(fileContent).toBe(result.data);
+    });
+
+    it('should handle large exports efficiently with skip_base64', async () => {
+      // Create large dataset
+      const largeEntries = Array.from({ length: 1000 }, (_, i) => ({
+        id: `${i + 1}`,
+        '1': `User ${i + 1}`,
+        '2': `user${i + 1}@example.com`,
+        '3': `Large description text for entry ${i + 1}`.repeat(10)
+      }));
+
+      const result = await dataExporter.export(largeEntries, 'csv', {
+        skipBase64: true
+      });
+
+      expect(result.base64Data).toBeUndefined();
+      expect(result.data).toBeDefined();
+      expect(result.data.length).toBeGreaterThan(10000); // Should be large
+
+      // Should still have all other properties
+      expect(result.filename).toBeDefined();
+      expect(result.format).toBe('csv');
+      expect(result.mimeType).toBe('text/csv');
+    });
+
+    it('should work with JSON format and skip_base64', async () => {
+      const entries = [
+        { id: '1', complex: { nested: 'data', array: [1, 2, 3] } }
+      ];
+
+      const result = await dataExporter.export(entries, 'json', {
+        skipBase64: true
+      });
+
+      expect(result.base64Data).toBeUndefined();
+      expect(result.data).toBeDefined();
+      expect(result.format).toBe('json');
+
+      // Should be valid JSON
+      const parsed = JSON.parse(result.data);
+      expect(parsed).toHaveLength(1);
+      expect(parsed[0].complex.nested).toBe('data');
+    });
+
+    it('should handle empty entries correctly with skip_base64', async () => {
+      const entries: any[] = [];
+
+      const result = await dataExporter.export(entries, 'csv', {
+        skipBase64: true
+      });
+
+      expect(result.base64Data).toBeUndefined();
+      expect(result.data).toBe(''); // Empty string for no data
+      expect(result.format).toBe('csv');
+    });
+
+    it('should handle empty entries correctly without skip_base64', async () => {
+      const entries: any[] = [];
+
+      const result = await dataExporter.export(entries, 'csv', {
+        skipBase64: false
+      });
+
+      expect(result.base64Data).toBe(''); // Empty base64 for empty data
+      expect(result.data).toBe(''); // Empty string for no data
+      expect(result.format).toBe('csv');
     });
   });
 });

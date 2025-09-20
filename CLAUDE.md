@@ -119,6 +119,7 @@ npm run test:watch
   - `GRAVITY_FORMS_CACHE_DB_PATH` - SQLite database path (default: ./data/forms-cache.db)
   - `GRAVITY_FORMS_CACHE_MAX_AGE_SECONDS` - Cache entry max age (default: 3600)
   - `GRAVITY_FORMS_CACHE_AUTO_SYNC` - Automatic cache synchronization (default: true)
+  - `GRAVITY_FORMS_EXPORT_DIR` - Default directory for file exports (optional, defaults to ./exports)
 
 ### API Integration
 

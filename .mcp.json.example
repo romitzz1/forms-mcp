@@ -13,6 +13,7 @@
         "GRAVITY_FORMS_CACHE_ENABLED": "true",
         "GRAVITY_FORMS_CACHE_DB_PATH": "/path/to/your/forms-mcp/data/forms-cache.db",
         "GRAVITY_FORMS_CACHE_MAX_AGE_SECONDS": "300",
+        "GRAVITY_FORMS_EXPORT_DIR": "/path/to/your/exports",
         "SEARCH_CACHE_ENABLED": "true",
         "SEARCH_CACHE_MAX_AGE_MS": "900000",
         "SEARCH_CACHE_MAX_SIZE": "100",

@@ -1,12 +1,19 @@
 // ABOUTME: Data export utilities for converting Gravity Forms entries to CSV/JSON
 // ABOUTME: Handles complex field types, date formatting, and base64 encoding for downloads
 
+import * as fs from 'fs';
+import * as path from 'path';
+
 export type ExportFormat = 'csv' | 'json';
 
 export interface ExportOptions {
   dateFormat?: string;
   includeHeaders?: boolean;
   filename?: string;
+  saveToDisk?: boolean;
+  outputPath?: string;
+  skipBase64?: boolean;
+  fieldIds?: string[];
 }
 
 export interface ExportResult {
@@ -15,6 +22,7 @@ export interface ExportResult {
   filename: string;
   format: ExportFormat;
   mimeType: string;
+  filePath?: string;
 }
 
 export class DataExporter {
@@ -110,14 +118,62 @@ export class DataExporter {
     });
   }
 
+  private filterEntryFields(entry: any, fieldIds: string[]): any {
+    const filtered: any = {};
+
+    // Define metadata fields that should always be included
+    const metadataFields = ['id', 'form_id', 'date_created', 'date_updated', 'status', 'is_starred', 'is_read',
+                           'ip', 'source_url', 'user_agent', 'currency', 'payment_status', 'payment_date',
+                           'payment_amount', 'payment_method', 'transaction_id', 'is_fulfilled', 'created_by',
+                           'transaction_type', 'source_id', 'post_id', 'is_approved'];
+
+    // Always include metadata fields
+    metadataFields.forEach(field => {
+      if (entry[field] !== undefined) {
+        filtered[field] = entry[field];
+      }
+    });
+
+    // Create a Set for faster lookup of requested field IDs
+    const fieldIdSet = new Set(fieldIds);
+
+    // Single pass through entry keys for better performance
+    Object.keys(entry).forEach(key => {
+      // Check if this key matches any requested field
+      if (fieldIdSet.has(key)) {
+        filtered[key] = entry[key];
+        return;
+      }
+
+      // Check if this is a composite sub-field of any requested field
+      const dotIndex = key.indexOf('.');
+      if (dotIndex > 0) {
+        const parentFieldId = key.substring(0, dotIndex);
+        if (fieldIdSet.has(parentFieldId)) {
+          filtered[key] = entry[key];
+        }
+      }
+    });
+
+    return filtered;
+  }
+
   private exportToCSV(entries: any[], options: ExportOptions = {}): string {
     const validEntries = entries.filter(entry => entry && typeof entry === 'object');
-    
+
     if (validEntries.length === 0) {
       return '';
     }
 
-    const sanitizedEntries = validEntries.map(entry => 
+    // Apply field filtering if fieldIds is provided
+    let entriesToProcess = validEntries;
+    if (options.fieldIds && options.fieldIds.length > 0) {
+      entriesToProcess = validEntries.map(entry =>
+        this.filterEntryFields(entry, options.fieldIds!)
+      );
+    }
+
+    const sanitizedEntries = entriesToProcess.map(entry =>
       this.sanitizeEntry(entry, options.dateFormat, true)
     );
 
@@ -140,12 +196,20 @@ export class DataExporter {
 
   private exportToJSON(entries: any[], options: ExportOptions = {}): string {
     const validEntries = entries.filter(entry => entry && typeof entry === 'object');
-    
+
     if (validEntries.length === 0) {
       return '[]';
     }
 
-    const sanitizedEntries = validEntries.map(entry => 
+    // Apply field filtering if fieldIds is provided
+    let entriesToProcess = validEntries;
+    if (options.fieldIds && options.fieldIds.length > 0) {
+      entriesToProcess = validEntries.map(entry =>
+        this.filterEntryFields(entry, options.fieldIds!)
+      );
+    }
+
+    const sanitizedEntries = entriesToProcess.map(entry =>
       this.sanitizeEntry(entry, options.dateFormat, false)
     );
 
@@ -175,10 +239,58 @@ export class DataExporter {
     }
   }
 
+  private getDefaultExportPath(formId?: string): string {
+    const exportDir = process.env.GRAVITY_FORMS_EXPORT_DIR || './exports';
+    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+
+    if (formId) {
+      return path.join(exportDir, formId, today);
+    }
+    return path.join(exportDir, today);
+  }
+
+  private ensureDirectoryExists(dirPath: string): void {
+    try {
+      fs.mkdirSync(dirPath, { recursive: true });
+    } catch (error) {
+      throw new Error(`Failed to create directory ${dirPath}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  private async saveToFile(data: string, filename: string, outputPath?: string, formId?: string): Promise<string> {
+    let fullPath: string;
+
+    if (outputPath) {
+      // Custom path provided
+      if (path.isAbsolute(outputPath)) {
+        fullPath = outputPath;
+      } else {
+        fullPath = path.resolve(outputPath);
+      }
+    } else {
+      // Use default path structure
+      const defaultDir = this.getDefaultExportPath(formId);
+      this.ensureDirectoryExists(defaultDir);
+      fullPath = path.join(defaultDir, filename);
+    }
+
+    // Ensure the directory exists for the file
+    const dir = path.dirname(fullPath);
+    this.ensureDirectoryExists(dir);
+
+    try {
+      await fs.promises.writeFile(fullPath, data, 'utf8');
+      return fullPath;
+    } catch (error) {
+      throw new Error(`Failed to save file to ${fullPath}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
   async export(
-    entries: any[], 
-    format: ExportFormat, 
-    options: ExportOptions = {}
+    entries: any[],
+    format: ExportFormat,
+    options: ExportOptions = {},
+    formId?: string
   ): Promise<ExportResult> {
     let data: string;
 
@@ -195,14 +307,31 @@ export class DataExporter {
 
     const filename = this.generateFilename(format, options.filename);
     const mimeType = this.getMimeType(format);
-    const base64Data = data ? Buffer.from(data, 'utf-8').toString('base64') : '';
+
+    // Conditionally generate base64 data
+    let base64Data: string | undefined;
+    if (!options.skipBase64) {
+      base64Data = data ? Buffer.from(data, 'utf-8').toString('base64') : '';
+    }
+
+    let filePath: string | undefined;
+
+    // Save to disk if requested
+    if (options.saveToDisk) {
+      try {
+        filePath = await this.saveToFile(data, filename, options.outputPath, formId);
+      } catch (error) {
+        throw new Error(`Failed to save export to disk: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    }
 
     return {
       data,
       base64Data,
       filename,
       format,
-      mimeType
+      mimeType,
+      filePath
     };
   }
 }

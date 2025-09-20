@@ -584,7 +584,33 @@ export class GravityFormsMCPServer {
                 },
                 search: {
                   type: "object",
-                  description: "Search criteria for filtering entries"
+                  description: "Search criteria for filtering entries. Supports multiple date filtering formats for LLM convenience.",
+                  properties: {
+                    field_filters: {
+                      type: "array",
+                      description: "Filter entries by field values"
+                    },
+                    status: {
+                      type: "string",
+                      description: "Filter by entry status (active, spam, trash)"
+                    },
+                    date_range: {
+                      type: "object",
+                      description: "Date range filter (preferred format)",
+                      properties: {
+                        start: { type: "string", description: "Start date (YYYY-MM-DD)" },
+                        end: { type: "string", description: "End date (YYYY-MM-DD)" }
+                      }
+                    },
+                    start_date: {
+                      type: "string",
+                      description: "Start date for filtering (LLM-friendly format, YYYY-MM-DD)"
+                    },
+                    end_date: {
+                      type: "string",
+                      description: "End date for filtering (LLM-friendly format, YYYY-MM-DD)"
+                    }
+                  }
                 },
                 date_format: {
                   type: "string",
@@ -598,6 +624,27 @@ export class GravityFormsMCPServer {
                   type: "boolean",
                   description: "Include headers in CSV export",
                   default: true
+                },
+                save_to_disk: {
+                  type: "boolean",
+                  description: "Save the exported file to disk",
+                  default: false
+                },
+                output_path: {
+                  type: "string",
+                  description: "Custom file path for saving (optional, auto-generated if not provided)"
+                },
+                skip_base64: {
+                  type: "boolean",
+                  description: "Skip base64 encoding to reduce response size (useful for large exports)",
+                  default: false
+                },
+                field_ids: {
+                  type: "array",
+                  description: "Array of field IDs to include in export (optional). If provided, only specified fields plus metadata will be exported.",
+                  items: {
+                    type: "string"
+                  }
                 },
                 paging: {
                   type: "object",
@@ -2109,7 +2156,9 @@ Consider using form templates or cloning for management.`;
       );
     }
 
-    const { form_id, format, search, date_format, filename, include_headers, paging } = args;
+    // Use sanitized parameters if available (e.g., for parsed field_ids)
+    const sanitizedArgs = validationResult.sanitizedValue || args;
+    const { form_id, format, search, date_format, filename, include_headers, save_to_disk, output_path, skip_base64, paging, field_ids } = sanitizedArgs;
 
     try {
       // Build API endpoint URL
@@ -2145,19 +2194,64 @@ Consider using form templates or cloning for management.`;
           }
         }
         
+        // Handle date filtering - support multiple LLM-friendly formats
+        let dateRange: any = {};
+
+        // Format 1: Structured date_range object (preferred)
         if (search.date_range) {
-          const dateRange: any = {};
           if (search.date_range.start) {
             dateRange.start = search.date_range.start;
           }
           if (search.date_range.end) {
             dateRange.end = search.date_range.end;
           }
-          if (Object.keys(dateRange).length > 0) {
-            searchObject.date_range = dateRange;
-          }
         }
-        
+
+        // Format 2: Direct start_date/end_date properties (LLM-friendly)
+        if (search.start_date) {
+          dateRange.start = search.start_date;
+        }
+        if (search.end_date) {
+          dateRange.end = search.end_date;
+        }
+
+        // Convert date range to field_filters for proper API compatibility
+        // The Gravity Forms API doesn't properly support date_range parameter
+        if (Object.keys(dateRange).length > 0) {
+          if (!searchObject.field_filters) {
+            searchObject.field_filters = [];
+          }
+
+          // Convert start date to field filter
+          if (dateRange.start) {
+            searchObject.field_filters.push({
+              key: 'date_created',
+              value: dateRange.start,
+              operator: '>='
+            });
+          }
+
+          // Convert end date to field filter
+          if (dateRange.end) {
+            searchObject.field_filters.push({
+              key: 'date_created',
+              value: dateRange.end,
+              operator: '<='
+            });
+          }
+
+          // Also keep the original date_range for backward compatibility
+          searchObject.date_range = dateRange;
+        }
+
+        // Handle other search parameters (backward compatibility)
+        Object.entries(search).forEach(([key, value]) => {
+          if (key !== 'status' && key !== 'field_filters' && key !== 'date_range' &&
+              key !== 'start_date' && key !== 'end_date') {
+            searchObject[key] = String(value);
+          }
+        });
+
         // Only add search parameter if we have something to search for
         if (Object.keys(searchObject).length > 0) {
           params.append('search', JSON.stringify(searchObject));
@@ -2224,12 +2318,16 @@ Consider using form templates or cloning for management.`;
       const exportOptions = {
         dateFormat: date_format,
         includeHeaders: include_headers !== false, // Default to true
-        filename: filename
+        filename: filename,
+        saveToDisk: save_to_disk || false,
+        outputPath: output_path,
+        skipBase64: skip_base64 || false,
+        fieldIds: field_ids
       };
 
       let exportResult;
       try {
-        exportResult = await this.dataExporter.export(entries, format, exportOptions);
+        exportResult = await this.dataExporter.export(entries, format, exportOptions, form_id);
       } catch (exportError) {
         throw new McpError(
           ErrorCode.InternalError,
@@ -2273,9 +2371,20 @@ Consider using form templates or cloning for management.`;
           exportMessage += `{ "form_id": "${form_id}", "format": "${format}", "paging": { "page_size": ${pageSize}, "current_page": ${currentPage + 1} } }\n`;
         }
       }
-      
+
       exportMessage += `\nFile size: ${exportResult.data.length} characters\n`;
-      exportMessage += `\nBase64 encoded data for download:\n${exportResult.base64Data}`;
+
+      // Add file path information if saved to disk
+      if (exportResult.filePath) {
+        exportMessage += `\n✅ File saved to disk: ${exportResult.filePath}\n`;
+      }
+
+      // Add base64 data if not skipped
+      if (exportResult.base64Data !== undefined) {
+        exportMessage += `\nBase64 encoded data for download:\n${exportResult.base64Data}`;
+      } else {
+        exportMessage += `\n⚡ Base64 encoding skipped to reduce response size`;
+      }
 
       return {
         content: [

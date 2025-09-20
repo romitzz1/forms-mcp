@@ -404,7 +404,7 @@ describe('ValidationHelper', () => {
 
       const result = validator.validateExportEntriesParams(params);
       expect(result.isValid).toBe(false);
-      expect(result.errors).toContain('Date range start must be before end date');
+      expect(result.errors).toContain('Date range start must be before or equal to end date');
     });
 
     it('should reject invalid dates in date range', () => {
@@ -418,7 +418,7 @@ describe('ValidationHelper', () => {
 
       const result = validator.validateExportEntriesParams(params);
       expect(result.isValid).toBe(false);
-      expect(result.errors).toContain('Invalid date format in date range');
+      expect(result.errors).toContain('Invalid start date format');
     });
 
     it('should validate bulk operations with both invalid IDs and too many entries', () => {
@@ -446,6 +446,394 @@ describe('ValidationHelper', () => {
       const result = validator.validateExportEntriesParams(params);
       expect(result.isValid).toBe(false);
       expect(result.errors).toContain('Filename contains invalid characters');
+    });
+
+    describe('File Saving Parameters Validation', () => {
+      it('should validate save_to_disk parameter as boolean', () => {
+        const validParams: ExportEntriesParams = {
+          form_id: '123',
+          format: 'csv',
+          save_to_disk: true
+        };
+        const result = validator.validateExportEntriesParams(validParams);
+        expect(result.isValid).toBe(true);
+      });
+
+      it('should reject non-boolean save_to_disk parameter', () => {
+        const params = {
+          form_id: '123',
+          format: 'csv',
+          save_to_disk: 'true' // String instead of boolean
+        } as any;
+        const result = validator.validateExportEntriesParams(params);
+        expect(result.isValid).toBe(false);
+        expect(result.errors).toContain('save_to_disk must be a boolean value');
+      });
+
+      it('should validate valid output_path parameter', () => {
+        const params: ExportEntriesParams = {
+          form_id: '123',
+          format: 'csv',
+          save_to_disk: true,
+          output_path: './exports/my-file.csv'
+        };
+        const result = validator.validateExportEntriesParams(params);
+        expect(result.isValid).toBe(true);
+      });
+
+      it('should reject non-string output_path parameter', () => {
+        const params = {
+          form_id: '123',
+          format: 'csv',
+          save_to_disk: true,
+          output_path: 123 // Number instead of string
+        } as any;
+        const result = validator.validateExportEntriesParams(params);
+        expect(result.isValid).toBe(false);
+        expect(result.errors).toContain('output_path must be a string');
+      });
+
+      it('should reject empty output_path parameter', () => {
+        const params: ExportEntriesParams = {
+          form_id: '123',
+          format: 'csv',
+          save_to_disk: true,
+          output_path: '   ' // Whitespace only
+        };
+        const result = validator.validateExportEntriesParams(params);
+        expect(result.isValid).toBe(false);
+        expect(result.errors).toContain('output_path cannot be empty');
+      });
+
+      it('should reject output_path with invalid characters', () => {
+        const params: ExportEntriesParams = {
+          form_id: '123',
+          format: 'csv',
+          save_to_disk: true,
+          output_path: '/path/with<invalid>chars.csv'
+        };
+        const result = validator.validateExportEntriesParams(params);
+        expect(result.isValid).toBe(false);
+        expect(result.errors).toContain('output_path contains invalid characters');
+      });
+
+      it('should reject output_path with directory traversal', () => {
+        const params: ExportEntriesParams = {
+          form_id: '123',
+          format: 'csv',
+          save_to_disk: true,
+          output_path: '../../../etc/passwd'
+        };
+        const result = validator.validateExportEntriesParams(params);
+        expect(result.isValid).toBe(false);
+        expect(result.errors).toContain('output_path contains invalid characters');
+      });
+
+      it('should allow valid absolute paths', () => {
+        const params: ExportEntriesParams = {
+          form_id: '123',
+          format: 'csv',
+          save_to_disk: true,
+          output_path: '/valid/absolute/path/file.csv'
+        };
+        const result = validator.validateExportEntriesParams(params);
+        expect(result.isValid).toBe(true);
+      });
+
+      it('should allow valid relative paths', () => {
+        const params: ExportEntriesParams = {
+          form_id: '123',
+          format: 'csv',
+          save_to_disk: true,
+          output_path: './exports/relative/path/file.csv'
+        };
+        const result = validator.validateExportEntriesParams(params);
+        expect(result.isValid).toBe(true);
+      });
+
+      it('should validate save_to_disk false with output_path (should be allowed)', () => {
+        const params: ExportEntriesParams = {
+          form_id: '123',
+          format: 'csv',
+          save_to_disk: false,
+          output_path: './exports/file.csv'
+        };
+        const result = validator.validateExportEntriesParams(params);
+        expect(result.isValid).toBe(true);
+      });
+
+      it('should validate skip_base64 parameter as boolean', () => {
+        const params: ExportEntriesParams = {
+          form_id: '123',
+          format: 'csv',
+          skip_base64: true
+        };
+        const result = validator.validateExportEntriesParams(params);
+        expect(result.isValid).toBe(true);
+      });
+
+      it('should reject non-boolean skip_base64 parameter', () => {
+        const params = {
+          form_id: '123',
+          format: 'csv',
+          skip_base64: 'true' // String instead of boolean
+        } as any;
+        const result = validator.validateExportEntriesParams(params);
+        expect(result.isValid).toBe(false);
+        expect(result.errors).toContain('skip_base64 must be a boolean value');
+      });
+
+      it('should allow combination of save_to_disk and skip_base64', () => {
+        const params: ExportEntriesParams = {
+          form_id: '123',
+          format: 'csv',
+          save_to_disk: true,
+          skip_base64: true,
+          output_path: './exports/optimized.csv'
+        };
+        const result = validator.validateExportEntriesParams(params);
+        expect(result.isValid).toBe(true);
+      });
+
+      it('should allow same start and end date for single-day filtering', () => {
+        const params: ExportEntriesParams = {
+          form_id: '123',
+          format: 'csv',
+          search: {
+            date_range: { start: '2024-01-01', end: '2024-01-01' }
+          }
+        };
+        const result = validator.validateExportEntriesParams(params);
+        expect(result.isValid).toBe(true);
+      });
+
+      it('should accept LLM-friendly start_date/end_date format', () => {
+        const params: ExportEntriesParams = {
+          form_id: '123',
+          format: 'csv',
+          search: {
+            start_date: '2024-01-01',
+            end_date: '2024-12-31'
+          }
+        };
+        const result = validator.validateExportEntriesParams(params);
+        expect(result.isValid).toBe(true);
+      });
+
+      it('should validate LLM-friendly date format for invalid dates', () => {
+        const params: ExportEntriesParams = {
+          form_id: '123',
+          format: 'csv',
+          search: {
+            start_date: 'invalid-date',
+            end_date: '2024-12-31'
+          }
+        };
+        const result = validator.validateExportEntriesParams(params);
+        expect(result.isValid).toBe(false);
+        expect(result.errors).toContain('Invalid start date format');
+      });
+
+      it('should validate LLM-friendly date format for invalid range', () => {
+        const params: ExportEntriesParams = {
+          form_id: '123',
+          format: 'csv',
+          search: {
+            start_date: '2024-12-31',
+            end_date: '2024-01-01'
+          }
+        };
+        const result = validator.validateExportEntriesParams(params);
+        expect(result.isValid).toBe(false);
+        expect(result.errors).toContain('Date range start must be before or equal to end date');
+      });
+
+      it('should give precedence to LLM-friendly format when both are provided', () => {
+        const params: ExportEntriesParams = {
+          form_id: '123',
+          format: 'csv',
+          search: {
+            date_range: { start: '2024-01-01', end: '2024-06-30' },
+            start_date: '2024-12-31', // Invalid range - should be caught
+            end_date: '2024-01-01'
+          }
+        };
+        const result = validator.validateExportEntriesParams(params);
+        expect(result.isValid).toBe(false);
+        expect(result.errors).toContain('Date range start must be before or equal to end date');
+      });
+
+      it('should accept only start_date without end_date', () => {
+        const params: ExportEntriesParams = {
+          form_id: '123',
+          format: 'csv',
+          search: {
+            start_date: '2024-01-01'
+          }
+        };
+        const result = validator.validateExportEntriesParams(params);
+        expect(result.isValid).toBe(true);
+      });
+
+      it('should accept only end_date without start_date', () => {
+        const params: ExportEntriesParams = {
+          form_id: '123',
+          format: 'csv',
+          search: {
+            end_date: '2024-12-31'
+          }
+        };
+        const result = validator.validateExportEntriesParams(params);
+        expect(result.isValid).toBe(true);
+      });
+
+      it('should reject invalid start_date when provided alone', () => {
+        const params: ExportEntriesParams = {
+          form_id: '123',
+          format: 'csv',
+          search: {
+            start_date: 'invalid-date'
+          }
+        };
+        const result = validator.validateExportEntriesParams(params);
+        expect(result.isValid).toBe(false);
+        expect(result.errors).toContain('Invalid start date format');
+      });
+
+      it('should reject invalid end_date when provided alone', () => {
+        const params: ExportEntriesParams = {
+          form_id: '123',
+          format: 'csv',
+          search: {
+            end_date: 'not-a-date'
+          }
+        };
+        const result = validator.validateExportEntriesParams(params);
+        expect(result.isValid).toBe(false);
+        expect(result.errors).toContain('Invalid end date format');
+      });
+    });
+
+    describe('field_ids parameter validation', () => {
+      it('should accept valid field_ids array', () => {
+        const params: ExportEntriesParams = {
+          form_id: '123',
+          format: 'csv',
+          field_ids: ['1', '2', '57', '5']
+        };
+        const result = validator.validateExportEntriesParams(params);
+        expect(result.isValid).toBe(true);
+      });
+
+      it('should reject field_ids with non-string values', () => {
+        const params: any = {
+          form_id: '123',
+          format: 'csv',
+          field_ids: ['1', 2, '57'] // Number in array
+        };
+        const result = validator.validateExportEntriesParams(params);
+        expect(result.isValid).toBe(false);
+        expect(result.errors).toContain('field_ids array must contain only string values');
+      });
+
+      it('should reject non-array field_ids', () => {
+        const params: any = {
+          form_id: '123',
+          format: 'csv',
+          field_ids: 'invalid' // String instead of array
+        };
+        const result = validator.validateExportEntriesParams(params);
+        expect(result.isValid).toBe(false);
+        expect(result.errors).toContain('field_ids must be a valid JSON array of strings');
+      });
+
+      it('should handle empty field_ids array', () => {
+        const params: ExportEntriesParams = {
+          form_id: '123',
+          format: 'csv',
+          field_ids: []
+        };
+        const result = validator.validateExportEntriesParams(params);
+        expect(result.isValid).toBe(true);
+      });
+
+      it('should reject field_ids with empty strings', () => {
+        const params: ExportEntriesParams = {
+          form_id: '123',
+          format: 'csv',
+          field_ids: ['1', '', '57'] // Empty string in array
+        };
+        const result = validator.validateExportEntriesParams(params);
+        expect(result.isValid).toBe(false);
+        expect(result.errors).toContain('field_ids cannot contain empty strings');
+      });
+
+      it('should accept field_ids with composite field IDs', () => {
+        const params: ExportEntriesParams = {
+          form_id: '123',
+          format: 'csv',
+          field_ids: ['5.1', '5.3', '1.6'] // Composite field IDs
+        };
+        const result = validator.validateExportEntriesParams(params);
+        expect(result.isValid).toBe(true);
+      });
+
+      it('should handle field_ids as JSON string and provide sanitized value', () => {
+        const params: any = {
+          form_id: '123',
+          format: 'csv',
+          field_ids: '["1", "2", "57"]' // JSON string
+        };
+        const result = validator.validateExportEntriesParams(params);
+        expect(result.isValid).toBe(true);
+        expect(result.sanitizedValue).toBeDefined();
+        expect(result.sanitizedValue.field_ids).toEqual(['1', '2', '57']);
+        // Original params should not be mutated
+        expect(params.field_ids).toBe('["1", "2", "57"]');
+      });
+
+      it('should reject malformed JSON in field_ids string', () => {
+        const params: any = {
+          form_id: '123',
+          format: 'csv',
+          field_ids: '["1", "2"' // Malformed JSON
+        };
+        const result = validator.validateExportEntriesParams(params);
+        expect(result.isValid).toBe(false);
+        expect(result.errors).toContain('field_ids must be a valid JSON array of strings');
+      });
+
+      it('should handle field_ids with numeric string values', () => {
+        const params: ExportEntriesParams = {
+          form_id: '123',
+          format: 'csv',
+          field_ids: ['0', '57', '5'] // Including "0" which could be falsy
+        };
+        const result = validator.validateExportEntriesParams(params);
+        expect(result.isValid).toBe(true);
+      });
+
+      it('should provide clear error messages for different validation failures', () => {
+        // Test non-array
+        const nonArrayParams: any = {
+          form_id: '123',
+          format: 'csv',
+          field_ids: 'not-an-array'
+        };
+        const nonArrayResult = validator.validateExportEntriesParams(nonArrayParams);
+        expect(nonArrayResult.isValid).toBe(false);
+        expect(nonArrayResult.errors).toContain('field_ids must be a valid JSON array of strings');
+
+        // Test non-string values in array
+        const nonStringParams: any = {
+          form_id: '123',
+          format: 'csv',
+          field_ids: ['1', 2, '3'] // Number in array
+        };
+        const nonStringResult = validator.validateExportEntriesParams(nonStringParams);
+        expect(nonStringResult.isValid).toBe(false);
+        expect(nonStringResult.errors).toContain('field_ids array must contain only string values');
+      });
     });
   });
 });

@@ -216,7 +216,7 @@ describe('Export Entries Logic', () => {
 
       const result = validator.validateExportEntriesParams(invalidParams);
       expect(result.isValid).toBe(false);
-      expect(result.errors).toContain('Date range start must be before end date');
+      expect(result.errors).toContain('Date range start must be before or equal to end date');
     });
 
     it('should reject malformed date strings', () => {
@@ -230,7 +230,7 @@ describe('Export Entries Logic', () => {
 
       const result = validator.validateExportEntriesParams(invalidParams);
       expect(result.isValid).toBe(false);
-      expect(result.errors).toContain('Invalid date format in date range');
+      expect(result.errors).toContain('Invalid start date format');
     });
   });
 
