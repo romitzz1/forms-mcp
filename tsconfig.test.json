@@ -8,5 +8,10 @@
     "*.ts",
     "utils/**/*.ts",
     "__tests__/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "coverage"
   ]
 }
