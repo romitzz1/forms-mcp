@@ -1,0 +1,21 @@
+services:
+  gravity-forms-mcp:
+    build: .
+    image: gravity-forms-mcp
+    restart: unless-stopped
+    ports:
+      - "9807:9807"
+    env_file:
+      - .env
+    environment:
+      MCP_TRANSPORT: http
+      MCP_HTTP_PORT: "9807"
+      GRAVITY_FORMS_CACHE_DB_PATH: /data/forms-cache.db
+      GRAVITY_FORMS_EXPORT_DIR: /exports
+    volumes:
+      - gf-cache:/data
+      - gf-exports:/exports
+
+volumes:
+  gf-cache:
+  gf-exports:
