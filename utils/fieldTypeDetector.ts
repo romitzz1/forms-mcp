@@ -25,10 +25,16 @@ export interface AnalysisResult {
     cacheStatus: CacheStatus;
 }
 
+interface GravityFormInput {
+    id?: string;
+    label?: string | null;
+}
+
 interface GravityFormField {
     id?: string;
     label?: string | null;
     type?: string;
+    inputs?: Array<GravityFormInput | null | undefined> | null;
 }
 
 interface GravityForm {
@@ -330,7 +336,26 @@ export class FieldTypeDetector {
             }
 
             const fieldInfo = this.detectFieldType(fieldToAnalyze);
-            mapping[fieldId] = fieldInfo;
+
+            // Composite Gravity Forms Name fields (advanced/extended format) store their
+            // value only under sub-input keys (e.g. "6.3" for first name, "6.6" for last
+            // name) - the parent field id ("6") never appears on the entry. Expand the
+            // mapping to the sub-input ids so downstream lookups (e.g. entry[fieldId])
+            // find the actual data instead of silently matching nothing.
+            if (fieldInfo.fieldType === 'name' && Array.isArray(fieldToAnalyze.inputs) && fieldToAnalyze.inputs.length > 0) {
+                for (const input of fieldToAnalyze.inputs) {
+                    if (input?.id) {
+                        mapping[input.id] = {
+                            fieldId: input.id,
+                            fieldType: 'name',
+                            confidence: fieldInfo.confidence,
+                            label: input.label || fieldInfo.label
+                        };
+                    }
+                }
+            } else {
+                mapping[fieldId] = fieldInfo;
+            }
         }
 
         // Cache the results if cache is available
