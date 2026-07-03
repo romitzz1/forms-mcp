@@ -65,6 +65,19 @@ describe('BulkOperationsManager', () => {
       expect(result.isValid).toBe(true);
     });
 
+    it('should reject update_status without a status value (audit A12)', () => {
+      const params: BulkOperationParams = {
+        entry_ids: ['123'],
+        operation_type: 'update_status',
+        confirm: true,
+        data: { note: 'x' } // typo'd key, no status -> would send an empty PUT body
+      };
+
+      const result = bulkManager.validateOperation(params);
+      expect(result.isValid).toBe(false);
+      expect(result.errors).toContain('update_status requires a non-empty "status" value in data');
+    });
+
     it('should validate bulk update_fields operation', () => {
       const params: BulkOperationParams = {
         entry_ids: ['123', '456'],
@@ -356,6 +369,31 @@ describe('BulkOperationsManager', () => {
       expect(result.operation_type).toBe('update_fields');
       expect(result.successful).toBe(1);
       expect(result.success_ids).toContain('123');
+    });
+
+    it('should report can_rollback:false when rollback prep is incomplete (audit A7)', async () => {
+      const params: BulkOperationParams = {
+        entry_ids: ['123', '456'],
+        operation_type: 'update_fields',
+        confirm: true,
+        data: { '1': 'Updated Name' }
+      };
+
+      mockFetch
+        // Rollback prep GETs: 123 succeeds, 456 fails (original value NOT captured)
+        .mockResolvedValueOnce({ ok: true, json: async () => GravityFormsMocks.getMockEntry({ id: '123' }) })
+        .mockResolvedValueOnce({ ok: false, status: 500, json: async () => ({ message: 'Server error' }) })
+        // Update PUTs: both succeed
+        .mockResolvedValueOnce({ ok: true, json: async () => GravityFormsMocks.getMockEntry({ id: '123' }) })
+        .mockResolvedValueOnce({ ok: true, json: async () => GravityFormsMocks.getMockEntry({ id: '456' }) });
+
+      const result = await bulkManager.executeOperation(params);
+
+      // Both updates succeeded, but only 1 of 2 original values was captured — rollback
+      // would be incomplete, so it must NOT claim full rollback capability.
+      expect(result.successful).toBe(2);
+      expect(result.rollback_data?.original_values.length).toBe(1);
+      expect(result.can_rollback).toBe(false);
     });
 
     it('should track operation progress', async () => {

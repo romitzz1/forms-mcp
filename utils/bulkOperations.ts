@@ -129,6 +129,16 @@ export class BulkOperationsManager {
       }
     }
 
+    // update_status specifically requires a non-empty status value. Without this, a
+    // payload like { note: 'x' } passes the generic check above but sends an empty PUT
+    // body ({ status: undefined } -> "{}"), which is silently recorded as success (audit A12).
+    if (params.operation_type === 'update_status') {
+      const status = params.data?.status;
+      if (typeof status !== 'string' || status.trim() === '') {
+        errors.push('update_status requires a non-empty "status" value in data');
+      }
+    }
+
     return {
       isValid: errors.length === 0,
       errors
@@ -260,7 +270,12 @@ export class BulkOperationsManager {
       failed: failedEntries.length,
       success_ids: successIds,
       failed_entries: failedEntries,
-      can_rollback: params.operation_type !== 'delete' && rollbackData !== undefined,
+      // Only claim rollback is possible when we captured an original value for EVERY
+      // requested entry. Partial coverage (a GET failed during rollback prep) previously
+      // still reported can_rollback:true, misleading the operator (audit A7).
+      can_rollback: params.operation_type !== 'delete'
+        && rollbackData !== undefined
+        && rollbackData.original_values.length === params.entry_ids.length,
       rollback_data: rollbackData,
       audit_trail: auditTrail,
       operation_summary: `${params.operation_type.toUpperCase()} operation completed: ${successIds.length} successful, ${failedEntries.length} failed`
