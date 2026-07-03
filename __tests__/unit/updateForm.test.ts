@@ -8,40 +8,15 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
  
  
-/* eslint-disable @typescript-eslint/prefer-nullish-coalescing */
-/* eslint-disable @typescript-eslint/no-unsafe-return */
+ 
+ 
 /* eslint-disable @typescript-eslint/require-await */
 /* eslint-disable jest/prefer-strict-equal */
 
+import { z } from 'zod';
+import { zodToJsonSchema } from 'zod-to-json-schema';
 import { GravityFormsMocks } from '../mocks/gravityFormsMocks';
-
-// Mock the entire MCP SDK at the module level
-const mockServer = {
-  setRequestHandler: jest.fn(),
-  connect: jest.fn()
-};
-
-const mockTransport = jest.fn();
-
-// Mock the modules before importing
-jest.doMock('@modelcontextprotocol/sdk/server/index.js', () => ({
-  Server: jest.fn(() => mockServer)
-}));
-
-jest.doMock('@modelcontextprotocol/sdk/server/stdio.js', () => ({
-  StdioServerTransport: mockTransport
-}));
-
-jest.doMock('@modelcontextprotocol/sdk/types.js', () => ({
-  CallToolRequestSchema: 'CallToolRequestSchema',
-  ErrorCode: { InvalidParams: 'InvalidParams', MethodNotFound: 'MethodNotFound', InternalError: 'InternalError' },
-  ListToolsRequestSchema: 'ListToolsRequestSchema',
-  McpError: class McpError extends Error {
-    constructor(public code: string, message: string) {
-      super(message);
-    }
-  }
-}));
+import { TOOL_SCHEMAS } from '../../utils/toolSchemas';
 
 describe('Update Form Tool', () => {
   let originalEnv: NodeJS.ProcessEnv;
@@ -78,123 +53,45 @@ describe('Update Form Tool', () => {
     }
   });
 
-  // Test structure will be added in subsequent steps
+  // The tool definitions come from TOOL_SCHEMAS (Zod), which McpServer.registerTool
+  // converts to wire-format JSON schema internally; these tests inspect that same
+  // conversion directly instead of capturing the (now removed) low-level request handler.
   describe('Tool Registration', () => {
-    it('should list update_form in available tools', async () => {
-      const { GravityFormsMCPServer } = require('../../index');
-      const server = new GravityFormsMCPServer();
-      
-      // Mock the server's request handler for tools/list
-      let capturedToolsResponse: any;
-      mockServer.setRequestHandler.mockImplementation((schema: any, handler: any) => {
-        if (schema === 'ListToolsRequestSchema') {
-          capturedToolsResponse = handler;
-        }
-      });
-      
-      // Access the actual implementation by re-triggering setup
-      server.setupToolHandlers?.() || (() => {
-        // If setupToolHandlers is not exposed, create a new instance
-        new GravityFormsMCPServer();
-      })();
-      
-      expect(capturedToolsResponse).toBeDefined();
-      const response = await capturedToolsResponse({});
-      const toolNames = response.tools.map((tool: any) => tool.name);
-      
-      expect(toolNames).toContain('update_form');
+    it('should list update_form in available tools', () => {
+      expect(Object.keys(TOOL_SCHEMAS)).toContain('update_form');
     });
 
-    it('should have correct tool description', async () => {
-      const { GravityFormsMCPServer } = require('../../index');
-      const server = new GravityFormsMCPServer();
-      
-      let capturedToolsResponse: any;
-      mockServer.setRequestHandler.mockImplementation((schema: any, handler: any) => {
-        if (schema === 'ListToolsRequestSchema') {
-          capturedToolsResponse = handler;
-        }
-      });
-      
-      new GravityFormsMCPServer();
-      
-      const response = await capturedToolsResponse({});
-      const updateFormTool = response.tools.find((tool: any) => tool.name === 'update_form');
-      expect(updateFormTool).toBeDefined();
-      expect(updateFormTool.description).toBe('Update an existing form');
+    it('should have correct tool description', () => {
+      expect(TOOL_SCHEMAS.update_form.description).toBe('Update an existing form');
     });
 
-    it('should have correct required parameters in input schema', async () => {
-      const { GravityFormsMCPServer } = require('../../index');
-      const server = new GravityFormsMCPServer();
-      
-      let capturedToolsResponse: any;
-      mockServer.setRequestHandler.mockImplementation((schema: any, handler: any) => {
-        if (schema === 'ListToolsRequestSchema') {
-          capturedToolsResponse = handler;
-        }
-      });
-      
-      new GravityFormsMCPServer();
-      
-      const response = await capturedToolsResponse({});
-      const updateFormTool = response.tools.find((tool: any) => tool.name === 'update_form');
-      expect(updateFormTool).toBeDefined();
+    it('should have correct required parameters in input schema', () => {
+      const generated: any = zodToJsonSchema(z.object(TOOL_SCHEMAS.update_form.inputSchema), { target: 'jsonSchema7' });
       // With advanced features, only form_id is required (supports partial updates)
-      expect(updateFormTool.inputSchema.required).toEqual(expect.arrayContaining(['form_id']));
-      expect(updateFormTool.inputSchema.required).toHaveLength(1);
+      expect(generated.required).toEqual(expect.arrayContaining(['form_id']));
+      expect(generated.required).toHaveLength(1);
     });
 
-    it('should have proper input schema structure', async () => {
-      const { GravityFormsMCPServer } = require('../../index');
-      const server = new GravityFormsMCPServer();
-      
-      let capturedToolsResponse: any;
-      mockServer.setRequestHandler.mockImplementation((schema: any, handler: any) => {
-        if (schema === 'ListToolsRequestSchema') {
-          capturedToolsResponse = handler;
-        }
-      });
-      
-      new GravityFormsMCPServer();
-      
-      const response = await capturedToolsResponse({});
-      const updateFormTool = response.tools.find((tool: any) => tool.name === 'update_form');
-      expect(updateFormTool).toBeDefined();
-      
-      const { properties } = updateFormTool.inputSchema;
-      expect(properties.form_id).toEqual({
+    it('should have proper input schema structure', () => {
+      const generated: any = zodToJsonSchema(z.object(TOOL_SCHEMAS.update_form.inputSchema), { target: 'jsonSchema7' });
+      const { properties } = generated;
+      expect(properties.form_id).toMatchObject({
         type: 'string',
         description: 'ID of the form to update'
       });
-      expect(properties.title).toEqual({
+      expect(properties.title).toMatchObject({
         type: 'string',
         description: 'Updated form title'
       });
-      expect(properties.fields).toEqual({
+      expect(properties.fields).toMatchObject({
         type: 'array',
         description: 'Updated array of field objects'
       });
     });
 
-    it('should have optional parameters defined', async () => {
-      const { GravityFormsMCPServer } = require('../../index');
-      const server = new GravityFormsMCPServer();
-      
-      let capturedToolsResponse: any;
-      mockServer.setRequestHandler.mockImplementation((schema: any, handler: any) => {
-        if (schema === 'ListToolsRequestSchema') {
-          capturedToolsResponse = handler;
-        }
-      });
-      
-      new GravityFormsMCPServer();
-      
-      const response = await capturedToolsResponse({});
-      const updateFormTool = response.tools.find((tool: any) => tool.name === 'update_form');
-      expect(updateFormTool).toBeDefined();
-      
-      const { properties } = updateFormTool.inputSchema;
+    it('should have optional parameters defined', () => {
+      const generated: any = zodToJsonSchema(z.object(TOOL_SCHEMAS.update_form.inputSchema), { target: 'jsonSchema7' });
+      const { properties } = generated;
       expect(properties.description).toBeDefined();
       expect(properties.description.type).toBe('string');
       expect(properties.description.description).toContain('form description');
@@ -210,7 +107,6 @@ describe('Update Form Tool', () => {
 
     it('should successfully update a form with valid parameters', async () => {
       const { GravityFormsMCPServer } = require('../../index');
-      const server = new GravityFormsMCPServer();
 
       const updateFormData = {
         form_id: '1',
@@ -238,21 +134,9 @@ describe('Update Form Tool', () => {
       });
 
       // Mock the tool handler
-      let capturedToolHandler: any;
-      mockServer.setRequestHandler.mockImplementation((schema: any, handler: any) => {
-        if (schema === 'CallToolRequestSchema') {
-          capturedToolHandler = handler;
-        }
-      });
+      const server = new GravityFormsMCPServer();
 
-      new GravityFormsMCPServer();
-
-      const response = await capturedToolHandler({
-        params: {
-          name: 'update_form',
-          arguments: updateFormData
-        }
-      });
+      const response = await (server).dispatchTool('update_form', updateFormData);
 
       expect(response.content[0].text).toContain('Successfully updated form');
       expect(response.content[0].text).toContain('Updated Contact Form');
@@ -296,21 +180,9 @@ describe('Update Form Tool', () => {
         json: async () => mockResponse
       });
 
-      let capturedToolHandler: any;
-      mockServer.setRequestHandler.mockImplementation((schema: any, handler: any) => {
-        if (schema === 'CallToolRequestSchema') {
-          capturedToolHandler = handler;
-        }
-      });
+      const server = new GravityFormsMCPServer();
 
-      new GravityFormsMCPServer();
-
-      await capturedToolHandler({
-        params: {
-          name: 'update_form',
-          arguments: updateFormData
-        }
-      });
+      await (server).dispatchTool('update_form', updateFormData);
 
       expect(global.fetch).toHaveBeenCalledWith(
         expect.stringContaining('/wp-json/gf/v2/forms/123'),
@@ -342,21 +214,9 @@ describe('Update Form Tool', () => {
         json: async () => mockResponse
       });
 
-      let capturedToolHandler: any;
-      mockServer.setRequestHandler.mockImplementation((schema: any, handler: any) => {
-        if (schema === 'CallToolRequestSchema') {
-          capturedToolHandler = handler;
-        }
-      });
+      const server = new GravityFormsMCPServer();
 
-      new GravityFormsMCPServer();
-
-      await capturedToolHandler({
-        params: {
-          name: 'update_form',
-          arguments: updateFormData
-        }
-      });
+      await (server).dispatchTool('update_form', updateFormData);
 
       expect(global.fetch).toHaveBeenCalledWith(
         expect.anything(),
@@ -394,21 +254,9 @@ describe('Update Form Tool', () => {
         json: async () => mockUpdatedForm
       });
 
-      let capturedToolHandler: any;
-      mockServer.setRequestHandler.mockImplementation((schema: any, handler: any) => {
-        if (schema === 'CallToolRequestSchema') {
-          capturedToolHandler = handler;
-        }
-      });
+      const server = new GravityFormsMCPServer();
 
-      new GravityFormsMCPServer();
-
-      const response = await capturedToolHandler({
-        params: {
-          name: 'update_form',
-          arguments: updateFormData
-        }
-      });
+      const response = await (server).dispatchTool('update_form', updateFormData);
 
       expect(response.content[0].text).toContain('Response Test Form');
       expect(response.content[0].text).toContain('"id": "5"');
@@ -433,21 +281,9 @@ describe('Update Form Tool', () => {
         fields: [{ id: 1, type: 'text', label: 'Test Field' }]
       };
 
-      let capturedToolHandler: any;
-      mockServer.setRequestHandler.mockImplementation((schema: any, handler: any) => {
-        if (schema === 'CallToolRequestSchema') {
-          capturedToolHandler = handler;
-        }
-      });
+      const server = new GravityFormsMCPServer();
 
-      new GravityFormsMCPServer();
-
-      await expect(capturedToolHandler({
-        params: {
-          name: 'update_form',
-          arguments: invalidData
-        }
-      })).rejects.toThrow('form_id is required');
+      await expect((server).dispatchTool('update_form', invalidData)).rejects.toThrow('form_id is required');
     });
 
     it('should throw InvalidParams error when title is missing', async () => {
@@ -459,21 +295,9 @@ describe('Update Form Tool', () => {
         fields: [{ id: 1, type: 'text', label: 'Test Field' }]
       };
 
-      let capturedToolHandler: any;
-      mockServer.setRequestHandler.mockImplementation((schema: any, handler: any) => {
-        if (schema === 'CallToolRequestSchema') {
-          capturedToolHandler = handler;
-        }
-      });
+      const server = new GravityFormsMCPServer();
 
-      new GravityFormsMCPServer();
-
-      await expect(capturedToolHandler({
-        params: {
-          name: 'update_form',
-          arguments: invalidData
-        }
-      })).rejects.toThrow('title is required');
+      await expect((server).dispatchTool('update_form', invalidData)).rejects.toThrow('title is required');
     });
 
     it('should throw InvalidParams error when fields is missing', async () => {
@@ -485,21 +309,9 @@ describe('Update Form Tool', () => {
         // fields missing
       };
 
-      let capturedToolHandler: any;
-      mockServer.setRequestHandler.mockImplementation((schema: any, handler: any) => {
-        if (schema === 'CallToolRequestSchema') {
-          capturedToolHandler = handler;
-        }
-      });
+      const server = new GravityFormsMCPServer();
 
-      new GravityFormsMCPServer();
-
-      await expect(capturedToolHandler({
-        params: {
-          name: 'update_form',
-          arguments: invalidData
-        }
-      })).rejects.toThrow('fields is required');
+      await expect((server).dispatchTool('update_form', invalidData)).rejects.toThrow('fields is required');
     });
 
     it('should reject invalid form_id format', async () => {
@@ -511,21 +323,9 @@ describe('Update Form Tool', () => {
         fields: [{ id: 1, type: 'text', label: 'Test Field' }]
       };
 
-      let capturedToolHandler: any;
-      mockServer.setRequestHandler.mockImplementation((schema: any, handler: any) => {
-        if (schema === 'CallToolRequestSchema') {
-          capturedToolHandler = handler;
-        }
-      });
+      const server = new GravityFormsMCPServer();
 
-      new GravityFormsMCPServer();
-
-      await expect(capturedToolHandler({
-        params: {
-          name: 'update_form',
-          arguments: invalidData
-        }
-      })).rejects.toThrow('form_id must be a non-empty string');
+      await expect((server).dispatchTool('update_form', invalidData)).rejects.toThrow('form_id must be a non-empty string');
     });
 
     it('should reject when fields is not an array', async () => {
@@ -537,21 +337,9 @@ describe('Update Form Tool', () => {
         fields: 'not an array' // invalid type
       };
 
-      let capturedToolHandler: any;
-      mockServer.setRequestHandler.mockImplementation((schema: any, handler: any) => {
-        if (schema === 'CallToolRequestSchema') {
-          capturedToolHandler = handler;
-        }
-      });
+      const server = new GravityFormsMCPServer();
 
-      new GravityFormsMCPServer();
-
-      await expect(capturedToolHandler({
-        params: {
-          name: 'update_form',
-          arguments: invalidData
-        }
-      })).rejects.toThrow('fields must be an array');
+      await expect((server).dispatchTool('update_form', invalidData)).rejects.toThrow('fields must be an array');
     });
 
     it('should reject when title is empty string', async () => {
@@ -563,21 +351,9 @@ describe('Update Form Tool', () => {
         fields: [{ id: 1, type: 'text', label: 'Test Field' }]
       };
 
-      let capturedToolHandler: any;
-      mockServer.setRequestHandler.mockImplementation((schema: any, handler: any) => {
-        if (schema === 'CallToolRequestSchema') {
-          capturedToolHandler = handler;
-        }
-      });
+      const server = new GravityFormsMCPServer();
 
-      new GravityFormsMCPServer();
-
-      await expect(capturedToolHandler({
-        params: {
-          name: 'update_form',
-          arguments: invalidData
-        }
-      })).rejects.toThrow('title must be a non-empty string');
+      await expect((server).dispatchTool('update_form', invalidData)).rejects.toThrow('title must be a non-empty string');
     });
 
     it('should reject when form_id is not a string', async () => {
@@ -589,21 +365,9 @@ describe('Update Form Tool', () => {
         fields: [{ id: 1, type: 'text', label: 'Test Field' }]
       };
 
-      let capturedToolHandler: any;
-      mockServer.setRequestHandler.mockImplementation((schema: any, handler: any) => {
-        if (schema === 'CallToolRequestSchema') {
-          capturedToolHandler = handler;
-        }
-      });
+      const server = new GravityFormsMCPServer();
 
-      new GravityFormsMCPServer();
-
-      await expect(capturedToolHandler({
-        params: {
-          name: 'update_form',
-          arguments: invalidData
-        }
-      })).rejects.toThrow('form_id must be a string');
+      await expect((server).dispatchTool('update_form', invalidData)).rejects.toThrow('form_id must be a string');
     });
 
     it('should reject when title is not a string', async () => {
@@ -615,21 +379,9 @@ describe('Update Form Tool', () => {
         fields: [{ id: 1, type: 'text', label: 'Test Field' }]
       };
 
-      let capturedToolHandler: any;
-      mockServer.setRequestHandler.mockImplementation((schema: any, handler: any) => {
-        if (schema === 'CallToolRequestSchema') {
-          capturedToolHandler = handler;
-        }
-      });
+      const server = new GravityFormsMCPServer();
 
-      new GravityFormsMCPServer();
-
-      await expect(capturedToolHandler({
-        params: {
-          name: 'update_form',
-          arguments: invalidData
-        }
-      })).rejects.toThrow('title must be a string');
+      await expect((server).dispatchTool('update_form', invalidData)).rejects.toThrow('title must be a string');
     });
   });
 

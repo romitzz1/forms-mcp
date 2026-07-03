@@ -3,30 +3,6 @@
 
 import { GravityFormsMocks } from '../mocks/gravityFormsMocks';
 
-const mockServer = {
-  setRequestHandler: jest.fn(),
-  connect: jest.fn()
-};
-
-jest.doMock('@modelcontextprotocol/sdk/server/index.js', () => ({
-  Server: jest.fn(() => mockServer)
-}));
-
-jest.doMock('@modelcontextprotocol/sdk/server/stdio.js', () => ({
-  StdioServerTransport: jest.fn()
-}));
-
-jest.doMock('@modelcontextprotocol/sdk/types.js', () => ({
-  CallToolRequestSchema: 'CallToolRequestSchema',
-  ErrorCode: { InvalidParams: 'InvalidParams', MethodNotFound: 'MethodNotFound', InternalError: 'InternalError' },
-  ListToolsRequestSchema: 'ListToolsRequestSchema',
-  McpError: class McpError extends Error {
-    constructor(public code: string, message: string) {
-      super(message);
-    }
-  }
-}));
-
 describe('getEntries Response Size Management', () => {
   let originalEnv: NodeJS.ProcessEnv;
   let mockFetch: jest.Mock;

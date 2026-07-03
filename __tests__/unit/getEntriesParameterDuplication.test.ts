@@ -3,31 +3,6 @@
 
 import { GravityFormsMocks } from '../mocks/gravityFormsMocks';
 
-// Mock the entire MCP SDK at the module level
-const mockServer = {
-  setRequestHandler: jest.fn(),
-  connect: jest.fn()
-};
-
-jest.doMock('@modelcontextprotocol/sdk/server/index.js', () => ({
-  Server: jest.fn(() => mockServer)
-}));
-
-jest.doMock('@modelcontextprotocol/sdk/server/stdio.js', () => ({
-  StdioServerTransport: jest.fn()
-}));
-
-jest.doMock('@modelcontextprotocol/sdk/types.js', () => ({
-  CallToolRequestSchema: 'CallToolRequestSchema',
-  ErrorCode: { InvalidParams: 'InvalidParams', MethodNotFound: 'MethodNotFound', InternalError: 'InternalError' },
-  ListToolsRequestSchema: 'ListToolsRequestSchema',
-  McpError: class McpError extends Error {
-    constructor(public code: string, message: string) {
-      super(message);
-    }
-  }
-}));
-
 describe('getEntries Parameter Duplication Prevention', () => {
   let originalEnv: NodeJS.ProcessEnv;
   let mockFetch: jest.Mock;

@@ -3,34 +3,6 @@
 
 import { GravityFormsMocks } from '../mocks/gravityFormsMocks';
 
-// Mock the entire MCP SDK at the module level
-const mockServer = {
-  setRequestHandler: jest.fn(),
-  connect: jest.fn()
-};
-
-const mockTransport = jest.fn();
-
-// Mock the modules before importing
-jest.doMock('@modelcontextprotocol/sdk/server/index.js', () => ({
-  Server: jest.fn(() => mockServer)
-}));
-
-jest.doMock('@modelcontextprotocol/sdk/server/stdio.js', () => ({
-  StdioServerTransport: mockTransport
-}));
-
-jest.doMock('@modelcontextprotocol/sdk/types.js', () => ({
-  CallToolRequestSchema: 'CallToolRequestSchema',
-  ErrorCode: { InvalidParams: 'InvalidParams', MethodNotFound: 'MethodNotFound', InternalError: 'InternalError' },
-  ListToolsRequestSchema: 'ListToolsRequestSchema',
-  McpError: class McpError extends Error {
-    constructor(public code: string, message: string) {
-      super(message);
-    }
-  }
-}));
-
 describe('GravityFormsMCPServer', () => {
   let originalEnv: NodeJS.ProcessEnv;
 
@@ -723,7 +695,7 @@ describe('GravityFormsMCPServer', () => {
       const server = new GravityFormsMCPServer();
       
       // Mock makeRequest to return existing form for GET, echo back the request body for PUT
-      server.makeRequest = jest.fn().mockImplementation((endpoint: string, method: string = 'GET', body?: any) => {
+      server.makeRequest = jest.fn().mockImplementation((endpoint: string, method = 'GET', body?: any) => {
         if (method === 'GET' && endpoint.includes('/forms/217')) {
           return Promise.resolve(mockForm);
         }
@@ -808,7 +780,7 @@ describe('GravityFormsMCPServer', () => {
       const server = new GravityFormsMCPServer();
       
       // Mock makeRequest 
-      server.makeRequest = jest.fn().mockImplementation((endpoint: string, method: string = 'GET', body?: any) => {
+      server.makeRequest = jest.fn().mockImplementation((endpoint: string, method = 'GET', body?: any) => {
         if (method === 'GET' && endpoint.includes('/forms/217')) {
           return Promise.resolve(mockForm);
         }
@@ -855,7 +827,7 @@ describe('GravityFormsMCPServer', () => {
       const server = new GravityFormsMCPServer();
       
       // Mock makeRequest
-      server.makeRequest = jest.fn().mockImplementation((endpoint: string, method: string = 'GET', body?: any) => {
+      server.makeRequest = jest.fn().mockImplementation((endpoint: string, method = 'GET', body?: any) => {
         if (method === 'GET' && endpoint.includes('/forms/217')) {
           return Promise.resolve(mockForm);
         }
@@ -899,7 +871,7 @@ describe('GravityFormsMCPServer', () => {
       const { GravityFormsMCPServer } = await import('../../index');
       const server = new GravityFormsMCPServer();
       
-      server.makeRequest = jest.fn().mockImplementation((endpoint: string, method: string = 'GET', body?: any) => {
+      server.makeRequest = jest.fn().mockImplementation((endpoint: string, method = 'GET', body?: any) => {
         if (method === 'GET' && endpoint.includes('/forms/217')) {
           return Promise.resolve(mockForm);
         }
@@ -961,7 +933,7 @@ describe('GravityFormsMCPServer', () => {
         })
       };
       
-      server.makeRequest = jest.fn().mockImplementation((endpoint: string, method: string = 'GET', body?: any) => {
+      server.makeRequest = jest.fn().mockImplementation((endpoint: string, method = 'GET', body?: any) => {
         if (method === 'GET' && endpoint.includes('/forms/217')) {
           return Promise.resolve(mockFormWithConditional);
         }
@@ -1002,7 +974,7 @@ describe('GravityFormsMCPServer', () => {
       const { GravityFormsMCPServer } = await import('../../index');
       const server = new GravityFormsMCPServer();
       
-      server.makeRequest = jest.fn().mockImplementation((endpoint: string, method: string = 'GET', body?: any) => {
+      server.makeRequest = jest.fn().mockImplementation((endpoint: string, method = 'GET', body?: any) => {
         if (method === 'GET' && endpoint.includes('/forms/217')) {
           return Promise.resolve(mockForm);
         }
@@ -1041,7 +1013,7 @@ describe('GravityFormsMCPServer', () => {
       const { GravityFormsMCPServer } = await import('../../index');
       const server = new GravityFormsMCPServer();
       
-      server.makeRequest = jest.fn().mockImplementation((endpoint: string, method: string = 'GET', body?: any) => {
+      server.makeRequest = jest.fn().mockImplementation((endpoint: string, method = 'GET', body?: any) => {
         if (method === 'GET' && endpoint.includes('/forms/217')) {
           return Promise.resolve(mockForm);
         }
@@ -1082,7 +1054,7 @@ describe('GravityFormsMCPServer', () => {
       const { GravityFormsMCPServer } = await import('../../index');
       const server = new GravityFormsMCPServer();
       
-      server.makeRequest = jest.fn().mockImplementation((endpoint: string, method: string = 'GET', body?: any) => {
+      server.makeRequest = jest.fn().mockImplementation((endpoint: string, method = 'GET', body?: any) => {
         if (method === 'GET' && endpoint.includes('/forms/217')) {
           return Promise.resolve(mockForm);
         }
@@ -1117,7 +1089,7 @@ describe('GravityFormsMCPServer', () => {
       const { GravityFormsMCPServer } = await import('../../index');
       const server = new GravityFormsMCPServer();
       
-      server.makeRequest = jest.fn().mockImplementation((endpoint: string, method: string = 'GET', body?: any) => {
+      server.makeRequest = jest.fn().mockImplementation((endpoint: string, method = 'GET', body?: any) => {
         if (method === 'GET' && endpoint.includes('/forms/217')) {
           return Promise.resolve(mockForm);
         }
@@ -1164,7 +1136,7 @@ describe('GravityFormsMCPServer', () => {
       const { GravityFormsMCPServer } = await import('../../index');
       const server = new GravityFormsMCPServer();
       
-      server.makeRequest = jest.fn().mockImplementation((endpoint: string, method: string = 'GET', body?: any) => {
+      server.makeRequest = jest.fn().mockImplementation((endpoint: string, method = 'GET', body?: any) => {
         if (method === 'GET') {
           return Promise.resolve(mockForm);
         } else if (method === 'PUT') {
@@ -1231,7 +1203,7 @@ describe('GravityFormsMCPServer', () => {
       const { GravityFormsMCPServer } = await import('../../index');
       const server = new GravityFormsMCPServer();
       
-      server.makeRequest = jest.fn().mockImplementation((endpoint: string, method: string = 'GET', body?: any) => {
+      server.makeRequest = jest.fn().mockImplementation((endpoint: string, method = 'GET', body?: any) => {
         if (method === 'GET') {
           return Promise.resolve(mockForm);
         } else if (method === 'PUT') {
@@ -1288,7 +1260,7 @@ describe('GravityFormsMCPServer', () => {
       const { GravityFormsMCPServer } = await import('../../index');
       const server = new GravityFormsMCPServer();
       
-      server.makeRequest = jest.fn().mockImplementation((endpoint: string, method: string = 'GET', body?: any) => {
+      server.makeRequest = jest.fn().mockImplementation((endpoint: string, method = 'GET', body?: any) => {
         if (method === 'GET') {
           return Promise.resolve(mockForm);
         } else if (method === 'PUT') {
@@ -1363,7 +1335,7 @@ describe('GravityFormsMCPServer', () => {
       const { GravityFormsMCPServer } = await import('../../index');
       const server = new GravityFormsMCPServer();
       
-      server.makeRequest = jest.fn().mockImplementation((endpoint: string, method: string = 'GET', body?: any) => {
+      server.makeRequest = jest.fn().mockImplementation((endpoint: string, method = 'GET', body?: any) => {
         if (method === 'GET') {
           return Promise.resolve(mockForm);
         } else if (method === 'PUT') {
@@ -1403,7 +1375,7 @@ describe('GravityFormsMCPServer', () => {
       const { GravityFormsMCPServer } = await import('../../index');
       const server = new GravityFormsMCPServer();
       
-      server.makeRequest = jest.fn().mockImplementation((endpoint: string, method: string = 'GET', body?: any) => {
+      server.makeRequest = jest.fn().mockImplementation((endpoint: string, method = 'GET', body?: any) => {
         if (method === 'GET') {
           return Promise.resolve(mockForm);
         } else if (method === 'PUT') {
@@ -1457,7 +1429,7 @@ describe('GravityFormsMCPServer', () => {
       const { GravityFormsMCPServer } = await import('../../index');
       const server = new GravityFormsMCPServer();
       
-      server.makeRequest = jest.fn().mockImplementation((endpoint: string, method: string = 'GET', body?: any) => {
+      server.makeRequest = jest.fn().mockImplementation((endpoint: string, method = 'GET', body?: any) => {
         if (method === 'GET') {
           return Promise.resolve(mockForm);
         } else if (method === 'PUT') {
@@ -1513,7 +1485,7 @@ describe('GravityFormsMCPServer', () => {
       const { GravityFormsMCPServer } = await import('../../index');
       const server = new GravityFormsMCPServer();
       
-      server.makeRequest = jest.fn().mockImplementation((endpoint: string, method: string = 'GET', body?: any) => {
+      server.makeRequest = jest.fn().mockImplementation((endpoint: string, method = 'GET', body?: any) => {
         if (method === 'GET') {
           return Promise.resolve(mockForm);
         } else if (method === 'PUT') {
@@ -1610,7 +1582,7 @@ describe('GravityFormsMCPServer', () => {
         // Step 1: Fetch existing form (simulates real workflow)
         server.makeRequest = jest.fn()
           .mockImplementationOnce(() => Promise.resolve(mockForm)) // First GET
-          .mockImplementationOnce((endpoint: string, method: string = 'GET', body?: any) => {
+          .mockImplementationOnce((endpoint: string, method = 'GET', body?: any) => {
             if (method === 'PUT') return Promise.resolve(body);
             return Promise.reject(new Error('Unexpected request'));
           })
@@ -1664,7 +1636,7 @@ describe('GravityFormsMCPServer', () => {
         
         let currentForm = { ...mockForm };
         
-        server.makeRequest = jest.fn().mockImplementation((endpoint: string, method: string = 'GET', body?: any) => {
+        server.makeRequest = jest.fn().mockImplementation((endpoint: string, method = 'GET', body?: any) => {
           if (method === 'GET') {
             return Promise.resolve(currentForm);
           } else if (method === 'PUT') {
@@ -1758,7 +1730,7 @@ describe('GravityFormsMCPServer', () => {
           .mockImplementationOnce(() => Promise.resolve(mockForm)) // GET succeeds  
           .mockImplementationOnce(() => Promise.reject(new Error('Network timeout'))) // PUT fails again
           .mockImplementationOnce(() => Promise.resolve(mockForm)) // GET succeeds
-          .mockImplementationOnce((endpoint: string, method: string = 'GET', body?: any) => {
+          .mockImplementationOnce((endpoint: string, method = 'GET', body?: any) => {
             if (method === 'PUT') return Promise.resolve(body); // PUT finally succeeds
             return Promise.reject(new Error('Unexpected request'));
           });
@@ -1796,7 +1768,7 @@ describe('GravityFormsMCPServer', () => {
         const { GravityFormsMCPServer } = await import('../../index');
         const server = new GravityFormsMCPServer();
         
-        server.makeRequest = jest.fn().mockImplementation((endpoint: string, method: string = 'GET', body?: any) => {
+        server.makeRequest = jest.fn().mockImplementation((endpoint: string, method = 'GET', body?: any) => {
           if (method === 'GET') {
             return Promise.resolve(mockForm);
           } else if (method === 'PUT') {

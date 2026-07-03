@@ -1,39 +1,6 @@
 // ABOUTME: Tests for server initialization and FormCache configuration
 // ABOUTME: Tests cache setup, environment variables, error handling, and monitoring
 
-// Mock the entire MCP SDK at the module level
-const mockServer = {
-  setRequestHandler: jest.fn(),
-  connect: jest.fn()
-};
-
-const mockTransport = jest.fn();
-
-// Mock the modules before importing
-jest.doMock('@modelcontextprotocol/sdk/server/index.js', () => ({
-  Server: jest.fn(() => mockServer)
-}));
-
-jest.doMock('@modelcontextprotocol/sdk/server/stdio.js', () => ({
-  StdioServerTransport: mockTransport
-}));
-
-jest.doMock('@modelcontextprotocol/sdk/types.js', () => ({
-  CallToolRequestSchema: 'CallToolRequestSchema',
-  ListToolsRequestSchema: 'ListToolsRequestSchema',
-  ErrorCode: {
-    InvalidParams: 'InvalidParams',
-    InternalError: 'InternalError',
-    MethodNotFound: 'MethodNotFound'
-  },
-  McpError: class MockMcpError extends Error {
-    constructor(public code: string, message: string) {
-      super(message);
-      this.name = 'McpError';
-    }
-  }
-}));
-
 // Create a global mock FormCache that we can control
 let mockFormCacheInstance: any = null;
 

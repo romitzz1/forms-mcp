@@ -3,34 +3,6 @@
 
 import { GravityFormsMocks } from '../mocks/gravityFormsMocks';
 
-// Mock the entire MCP SDK at the module level, matching the pattern used by
-// __tests__/unit/getEntriesSearch.test.ts
-const mockServer = {
-  setRequestHandler: jest.fn(),
-  connect: jest.fn()
-};
-
-const mockTransport = jest.fn();
-
-jest.doMock('@modelcontextprotocol/sdk/server/index.js', () => ({
-  Server: jest.fn(() => mockServer)
-}));
-
-jest.doMock('@modelcontextprotocol/sdk/server/stdio.js', () => ({
-  StdioServerTransport: mockTransport
-}));
-
-jest.doMock('@modelcontextprotocol/sdk/types.js', () => ({
-  CallToolRequestSchema: 'CallToolRequestSchema',
-  ErrorCode: { InvalidParams: 'InvalidParams', MethodNotFound: 'MethodNotFound', InvalidRequest: 'InvalidRequest', InternalError: 'InternalError' },
-  ListToolsRequestSchema: 'ListToolsRequestSchema',
-  McpError: class McpError extends Error {
-    constructor(public code: string, message: string) {
-      super(message);
-    }
-  }
-}));
-
 describe('UniversalSearchManager singleton consistency (audit A2)', () => {
   let originalEnv: NodeJS.ProcessEnv;
   let mockFetch: jest.Mock;

@@ -1,33 +1,6 @@
 // ABOUTME: Regression tests for audit A4 (part 2) - a name-only search must not drop the
 // ABOUTME: entry's email field, since search_entries_by_name/universal never match on it directly
 
-// Mock MCP SDK dependencies
-jest.mock('@modelcontextprotocol/sdk/server/index.js', () => ({
-  Server: jest.fn().mockImplementation(() => ({
-    setRequestHandler: jest.fn()
-  }))
-}));
-
-jest.mock('@modelcontextprotocol/sdk/server/stdio.js', () => ({
-  StdioServerTransport: jest.fn()
-}));
-
-jest.mock('@modelcontextprotocol/sdk/types.js', () => ({
-  CallToolRequestSchema: 'CallToolRequestSchema',
-  ErrorCode: {
-    InvalidRequest: 'InvalidRequest',
-    InternalError: 'InternalError',
-    MethodNotFound: 'MethodNotFound'
-  },
-  ListToolsRequestSchema: 'ListToolsRequestSchema',
-  McpError: class MockMcpError extends Error {
-    constructor(code: string, message: string) {
-      super(message);
-      this.name = 'McpError';
-    }
-  }
-}));
-
 // Mock utility dependencies that aren't relevant to search
 jest.mock('../../utils/dataExporter', () => ({
   DataExporter: jest.fn().mockImplementation(() => ({}))

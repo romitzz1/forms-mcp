@@ -1,33 +1,6 @@
 // ABOUTME: Unit tests for process_entries_bulk MCP tool method
 // ABOUTME: Tests the processEntriesBulk method implementation and its integration with BulkOperationsManager
 
-// Mock MCP SDK dependencies
-jest.mock('@modelcontextprotocol/sdk/server/index.js', () => ({
-  Server: jest.fn().mockImplementation(() => ({
-    setRequestHandler: jest.fn()
-  }))
-}));
-
-jest.mock('@modelcontextprotocol/sdk/server/stdio.js', () => ({
-  StdioServerTransport: jest.fn()
-}));
-
-jest.mock('@modelcontextprotocol/sdk/types.js', () => ({
-  CallToolRequestSchema: 'CallToolRequestSchema',
-  ErrorCode: {
-    InvalidParams: 'InvalidParams',
-    InternalError: 'InternalError',
-    MethodNotFound: 'MethodNotFound'
-  },
-  ListToolsRequestSchema: 'ListToolsRequestSchema',
-  McpError: class MockMcpError extends Error {
-    constructor(code: string, message: string) {
-      super(message);
-      this.name = 'McpError';
-    }
-  }
-}));
-
 // Mock utility dependencies
 jest.mock('../../utils/dataExporter', () => ({
   DataExporter: jest.fn().mockImplementation(() => ({}))
