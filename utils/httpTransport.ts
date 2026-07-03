@@ -101,6 +101,12 @@ export function startHttpServer(
 
   return new Promise((resolve, reject) => {
     const httpServer = app.listen(opts.port, () => resolve(httpServer));
-    httpServer.on('error', reject);
+    httpServer.on('error', (error) => {
+      // Rejects a failed bind (e.g. EADDRINUSE) before startup; after the server
+      // is listening the promise is already settled, so this just surfaces
+      // later runtime errors instead of swallowing them.
+      console.error('HTTP server error:', error);
+      reject(error);
+    });
   });
 }

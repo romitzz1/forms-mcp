@@ -4215,6 +4215,15 @@ Consider using form templates or cloning for management.`;
   }
 }
 
-// Run the server
-const server = new GravityFormsMCPServer();
-server.run().catch(console.error);
+// Auto-start the server, except under the Jest test runner, which imports this
+// module to construct its own server instances and must not spawn a real one.
+// (`import.meta` can't be used here — ts-jest compiles to CommonJS.)
+if (!process.env.JEST_WORKER_ID) {
+  const server = new GravityFormsMCPServer();
+  server.run().catch((error) => {
+    // Exit non-zero so process managers (systemd/Docker/k8s) detect a failed
+    // startup — e.g. HTTP mode with a missing MCP_AUTH_TOKEN rejects here.
+    console.error(error);
+    process.exit(1);
+  });
+}
