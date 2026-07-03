@@ -28,6 +28,12 @@ import {
   estimateTokenCount,
 } from "./utils/responseSizeManager.js";
 import { GravityFormsClient } from "./utils/gravityFormsClient.js";
+import {
+  createEntry as createEntryHandler,
+  deleteEntry as deleteEntryHandler,
+  submitForm as submitFormHandler,
+  updateEntry as updateEntryHandler,
+} from "./utils/entryCrudTools.js";
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -1664,91 +1670,19 @@ export class GravityFormsMCPServer {
   }
 
   private async submitForm(args: any) {
-    const { form_id, field_values, source_page = 1, target_page = 0 } = args;
-    
-    const submission = {
-      ...field_values,
-      source_page,
-      target_page
-    };
-
-    const response = await this.makeRequest(`/forms/${form_id}/submissions`, 'POST', submission);
-
-    // Parse success/failure for clear AI-readable status
-    const isValid = response?.is_valid;
-    let statusLine: string;
-    if (isValid === true || isValid === 'true' || isValid === '1') {
-      statusLine = `Submission successful! Entry ID: ${response.entry_id || 'unknown'}`;
-    } else if (isValid === false || isValid === 'false' || isValid === '0') {
-      const validationMessages = response?.validation_messages;
-      const errorDetails = validationMessages
-        ? Object.entries(validationMessages).map(([field, msg]) => `  - Field ${field}: ${msg}`).join('\n')
-        : '  (no details provided)';
-      statusLine = `Submission failed - validation errors:\n${errorDetails}`;
-    } else {
-      statusLine = 'Form Submission Result:';
-    }
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: `${statusLine}\n\n${JSON.stringify(response, null, 2)}`
-        }
-      ]
-    };
+    return submitFormHandler({ makeRequest: (endpoint, method, body) => this.makeRequest(endpoint, method, body) }, args);
   }
 
   private async createEntry(args: any) {
-    const { form_id, field_values, entry_meta = {} } = args;
-    
-    const entry = {
-      form_id: form_id,
-      ...field_values,
-      ...entry_meta
-    };
-
-    const response = await this.makeRequest('/entries', 'POST', entry);
-    
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Entry Created:\n${JSON.stringify(response, null, 2)}`
-        }
-      ]
-    };
+    return createEntryHandler({ makeRequest: (endpoint, method, body) => this.makeRequest(endpoint, method, body) }, args);
   }
 
   private async updateEntry(args: any) {
-    const { entry_id, field_values } = args;
-    
-    const response = await this.makeRequest(`/entries/${entry_id}`, 'PUT', field_values);
-    
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Entry Updated:\n${JSON.stringify(response, null, 2)}`
-        }
-      ]
-    };
+    return updateEntryHandler({ makeRequest: (endpoint, method, body) => this.makeRequest(endpoint, method, body) }, args);
   }
 
   private async deleteEntry(args: any) {
-    const { entry_id, force = false } = args;
-    
-    const endpoint = force ? `/entries/${entry_id}?force=true` : `/entries/${entry_id}`;
-    const response = await this.makeRequest(endpoint, 'DELETE');
-    
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Entry ${force ? 'Permanently Deleted' : 'Moved to Trash'}:\n${JSON.stringify(response, null, 2)}`
-        }
-      ]
-    };
+    return deleteEntryHandler({ makeRequest: (endpoint, method, body) => this.makeRequest(endpoint, method, body) }, args);
   }
 
   private async createForm(args: any) {
