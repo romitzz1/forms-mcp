@@ -1689,6 +1689,15 @@ Consider using form templates or cloning for management.`;
     return this.universalSearchManager;
   }
 
+  /**
+   * Get UniversalSearchManager instance (lazy initialization).
+   * Delegates to getOrCreateSearchManager() so every caller shares the same
+   * memoized singleton with the correctly JSON-encoded search request.
+   */
+  private getUniversalSearchManager(): UniversalSearchManager {
+    return this.getOrCreateSearchManager();
+  }
+
   private async handleUniversalSearch(form_id: string, search: any, response_mode: string, field_detection: boolean) {
     try {
       const searchManager = this.getOrCreateSearchManager();
@@ -3260,48 +3269,6 @@ Consider using form templates or cloning for management.`;
   }
 
   /**
-   * Get UniversalSearchManager instance (lazy initialization)
-   */
-  private getUniversalSearchManager(): UniversalSearchManager {
-    if (!this.universalSearchManager) {
-      // Create ApiClient interface implementation
-      const apiClient = {
-        getFormDefinition: async (formId: string) => {
-          return this.makeRequest(`/forms/${formId}`);
-        },
-        searchEntries: async (formId: string, searchParams: any) => {
-          // Build query string for search parameters with pagination to get entries
-          let endpoint = `/forms/${formId}/entries`;
-          const params = new URLSearchParams();
-          
-          // Set search page size to balanced limit for performance vs completeness
-          params.append('paging[page_size]', String(GravityFormsMCPServer.SEARCH_RESULTS_LIMIT));
-          
-          // Add search parameters if provided
-          if (searchParams && Object.keys(searchParams).length > 0) {
-            Object.entries(searchParams).forEach(([key, value]) => {
-              if (value !== undefined && value !== null) {
-                params.append(key, String(value));
-              }
-            });
-          }
-          
-          endpoint += `?${params.toString()}`;
-          const response = await this.makeRequest(endpoint, 'GET');
-          
-          // Return entries but preserve metadata for potential future use
-          // Note: UniversalSearchManager currently doesn't use total_count,
-          // but we maintain it for consistency and future enhancements
-          return response?.entries || response || [];
-        }
-      };
-      
-      this.universalSearchManager = new UniversalSearchManager(this.fieldTypeDetector, apiClient);
-    }
-    return this.universalSearchManager;
-  }
-
-  /**
    * Search entries by name using universal search capabilities
    */
   private async searchEntriesByName(args: any) {
@@ -3354,7 +3321,7 @@ Consider using form templates or cloning for management.`;
 
       // Get UniversalSearchManager instance
       const searchManager = this.getUniversalSearchManager();
-      
+
       // Perform universal name search
       const searchResult = await searchManager.searchByName(
         form_id,
@@ -3515,7 +3482,7 @@ Consider using form templates or cloning for management.`;
 
       // Get UniversalSearchManager instance
       const searchManager = this.getUniversalSearchManager();
-      
+
       // Perform searches based on logic
       let combinedResults: any = { matches: [], totalFound: 0, searchMetadata: {} };
       
