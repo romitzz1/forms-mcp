@@ -199,6 +199,22 @@ MCP_HTTP_PORT=9807                    # optional, this is the default
 
 Clients connect to `http://<host>:9807/mcp` with an `Authorization: Bearer <token>` header instead of spawning a local process. This is a single shared token, not full OAuth, so it's meant for a private network or VPN, not the open internet.
 
+### Deploying to a Central Host with Docker
+
+Prefer to run the central HTTP server above in a container instead of babysitting a bare `node` process? A multi-stage `Dockerfile` and `docker-compose.yml` are included for exactly that. You'll need Docker and Docker Compose on the host, and — same caveat as above — a private network or VPN, since this is single-shared-token auth rather than public-internet-ready.
+
+```bash
+cp .env.docker.example .env
+```
+
+Edit `.env` and fill in a strong, random `MCP_AUTH_TOKEN` along with your `GRAVITY_FORMS_*` credentials, then bring it up:
+
+```bash
+docker compose up -d --build
+```
+
+Clients connect the same way as the plain HTTP setup: `http://<central-host>:9807/mcp` with an `Authorization: Bearer <token>` header. The SQLite form cache and exported files live in the `gf-cache` and `gf-exports` named volumes, so they survive restarts and rebuilds. Tail logs with `docker compose logs -f`, or hit `http://<central-host>:9807/health` for a liveness check.
+
 ### Available Tools
 
 #### `get_forms`
