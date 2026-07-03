@@ -52,6 +52,8 @@ import {
   searchEntriesUniversal as searchEntriesUniversalHandler,
 } from "./utils/searchTools.js";
 import { getEntries as getEntriesHandler } from "./utils/entriesQueryTools.js";
+import type { ICacheConfig, ICacheStatus } from "./utils/cacheTypes.js";
+import { getCacheStatusTool as getCacheStatusToolHandler } from "./utils/cacheTools.js";
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -61,27 +63,6 @@ interface IGravityFormsConfig {
   consumerKey: string;
   consumerSecret: string;
   authMethod: 'basic' | 'oauth';
-}
-
-// Cache configuration interface  
-interface ICacheConfig {
-  enabled: boolean;
-  dbPath: string;
-  maxAgeSeconds: number;
-  maxProbeFailures: number;
-  autoSync: boolean;
-  fullSyncIntervalHours: number;
-}
-
-// Cache status interface
-interface ICacheStatus {
-  enabled: boolean;
-  ready: boolean;
-  dbPath: string;
-  totalForms: number;
-  activeForms: number;
-  lastSync: Date | null;
-  config: ICacheConfig;
 }
 
 export class GravityFormsMCPServer {
@@ -1662,29 +1643,7 @@ export class GravityFormsMCPServer {
    * Get cache status tool implementation
    */
   private async getCacheStatusTool() {
-    try {
-      const status = await this.getCacheStatus();
-      
-      // Ensure proper JSON serialization by converting dates to strings
-      const serializedStatus = {
-        ...status,
-        lastSync: status.lastSync ? status.lastSync.toISOString() : null
-      };
-      
-      return {
-        content: [
-          {
-            type: "text",
-            text: `FormCache Status Report:\n${JSON.stringify(serializedStatus, null, 2)}`
-          }
-        ]
-      };
-    } catch (error) {
-      throw new McpError(
-        ErrorCode.InternalError,
-        `Failed to get cache status: ${error instanceof Error ? error.message : 'Unknown error'}`
-      );
-    }
+    return getCacheStatusToolHandler({ getCacheStatus: () => this.getCacheStatus() });
   }
 
   /**
