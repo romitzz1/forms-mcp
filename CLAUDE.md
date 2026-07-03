@@ -155,7 +155,7 @@ Default port is `9807` (`MCP_HTTP_PORT`).
 
 ## MCP Client Configuration
 
-For stdio (Claude Desktop, etc.), point the client at `dist/cli.js` with `node` — see the README Quick Start for a full example. `claude-config.json` and `local.claude-config.json` at the repo root predate the `cli.ts` split and still reference `dist/index.js`; treat them as historical examples only, not copy-paste-ready templates, until they're updated.
+For stdio (Claude Desktop, etc.), point the client at `dist/cli.js` with `node` — see the README Quick Start for a full example. The tracked templates `claude-config.json` and `claude-config.json.example` at the repo root reference `dist/cli.js`. If you keep a personal `local.claude-config.json` (gitignored), make sure it points at `dist/cli.js`, not the old `dist/index.js` — `index.ts` is now a library and no longer auto-runs.
 
 ## Key Dependencies
 

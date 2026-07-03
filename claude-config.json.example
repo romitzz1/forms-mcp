@@ -2,7 +2,7 @@
   "mcpServers": {
     "gravity-forms-enhanced": {
       "command": "node",
-      "args": ["/absolute/path/to/forms-mcp/dist/index.js"],
+      "args": ["/absolute/path/to/forms-mcp/dist/cli.js"],
       "env": {
         "GRAVITY_FORMS_BASE_URL": "https://your-wordpress-site.com",
         "GRAVITY_FORMS_CONSUMER_KEY": "ck_your_consumer_key_here", 
