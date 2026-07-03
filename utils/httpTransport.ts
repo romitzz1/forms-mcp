@@ -4,12 +4,19 @@ import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import express from 'express';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { Server as HttpServer } from 'node:http';
+
+const SESSION_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
+const SESSION_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 
 export function createBearerAuthMiddleware(expected: string): express.RequestHandler {
   return (req, res, next) => {
-    if (req.headers.authorization !== `Bearer ${expected}`) {
+    const expectedHeader = `Bearer ${expected}`;
+    const provided = req.headers.authorization ?? '';
+    const a = createHash('sha256').update(provided).digest();
+    const b = createHash('sha256').update(expectedHeader).digest();
+    if (a.length !== b.length || !timingSafeEqual(a, b)) {
       res.status(401).json({
         jsonrpc: '2.0',
         error: { code: -32000, message: 'Unauthorized' },
@@ -29,6 +36,7 @@ export function startHttpServer(
   app.use(express.json());
 
   const transports: Record<string, StreamableHTTPServerTransport> = {};
+  const lastActivity: Record<string, number> = {};
   const auth = createBearerAuthMiddleware(opts.token);
 
   app.post('/mcp', auth, async (req, res) => {
@@ -37,13 +45,20 @@ export function startHttpServer(
 
     if (sessionId && transports[sessionId]) {
       transport = transports[sessionId];
+      lastActivity[sessionId] = Date.now();
     } else if (!sessionId && isInitializeRequest(req.body)) {
       transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
-        onsessioninitialized: (sid) => { transports[sid] = transport; },
+        onsessioninitialized: (sid) => {
+          transports[sid] = transport;
+          lastActivity[sid] = Date.now();
+        },
       });
       transport.onclose = () => {
-        if (transport.sessionId) delete transports[transport.sessionId];
+        if (transport.sessionId) {
+          delete transports[transport.sessionId];
+          delete lastActivity[transport.sessionId];
+        }
       };
       await server.connect(transport);
       await transport.handleRequest(req, res, req.body);
@@ -65,12 +80,27 @@ export function startHttpServer(
       res.status(400).send('Invalid or missing session ID');
       return;
     }
+    lastActivity[sessionId] = Date.now();
     await transports[sessionId].handleRequest(req, res);
   };
   app.get('/mcp', auth, sessionRoute);
   app.delete('/mcp', auth, sessionRoute);
 
-  return new Promise((resolve) => {
+  const sweepInterval = setInterval(async () => {
+    const now = Date.now();
+    for (const sessionId of Object.keys(lastActivity)) {
+      if (now - lastActivity[sessionId] > SESSION_IDLE_TIMEOUT_MS) {
+        if (transports[sessionId]) {
+          await transports[sessionId].close();
+        }
+        delete lastActivity[sessionId];
+      }
+    }
+  }, SESSION_SWEEP_INTERVAL_MS);
+  sweepInterval.unref();
+
+  return new Promise((resolve, reject) => {
     const httpServer = app.listen(opts.port, () => resolve(httpServer));
+    httpServer.on('error', reject);
   });
 }
