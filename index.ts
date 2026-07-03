@@ -4197,9 +4197,21 @@ Consider using form templates or cloning for management.`;
 
   async run() {
     await this.startup();
-    const transport = new StdioServerTransport();
-    await this.server.connect(transport);
-    console.error("Gravity Forms MCP server running on stdio");
+    const transportMode = process.env.MCP_TRANSPORT ?? "stdio";
+    if (transportMode === "http") {
+      const token = process.env.MCP_AUTH_TOKEN;
+      if (!token) {
+        throw new Error("MCP_AUTH_TOKEN is required when MCP_TRANSPORT=http");
+      }
+      const port = Number(process.env.MCP_HTTP_PORT ?? "9807");
+      const { startHttpServer } = await import("./utils/httpTransport.js");
+      await startHttpServer(this.server, { port, token });
+      console.error(`Gravity Forms MCP server listening on http://0.0.0.0:${port}/mcp`);
+    } else {
+      const transport = new StdioServerTransport();
+      await this.server.connect(transport);
+      console.error("Gravity Forms MCP server running on stdio");
+    }
   }
 }
 
