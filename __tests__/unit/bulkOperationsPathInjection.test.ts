@@ -64,4 +64,22 @@ describe('BulkOperationsManager - path injection prevention', () => {
     expect(result.isValid).toBe(true);
     expect(result.errors).toHaveLength(0);
   });
+
+  it('never issues an HTTP request for a malicious entry_id via getOperationPreview', async () => {
+    const params: BulkOperationParams = {
+      entry_ids: ['1/../../users'],
+      operation_type: 'delete',
+      confirm: true
+    };
+
+    await expect(bulkManager.getOperationPreview(params)).rejects.toThrow();
+
+    expect(mockFetch).not.toHaveBeenCalled();
+
+    for (const call of mockFetch.mock.calls) {
+      const url = String(call[0]);
+      expect(url).not.toContain('../');
+      expect(url).not.toContain('1/../../users');
+    }
+  });
 });

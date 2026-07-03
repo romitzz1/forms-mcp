@@ -85,6 +85,12 @@ export class BulkOperationsManager {
     return this.MAX_ENTRY_LIMIT;
   }
 
+  // Shared numeric-id check used anywhere an entry ID is interpolated into a
+  // request URL, so a value like "1/../../users" can never reach fetch().
+  private isValidEntryId(entryId: string): boolean {
+    return typeof entryId === 'string' && /^\d+$/.test(entryId.trim());
+  }
+
   validateOperation(params: BulkOperationParams): ValidationResult {
     const errors: string[] = [];
 
@@ -99,7 +105,7 @@ export class BulkOperationsManager {
       // Reject any entry ID that isn't purely numeric to prevent it from being
       // interpolated into request URLs and reaching an unintended REST resource
       for (const entryId of params.entry_ids) {
-        if (typeof entryId !== 'string' || !/^\d+$/.test(entryId.trim())) {
+        if (!this.isValidEntryId(entryId)) {
           errors.push(`Entry ID "${entryId}" must be numeric`);
         }
       }
@@ -130,6 +136,14 @@ export class BulkOperationsManager {
   }
 
   async getOperationPreview(params: BulkOperationParams): Promise<BulkOperationPreview> {
+    // Reject any entry ID that isn't purely numeric before issuing any request,
+    // matching the guard applied in validateOperation/executeOperation.
+    for (const entryId of params.entry_ids) {
+      if (!this.isValidEntryId(entryId)) {
+        throw new Error(`Entry ID "${entryId}" must be numeric`);
+      }
+    }
+
     const entriesFound: Array<{ id: string; preview: string }> = [];
     const entriesNotFound: string[] = [];
     const warnings: string[] = [];
