@@ -15,6 +15,7 @@ import { TemplateManager } from "./utils/templateManager.js";
 import { FormImporter } from "./utils/formImporter.js";
 import { FormCache } from "./utils/formCache.js";
 import { FieldTypeDetector } from "./utils/fieldTypeDetector.js";
+import type { FieldTypeInfo } from "./utils/fieldTypeDetector.js";
 import type { SearchStrategy } from "./utils/universalSearchManager.js";
 import { UniversalSearchManager } from "./utils/universalSearchManager.js";
 import type { SearchResult as FormattedSearchResult, FormInfo, OutputMode } from "./utils/searchResultsFormatter.js";
@@ -1702,14 +1703,6 @@ Consider using form templates or cloning for management.`;
     try {
       const searchManager = this.getOrCreateSearchManager();
 
-    // Get form information for better context
-    const formInfo: FormInfo = {
-      id: form_id,
-      title: `Form ${form_id}`, // We could enhance this by fetching actual form title
-      fields: [], // This will be populated by field detection
-      fieldCount: 0 // This will be populated by field detection
-    };
-
       // Extract and validate search text from various sources
       let searchText = '';
       
@@ -1759,15 +1752,26 @@ Consider using form templates or cloning for management.`;
       // Execute search with error handling
       const searchResult = await searchManager.searchByName(form_id, searchText, searchOptions);
 
+      // Get form information for better context, including the field mapping
+      // so matched fields render by their actual detected type rather than
+      // guessing from hardcoded field IDs.
+      const formData = await this.makeRequest(`/forms/${form_id}`);
+      const formInfo: FormInfo = {
+        id: form_id,
+        title: formData.title || `Form ${form_id}`,
+        fields: formData.fields || [],
+        fieldMapping: this.fieldTypeDetector.analyzeFormFields(formData)
+      };
+
       // Format results using SearchResultsFormatter
       // Note: Universal search returns formatted, human-readable results with context and confidence scores
       // This is intentionally different from standard search (raw JSON) to provide enhanced user experience
-      const outputMode: OutputMode = response_mode === 'summary' ? 'summary' : 
+      const outputMode: OutputMode = response_mode === 'summary' ? 'summary' :
                                      response_mode === 'full' ? 'detailed' : 'auto';
 
       const formattedResult = this.searchResultsFormatter.formatSearchResults(
-        searchResult, 
-        outputMode, 
+        searchResult,
+        outputMode,
         formInfo
       );
 
@@ -3359,7 +3363,8 @@ Consider using form templates or cloning for management.`;
       const formInfo: FormInfo = {
         id: formData.id,
         title: formData.title || `Form ${form_id}`,
-        fields: formData.fields || []
+        fields: formData.fields || [],
+        fieldMapping: this.fieldTypeDetector.analyzeFormFields(formData)
       };
       
       const formattedResult = this.searchResultsFormatter.formatSearchResults(
@@ -3739,13 +3744,24 @@ Consider using form templates or cloning for management.`;
         }
       };
 
+      // Compute field mapping once, used both for rendering matched fields
+      // by their actual type and for the optional field-mappings summary below.
+      let fieldMapping: Record<string, FieldTypeInfo> = {};
+      let fieldMappingError = false;
+      try {
+        fieldMapping = this.fieldTypeDetector.analyzeFormFields(formData);
+      } catch {
+        fieldMappingError = true;
+      }
+
       // Format results
       const formInfo: FormInfo = {
         id: formData.id,
         title: formData.title || `Form ${form_id}`,
-        fields: formData.fields || []
+        fields: formData.fields || [],
+        fieldMapping
       };
-      
+
       const formattedResult = this.searchResultsFormatter.formatSearchResults(
         transformedResult,
         outputMode,
@@ -3755,15 +3771,14 @@ Consider using form templates or cloning for management.`;
       // Add field mapping information if requested
       let responseText = formattedResult.content;
       if (includeFieldMappings) {
-        try {
-          const fieldMappings = this.fieldTypeDetector.analyzeFormFields(formData);
-          const mappingInfo = Object.entries(fieldMappings)
+        if (fieldMappingError) {
+          responseText += `\n\n--- Field Mappings ---\nField mapping information unavailable`;
+        } else {
+          const mappingInfo = Object.entries(fieldMapping)
             .map(([fieldId, info]) => `Field ${fieldId}: ${info.label} (type: ${info.fieldType}, confidence: ${info.confidence.toFixed(2)})`)
             .join('\n');
-          
+
           responseText += `\n\n--- Field Mappings Used ---\n${mappingInfo}`;
-        } catch (mappingError) {
-          responseText += `\n\n--- Field Mappings ---\nField mapping information unavailable`;
         }
       }
 

@@ -51,6 +51,9 @@ export interface FormInfo {
   title: string;
   fields: Array<{ id: string; label: string; [key: string]: any }>;
   fieldCount?: number;
+  // Field type mapping (field id -> detected type/label), used to render
+  // matched fields by their actual type instead of guessing from hardcoded ids.
+  fieldMapping?: Record<string, FieldTypeInfo>;
 }
 
 export class SearchResultsFormatter {
@@ -211,17 +214,16 @@ export class SearchResultsFormatter {
    */
   createDetailedView(matches: SearchMatch[], fieldMapping: Record<string, FieldTypeInfo> = {}): string {
     return matches.map((match, index) => {
-      const entry = match.entryData;
       const confidenceLabel = this.getConfidenceLabel(match.confidence);
-      
+
       let result = `Entry #${match.entryId} (${confidenceLabel} Confidence: ${match.confidence.toFixed(2)})\n`;
-      
+
       // Add key fields in priority order
-      const keyFields = this.extractKeyFields(entry);
+      const keyFields = this.extractKeyFields(match, fieldMapping);
       keyFields.forEach(field => {
         result += `- ${field.label}: ${field.value}\n`;
       });
-      
+
       return result;
     }).join('\n');
   }
@@ -229,11 +231,11 @@ export class SearchResultsFormatter {
   /**
    * Create compact summary view
    */
-  createSummaryView(matches: SearchMatch[]): string {
+  createSummaryView(matches: SearchMatch[], fieldMapping: Record<string, FieldTypeInfo> = {}): string {
     return matches.map(match => {
       const entry = match.entryData;
-      const name = this.extractPrimaryName(entry);
-      const email = this.extractPrimaryEmail(entry);
+      const name = this.extractPrimaryName(match, fieldMapping);
+      const email = this.extractPrimaryEmail(match, fieldMapping);
       
       let line = `#${match.entryId}: ${name}`;
       if (email) {
@@ -287,8 +289,8 @@ export class SearchResultsFormatter {
     const executionTime = (searchMetadata.executionTime / 1000).toFixed(1);
     
     let result = `Found ${totalFound} match${totalFound !== 1 ? 'es' : ''} for "${searchMetadata.searchText}" in form ${formInfo.id} (${formInfo.title}):\n\n`;
-    
-    result += this.createDetailedView(matches);
+
+    result += this.createDetailedView(matches, formInfo.fieldMapping || {});
     
     result += `\n\nSearch completed in ${executionTime}s using auto-detected name fields.`;
     
@@ -300,8 +302,8 @@ export class SearchResultsFormatter {
     const executionTime = (searchMetadata.executionTime / 1000).toFixed(1);
     
     let result = `${totalFound} match${totalFound !== 1 ? 'es' : ''} found for "${searchMetadata.searchText}" in form ${formInfo.id}:\n\n`;
-    
-    result += this.createSummaryView(matches);
+
+    result += this.createSummaryView(matches, formInfo.fieldMapping || {});
     
     result += `\n\nCompleted in ${executionTime}s (${searchMetadata.apiCalls} API call${searchMetadata.apiCalls !== 1 ? 's' : ''}).`;
     
@@ -346,66 +348,117 @@ export class SearchResultsFormatter {
     return 0.3; // Low confidence for weak matches
   }
 
-  private extractKeyFields(entry: Record<string, any>): Array<{ label: string; value: string }> {
+  /**
+   * Resolve the detected type of a matched field id against the form's field
+   * mapping. Matched field ids can be composite sub-field ids (e.g. "6.3" for
+   * the first-name sub-input of field "6"), so the parent field id is also
+   * checked when the exact id isn't mapped.
+   */
+  private resolveFieldType(fieldId: string, fieldMapping: Record<string, FieldTypeInfo>): FieldTypeInfo['fieldType'] | undefined {
+    if (fieldMapping[fieldId]) return fieldMapping[fieldId].fieldType;
+    const baseId = fieldId.split('.')[0];
+    if (fieldMapping[baseId]) return fieldMapping[baseId].fieldType;
+    return undefined;
+  }
+
+  private extractKeyFields(match: SearchMatch, fieldMapping: Record<string, FieldTypeInfo> = {}): Array<{ label: string; value: string }> {
+    const entry = match.entryData;
+    const matchedFields = match.matchedFields || {};
     const keyFields: Array<{ label: string; value: string }> = [];
-    
-    // Extract name fields using configurable field ID patterns
-    this.COMMON_NAME_FIELDS.forEach(fieldId => {
-      if (entry[fieldId]) {
-        const label = fieldId.includes('.') ? 
-          (fieldId.endsWith('.3') ? 'First Name' : 'Last Name') : 'Name';
-        keyFields.push({ label: `${label}`, value: `${entry[fieldId]} (field ${fieldId})` });
-      }
-    });
-    
-    // Extract email fields using configurable patterns
-    this.COMMON_EMAIL_FIELDS.forEach(fieldId => {
-      if (entry[fieldId]?.includes('@')) {
-        keyFields.push({ label: 'Email', value: `${entry[fieldId]} (field ${fieldId})` });
-      }
-    });
-    
+
+    // Prefer the actual matched fields, rendered using the form's field
+    // mapping so name/email are found regardless of which field IDs the
+    // form happens to use.
+    const nameMatches = Object.entries(matchedFields).filter(([fieldId]) => this.resolveFieldType(fieldId, fieldMapping) === 'name');
+    if (nameMatches.length > 0) {
+      nameMatches.forEach(([fieldId, value]) => {
+        const label = fieldMapping[fieldId]?.label || fieldMapping[fieldId.split('.')[0]]?.label || 'Name';
+        keyFields.push({ label, value: `${value} (field ${fieldId})` });
+      });
+    } else {
+      // Fall back to the legacy Gravity Forms sub-field ID conventions when
+      // no field mapping is available for the matched fields.
+      this.COMMON_NAME_FIELDS.forEach(fieldId => {
+        if (entry[fieldId]) {
+          const label = fieldId.includes('.') ?
+            (fieldId.endsWith('.3') ? 'First Name' : 'Last Name') : 'Name';
+          keyFields.push({ label: `${label}`, value: `${entry[fieldId]} (field ${fieldId})` });
+        }
+      });
+    }
+
+    const emailMatches = Object.entries(matchedFields).filter(([fieldId]) => this.resolveFieldType(fieldId, fieldMapping) === 'email');
+    if (emailMatches.length > 0) {
+      emailMatches.forEach(([fieldId, value]) => {
+        const label = fieldMapping[fieldId]?.label || fieldMapping[fieldId.split('.')[0]]?.label || 'Email';
+        keyFields.push({ label, value: `${value} (field ${fieldId})` });
+      });
+    } else {
+      this.COMMON_EMAIL_FIELDS.forEach(fieldId => {
+        if (entry[fieldId]?.includes('@')) {
+          keyFields.push({ label: 'Email', value: `${entry[fieldId]} (field ${fieldId})` });
+        }
+      });
+    }
+
     // Extract payment information
     if (entry.payment_amount && entry.payment_status) {
-      keyFields.push({ 
-        label: 'Payment', 
-        value: `${entry.payment_amount} ${entry.payment_status}` 
+      keyFields.push({
+        label: 'Payment',
+        value: `${entry.payment_amount} ${entry.payment_status}`
       });
     } else if (entry.payment_status) {
       keyFields.push({ label: 'Payment', value: entry.payment_status });
     }
-    
+
     // Extract date
     if (entry.date_created) {
       keyFields.push({ label: 'Date', value: entry.date_created });
     }
-    
+
     return keyFields;
   }
 
-  private extractPrimaryName(entry: Record<string, any>): string {
-    // Try common name field IDs in order of preference using configurable patterns
+  private extractPrimaryName(match: SearchMatch, fieldMapping: Record<string, FieldTypeInfo> = {}): string {
+    const matchedFields = match.matchedFields || {};
+    const entry = match.entryData;
+
+    // Prefer an actual matched field whose mapped type is 'name'.
+    const nameMatches = Object.entries(matchedFields).filter(([fieldId]) => this.resolveFieldType(fieldId, fieldMapping) === 'name');
+    if (nameMatches.length > 0) {
+      const combined = nameMatches.map(([, value]) => value).join(' ').trim();
+      if (combined) return combined;
+    }
+
+    // Fall back to the legacy hardcoded Gravity Forms sub-field ID conventions.
     for (const fieldId of this.COMMON_NAME_FIELDS) {
       if (entry[fieldId] && !fieldId.includes('.')) { // Skip composite fields in first pass
         return entry[fieldId];
       }
     }
-    
+
     // Try composite name from first/last name fields using configurable patterns
-    const firstName = this.COMMON_FIRST_NAME_FIELDS.find(id => entry[id]) ? 
+    const firstName = this.COMMON_FIRST_NAME_FIELDS.find(id => entry[id]) ?
                       entry[this.COMMON_FIRST_NAME_FIELDS.find(id => entry[id]) as string] : null;
-    const lastName = this.COMMON_LAST_NAME_FIELDS.find(id => entry[id]) ? 
+    const lastName = this.COMMON_LAST_NAME_FIELDS.find(id => entry[id]) ?
                      entry[this.COMMON_LAST_NAME_FIELDS.find(id => entry[id]) as string] : null;
-    
+
     if (firstName || lastName) {
       return [firstName, lastName].filter(Boolean).join(' ');
     }
-    
+
     return 'Unknown';
   }
 
-  private extractPrimaryEmail(entry: Record<string, any>): string | null {
-    // Try common email field IDs using configurable patterns
+  private extractPrimaryEmail(match: SearchMatch, fieldMapping: Record<string, FieldTypeInfo> = {}): string | null {
+    const matchedFields = match.matchedFields || {};
+    const entry = match.entryData;
+
+    // Prefer an actual matched field whose mapped type is 'email'.
+    const emailMatch = Object.entries(matchedFields).find(([fieldId]) => this.resolveFieldType(fieldId, fieldMapping) === 'email');
+    if (emailMatch) return emailMatch[1];
+
+    // Fall back to the legacy hardcoded email field IDs.
     for (const fieldId of this.COMMON_EMAIL_FIELDS) {
       if (entry[fieldId]?.includes('@')) {
         return entry[fieldId];

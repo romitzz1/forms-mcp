@@ -274,6 +274,72 @@ describe('SearchResultsFormatter', () => {
     });
   });
 
+  describe('rendering from actual matched fields (not hardcoded field IDs)', () => {
+    // Regression test for audit A4: a form whose Email field is id "9" and Name
+    // field is id "6" must render the real matched name/email, not 'Unknown'
+    // and not drop the email, even though "9"/"6" are not in the formatter's
+    // hardcoded COMMON_NAME_FIELDS/COMMON_EMAIL_FIELDS lists.
+    const oddIdFieldMapping: Record<string, FieldTypeInfo> = {
+      "6": { fieldId: "6", fieldType: "name" as DetectedFieldType, confidence: 0.95, label: "Full Name" },
+      "9": { fieldId: "9", fieldType: "email" as DetectedFieldType, confidence: 1.0, label: "Email Address" }
+    };
+
+    const oddIdFormInfo = {
+      id: "500",
+      title: "Odd Field IDs Form",
+      fields: [
+        { id: "6", label: "Full Name" },
+        { id: "9", label: "Email Address" }
+      ],
+      fieldMapping: oddIdFieldMapping
+    };
+
+    const oddIdSearchResult: SearchResult = {
+      matches: [{
+        entryId: "77",
+        matchedFields: { "9": "amanda@example.com", "6.3": "Amanda" },
+        confidence: 0.9,
+        entryData: {
+          "id": "77",
+          "form_id": "500",
+          "9": "amanda@example.com",
+          "6.3": "Amanda"
+        }
+      }],
+      totalFound: 1,
+      searchMetadata: {
+        searchText: "Amanda",
+        executionTime: 900,
+        apiCalls: 1,
+        fieldsSearched: ["6", "9"]
+      }
+    };
+
+    it('should render the real matched name and email in detailed view', () => {
+      const result = formatter.formatSearchResults(
+        oddIdSearchResult,
+        'detailed',
+        oddIdFormInfo
+      );
+
+      expect(result.content).toContain('Amanda');
+      expect(result.content).toContain('amanda@example.com');
+      expect(result.content).not.toContain('Unknown');
+    });
+
+    it('should render the real matched name and email in summary view', () => {
+      const result = formatter.formatSearchResults(
+        oddIdSearchResult,
+        'summary',
+        oddIdFormInfo
+      );
+
+      expect(result.content).toContain('Amanda');
+      expect(result.content).toContain('amanda@example.com');
+      expect(result.content).not.toContain('Unknown');
+    });
+  });
+
   describe('estimateResponseSize', () => {
     it('should estimate token count using 4:1 character ratio', () => {
       const testString = 'A'.repeat(400); // 400 characters
