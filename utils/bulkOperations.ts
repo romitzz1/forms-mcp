@@ -91,8 +91,18 @@ export class BulkOperationsManager {
     // Validate entry IDs
     if (!params.entry_ids || params.entry_ids.length === 0) {
       errors.push('At least one entry ID is required');
-    } else if (params.entry_ids.length > this.MAX_ENTRY_LIMIT) {
-      errors.push('Bulk operations limited to 100 entries maximum');
+    } else {
+      if (params.entry_ids.length > this.MAX_ENTRY_LIMIT) {
+        errors.push('Bulk operations limited to 100 entries maximum');
+      }
+
+      // Reject any entry ID that isn't purely numeric to prevent it from being
+      // interpolated into request URLs and reaching an unintended REST resource
+      for (const entryId of params.entry_ids) {
+        if (typeof entryId !== 'string' || !/^\d+$/.test(entryId.trim())) {
+          errors.push(`Entry ID "${entryId}" must be numeric`);
+        }
+      }
     }
 
     // Validate operation type
