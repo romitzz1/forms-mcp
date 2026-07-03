@@ -59,8 +59,16 @@ export class DataExporter {
       if (value === null || value === undefined) {
         sanitized[key] = value;
       } else if (Array.isArray(value)) {
-        // For CSV, join arrays with commas; for JSON, keep as arrays
-        sanitized[key] = forCSV ? value.join(',') : value;
+        if (forCSV) {
+          // Arrays of objects (e.g. GF multi-column List fields) must be JSON-stringified —
+          // Array.join would coerce each object to "[object Object]" and lose the data.
+          // Primitive arrays keep the human-readable comma join.
+          const hasObjects = value.some((v) => v !== null && typeof v === 'object');
+          sanitized[key] = hasObjects ? JSON.stringify(value) : value.join(',');
+        } else {
+          // For JSON, keep arrays as-is
+          sanitized[key] = value;
+        }
       } else if (typeof value === 'object') {
         sanitized[key] = value; // Keep objects as-is for JSON, will be stringified for CSV
       } else if (typeof value === 'string' && this.isDateString(value) && dateFormat) {

@@ -111,6 +111,36 @@ describe('DataExporter', () => {
       expect(result.data).toContain('Anytown');
       expect(result.data).toContain('file1.pdf,file2.jpg');
     });
+
+    it('should preserve primitive arrays as comma-joined values in CSV', async () => {
+      const entries = [
+        { id: '1', '4': ['Red', 'Blue'] }  // Checkbox field
+      ];
+
+      const result = await dataExporter.export(entries, 'csv');
+
+      expect(result.data).toContain('Red,Blue');
+      expect(result.data).not.toContain('[object Object]');
+    });
+
+    it('should JSON-stringify arrays of objects (e.g. multi-column List fields) in CSV instead of losing data', async () => {
+      const entries = [
+        {
+          id: '1',
+          '5': [
+            { 'Column 1': 'a', 'Column 2': 'b' },
+            { 'Column 1': 'c', 'Column 2': 'd' }
+          ]
+        }
+      ];
+
+      const result = await dataExporter.export(entries, 'csv');
+
+      expect(result.data).not.toContain('[object Object]');
+      expect(result.data).toContain('Column 1');
+      expect(result.data).toContain('"a"');
+      expect(result.data).toContain('"c"');
+    });
   });
 
   describe('JSON Export', () => {
