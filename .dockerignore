@@ -19,5 +19,10 @@ Pipfile
 .env
 .env.*
 !.env.example
+# Local credential/config files (never part of the build context)
+.mcp.json
+claude-config.json
+local.claude-config.json
+.claude
 Dockerfile
 .dockerignore
