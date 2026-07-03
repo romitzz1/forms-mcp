@@ -142,10 +142,7 @@ export class TemplateCreator {
         clonedForm = this.applyFieldRenames(clonedForm, modifications.field_renames);
       }
 
-      // Preserve conditional logic and calculations if requested
-      if (modifications.preserve_logic) {
-        // Logic is already preserved by deep cloning, no additional action needed
-      }
+      // Note: conditional logic and calculations are preserved by deep cloning — no additional action needed
 
       return clonedForm;
 
@@ -284,10 +281,8 @@ export class TemplateCreator {
     }
 
     const cloned: any = {};
-    for (const key in obj) {
-      if (obj.hasOwnProperty(key)) {
-        cloned[key] = this.deepClone(obj[key]);
-      }
+    for (const key of Object.keys(obj)) {
+      cloned[key] = this.deepClone(obj[key]);
     }
 
     return cloned;

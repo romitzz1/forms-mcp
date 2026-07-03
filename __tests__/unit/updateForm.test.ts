@@ -6,8 +6,8 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable @typescript-eslint/no-unused-vars */
-/* eslint-disable @typescript-eslint/no-require-imports */
-/* eslint-disable @typescript-eslint/no-unused-expressions */
+ 
+ 
 /* eslint-disable @typescript-eslint/prefer-nullish-coalescing */
 /* eslint-disable @typescript-eslint/no-unsafe-return */
 /* eslint-disable @typescript-eslint/require-await */
@@ -739,8 +739,8 @@ describe('Update Form Tool', () => {
         const { GravityFormsMCPServer } = require('../../index');
         const server = new GravityFormsMCPServer();
 
-        // Mock console.log to capture debug warnings
-        const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+        // Mock console.error to capture debug warnings (debug output uses stderr to avoid corrupting MCP stdio)
+        const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 
         global.fetch.mockResolvedValueOnce({
           ok: true,
@@ -996,8 +996,8 @@ describe('Update Form Tool', () => {
         const { GravityFormsMCPServer } = require('../../index');
         const server = new GravityFormsMCPServer();
 
-        // Mock console.log to capture debug output
-        const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+        // Mock console.error to capture debug output (debug output uses stderr to avoid corrupting MCP stdio)
+        const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 
         global.fetch.mockResolvedValueOnce({
           ok: true,
@@ -1031,7 +1031,8 @@ describe('Update Form Tool', () => {
         const { GravityFormsMCPServer } = require('../../index');
         const server = new GravityFormsMCPServer();
 
-        const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+        // Debug output uses stderr to avoid corrupting MCP stdio
+        const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 
         global.fetch.mockResolvedValueOnce({
           ok: true,

@@ -20,15 +20,15 @@ describe('SearchResultsFormatter', () => {
     id: "193",
     title: "League Sign up 25-26",
     fields: [
-      { id: "52", label: "Name" },
-      { id: "54", label: "Email Address" }
+      { id: "2", label: "Name" },
+      { id: "4", label: "Email Address" }
     ]
   };
 
   const singleMatchResult: SearchResult = {
     matches: [{
       entryId: "10795",
-      matchedFields: { "52": "John Smith" },
+      matchedFields: { "2": "John Smith" },
       confidence: 0.95,
       entryData: {
         "id": "10795",
@@ -36,8 +36,8 @@ describe('SearchResultsFormatter', () => {
         "date_created": "2025-09-03 15:43:56",
         "payment_status": "Paid",
         "payment_amount": "$200.00",
-        "52": "John Smith",
-        "54": "john.smith@email.com"
+        "2": "John Smith",
+        "4": "john.smith@email.com"
       }
     }],
     totalFound: 1,
@@ -45,7 +45,7 @@ describe('SearchResultsFormatter', () => {
       searchText: "John Smith",
       executionTime: 1200,
       apiCalls: 1,
-      fieldsSearched: ["52"]
+      fieldsSearched: ["2"]
     }
   };
 
@@ -71,8 +71,8 @@ describe('SearchResultsFormatter', () => {
 
         expect(result.content).toContain('Found 1 match for "John Smith"');
         expect(result.content).toContain('Entry #10795 (High Confidence: 0.95)');
-        expect(result.content).toContain('Name: John Smith (field 52)');
-        expect(result.content).toContain('Email: john.smith@email.com (field 54)');
+        expect(result.content).toContain('Name: John Smith (field 2)');
+        expect(result.content).toContain('Email: john.smith@email.com (field 4)');
         expect(result.content).toContain('Payment: $200.00 Paid');
         expect(result.content).toContain('Search completed in 1.2s');
         expect(result.resultCount).toBe(1);
@@ -84,12 +84,12 @@ describe('SearchResultsFormatter', () => {
           matches: [
             {
               entryId: "10795",
-              matchedFields: { "52": "John Smith" },
+              matchedFields: { "2": "John Smith" },
               confidence: 0.95,
               entryData: {
                 "id": "10795",
-                "52": "John Smith",
-                "54": "john.smith@email.com",
+                "2": "John Smith",
+                "4": "john.smith@email.com",
                 "payment_status": "Paid"
               }
             },
@@ -99,7 +99,7 @@ describe('SearchResultsFormatter', () => {
               confidence: 0.75,
               entryData: {
                 "id": "10792",
-                "52": "Different Person",
+                "2": "Different Person",
                 "17": "Team member: John Smith",
                 "payment_status": "Unpaid"
               }
@@ -110,7 +110,7 @@ describe('SearchResultsFormatter', () => {
             searchText: "John Smith",
             executionTime: 800,
             apiCalls: 1,
-            fieldsSearched: ["52", "17"]
+            fieldsSearched: ["2", "17"]
           }
         };
 
@@ -146,12 +146,12 @@ describe('SearchResultsFormatter', () => {
         const multiMatchResult: SearchResult = {
           matches: Array.from({ length: 10 }, (_, i) => ({
             entryId: `1079${i}`,
-            matchedFields: { "52": `John Smith ${i}` },
+            matchedFields: { "2": `John Smith ${i}` },
             confidence: 0.9 - (i * 0.05),
             entryData: {
               "id": `1079${i}`,
-              "52": `John Smith ${i}`,
-              "54": `john${i}@email.com`
+              "2": `John Smith ${i}`,
+              "4": `john${i}@email.com`
             }
           })),
           totalFound: 10,
@@ -159,7 +159,7 @@ describe('SearchResultsFormatter', () => {
             searchText: "John Smith",
             executionTime: 1500,
             apiCalls: 1,
-            fieldsSearched: ["52"]
+            fieldsSearched: ["2"]
           }
         };
 
@@ -206,12 +206,12 @@ describe('SearchResultsFormatter', () => {
         const mediumResult: SearchResult = {
           matches: Array.from({ length: 25 }, (_, i) => ({
             entryId: `1079${i}`,
-            matchedFields: { "52": `John Smith ${i}` },
+            matchedFields: { "2": `John Smith ${i}` },
             confidence: 0.8,
-            entryData: { "id": `1079${i}`, "52": `John Smith ${i}` }
+            entryData: { "id": `1079${i}`, "2": `John Smith ${i}` }
           })),
           totalFound: 25,
-          searchMetadata: { searchText: "John", executionTime: 1000, apiCalls: 1, fieldsSearched: ["52"] }
+          searchMetadata: { searchText: "John", executionTime: 1000, apiCalls: 1, fieldsSearched: ["2"] }
         };
 
         const result = formatter.formatSearchResults(
@@ -229,12 +229,12 @@ describe('SearchResultsFormatter', () => {
         const largeResult: SearchResult = {
           matches: Array.from({ length: 100 }, (_, i) => ({
             entryId: `1079${i}`,
-            matchedFields: { "52": `John ${i}` },
+            matchedFields: { "2": `John ${i}` },
             confidence: 0.7,
-            entryData: { "id": `1079${i}`, "52": `John ${i}` }
+            entryData: { "id": `1079${i}`, "2": `John ${i}` }
           })),
           totalFound: 100,
-          searchMetadata: { searchText: "John", executionTime: 2000, apiCalls: 2, fieldsSearched: ["52"] }
+          searchMetadata: { searchText: "John", executionTime: 2000, apiCalls: 2, fieldsSearched: ["2"] }
         };
 
         const result = formatter.formatSearchResults(
@@ -257,7 +257,7 @@ describe('SearchResultsFormatter', () => {
             searchText: "Nonexistent Person",
             executionTime: 500,
             apiCalls: 1,
-            fieldsSearched: ["52"]
+            fieldsSearched: ["2"]
           }
         };
 
@@ -291,14 +291,14 @@ describe('SearchResultsFormatter', () => {
   describe('highlightMatches', () => {
     const mockEntry = {
       "id": "10795",
-      "52": "John Smith",
-      "54": "john.smith@email.com",
+      "2": "John Smith",
+      "4": "john.smith@email.com",
       "17": "Team member: John Smith is the captain"
     };
 
     const mockFieldMapping: Record<string, FieldTypeInfo> = {
-      "52": { fieldId: "52", fieldType: "name" as DetectedFieldType, confidence: 0.95, label: "Name" },
-      "54": { fieldId: "54", fieldType: "email" as DetectedFieldType, confidence: 1.0, label: "Email" },
+      "2": { fieldId: "2", fieldType: "name" as DetectedFieldType, confidence: 0.95, label: "Name" },
+      "4": { fieldId: "4", fieldType: "email" as DetectedFieldType, confidence: 1.0, label: "Email" },
       "17": { fieldId: "17", fieldType: "team" as DetectedFieldType, confidence: 0.85, label: "Team Notes" }
     };
 
@@ -306,7 +306,7 @@ describe('SearchResultsFormatter', () => {
       const highlights = formatter.highlightMatches(
         mockEntry,
         "John Smith",
-        { "52": "John Smith" },
+        { "2": "John Smith" },
         mockFieldMapping
       );
 
@@ -320,7 +320,7 @@ describe('SearchResultsFormatter', () => {
       const highlights = formatter.highlightMatches(
         mockEntry,
         "John",
-        { "52": "John Smith", "17": "Team member: John Smith is the captain" },
+        { "2": "John Smith", "17": "Team member: John Smith is the captain" },
         mockFieldMapping
       );
 
@@ -335,7 +335,7 @@ describe('SearchResultsFormatter', () => {
     it('should create detailed view with all entry information', () => {
       const matches = [{
         entryId: "10795",
-        matchedFields: { "52": "John Smith" },
+        matchedFields: { "2": "John Smith" },
         confidence: 0.95,
         entryData: {
           "id": "10795",
@@ -343,8 +343,8 @@ describe('SearchResultsFormatter', () => {
           "date_created": "2025-09-03 15:43:56",
           "payment_status": "Paid",
           "payment_amount": "$200.00",
-          "52": "John Smith",
-          "54": "john.smith@email.com"
+          "2": "John Smith",
+          "4": "john.smith@email.com"
         }
       }];
 
@@ -362,12 +362,12 @@ describe('SearchResultsFormatter', () => {
     it('should create compact summary view', () => {
       const matches = [{
         entryId: "10795",
-        matchedFields: { "52": "John Smith" },
+        matchedFields: { "2": "John Smith" },
         confidence: 0.95,
         entryData: {
           "id": "10795",
-          "52": "John Smith",
-          "54": "john.smith@email.com"
+          "2": "John Smith",
+          "4": "john.smith@email.com"
         }
       }];
 
@@ -384,9 +384,9 @@ describe('SearchResultsFormatter', () => {
     it('should create very compact minimal view', () => {
       const matches = [{
         entryId: "10795",
-        matchedFields: { "52": "John Smith" },
+        matchedFields: { "2": "John Smith" },
         confidence: 0.95,
-        entryData: { "id": "10795", "52": "John Smith" }
+        entryData: { "id": "10795", "2": "John Smith" }
       }];
 
       const minimal = formatter.createMinimalView(matches);
@@ -430,12 +430,12 @@ describe('SearchResultsFormatter', () => {
       const largeResult: SearchResult = {
         matches: Array.from({ length: 200 }, (_, i) => ({
           entryId: `1079${i}`,
-          matchedFields: { "52": `Very Long Name ${i} with lots of additional text data` },
+          matchedFields: { "2": `Very Long Name ${i} with lots of additional text data` },
           confidence: 0.8,
           entryData: {
             "id": `1079${i}`,
-            "52": `Very Long Name ${i} with lots of additional text data`,
-            "54": `very.long.email.address.${i}@example.com`,
+            "2": `Very Long Name ${i} with lots of additional text data`,
+            "4": `very.long.email.address.${i}@example.com`,
             "additional_field": "A".repeat(100) // Large field data
           }
         })),
@@ -444,7 +444,7 @@ describe('SearchResultsFormatter', () => {
           searchText: "Name",
           executionTime: 3000,
           apiCalls: 1,
-          fieldsSearched: ["52"]
+          fieldsSearched: ["2"]
         }
       };
 
@@ -472,7 +472,7 @@ describe('SearchResultsFormatter', () => {
       expect(result.metadata.searchText).toBe("John Smith");
       expect(result.metadata.executionTime).toBe(1200);
       expect(result.metadata.apiCalls).toBe(1);
-      expect(result.metadata.fieldsSearched).toEqual(["52"]);
+      expect(result.metadata.fieldsSearched).toEqual(["2"]);
       expect(result.metadata.outputMode).toBe('detailed');
     });
   });
@@ -511,11 +511,11 @@ describe('SearchResultsFormatter', () => {
       const largeResult: SearchResult = {
         matches: Array.from({ length: 200 }, (_, i) => ({
           entryId: `large${i}`,
-          matchedFields: { "52": `Large Name ${i}` },
+          matchedFields: { "2": `Large Name ${i}` },
           confidence: 0.8,
           entryData: {
             "id": `large${i}`,
-            "52": `Large Name ${i}`
+            "2": `Large Name ${i}`
           }
         })),
         totalFound: 200,
@@ -523,7 +523,7 @@ describe('SearchResultsFormatter', () => {
           searchText: "Name",
           executionTime: 5000,
           apiCalls: 1,
-          fieldsSearched: ["52"]
+          fieldsSearched: ["2"]
         }
       };
 
@@ -542,9 +542,9 @@ describe('SearchResultsFormatter', () => {
       jest.spyOn(formatter, 'createMinimalView').mockImplementation().mockReturnValue('A'.repeat(110000)); // 110k chars = ~27.5k tokens
       
       const hugeResult: SearchResult = {
-        matches: [{ entryId: "1", matchedFields: { "52": "Name" }, confidence: 1, entryData: { "id": "1" } }],
+        matches: [{ entryId: "1", matchedFields: { "2": "Name" }, confidence: 1, entryData: { "id": "1" } }],
         totalFound: 1,
-        searchMetadata: { searchText: "Name", executionTime: 1000, apiCalls: 1, fieldsSearched: ["52"] }
+        searchMetadata: { searchText: "Name", executionTime: 1000, apiCalls: 1, fieldsSearched: ["2"] }
       };
 
       const result = formatter.formatSearchResults(hugeResult, 'minimal', mockFormInfo);

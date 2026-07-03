@@ -907,11 +907,11 @@ export class FormCache {
     const conditions: string[] = [];
     
     if (activeOnly === true) {
-      conditions.push('is_active = true');
+      conditions.push('is_active = 1');
     }
     
     if (excludeTrash === true) {
-      conditions.push('is_trash = false');
+      conditions.push('is_trash = 0');
     }
     
     if (conditions.length > 0) {
@@ -957,7 +957,7 @@ export class FormCache {
     let query = `SELECT COUNT(*) as count FROM forms`;
 
     if (activeOnly === true) {
-      query += ` WHERE is_active = true`;
+      query += ` WHERE is_active = 1`;
     }
 
     const stmt = db.prepare(query);

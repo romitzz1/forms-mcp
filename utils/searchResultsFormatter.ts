@@ -57,9 +57,10 @@ export class SearchResultsFormatter {
   private readonly TOKEN_RATIO = 4; // Approximate characters per token
   private readonly MAX_TOKEN_LIMIT = 25000;
   
-  // Common Gravity Forms field ID patterns (configurable for different forms)
-  private readonly COMMON_NAME_FIELDS = ['52', '55', '1.3', '1.6', '2', '3'];
-  private readonly COMMON_EMAIL_FIELDS = ['50', '54', '4', '5'];
+  // Universal Gravity Forms field ID patterns based on sub-field conventions
+  // These use GF's standard sub-field numbering (X.3 = first name, X.6 = last name)
+  private readonly COMMON_NAME_FIELDS = ['1.3', '1.6', '2', '3'];
+  private readonly COMMON_EMAIL_FIELDS = ['4', '5'];
   private readonly COMMON_FIRST_NAME_FIELDS = ['1.3', '2.3'];
   private readonly COMMON_LAST_NAME_FIELDS = ['1.6', '2.6'];
 

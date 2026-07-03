@@ -129,7 +129,8 @@ export class BulkOperationsManager {
       try {
         const response = await fetch(`${this.baseUrl}/entries/${entryId}`, {
           method: 'GET',
-          headers: this.authHeaders
+          headers: this.authHeaders,
+          signal: AbortSignal.timeout(30000)
         });
 
         if (response.ok) {
@@ -273,7 +274,8 @@ export class BulkOperationsManager {
     const response = await fetch(url, {
       method,
       headers: this.authHeaders,
-      body: body ? JSON.stringify(body) : undefined
+      body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(30000)
     });
 
     if (!response.ok) {
@@ -289,7 +291,8 @@ export class BulkOperationsManager {
       try {
         const response = await fetch(`${this.baseUrl}/entries/${entryId}`, {
           method: 'GET',
-          headers: this.authHeaders
+          headers: this.authHeaders,
+          signal: AbortSignal.timeout(30000)
         });
 
         if (response.ok) {
@@ -351,6 +354,6 @@ export class BulkOperationsManager {
   }
 
   private generateOperationId(): string {
-    return `bulk_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    return `bulk_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
   }
 }

@@ -57,11 +57,12 @@ describe('getEntries Response Size Management', () => {
   }
 
   function createLargeEntry(id: string, size: 'normal' | 'large' | 'huge' = 'normal') {
-    const base = GravityFormsMocks.getMockEntry({ 
-      id, 
+    const base = GravityFormsMocks.getMockEntry({
+      id,
       form_id: '193',
-      '52': 'John Smith',
-      '54': 'john.smith@email.com',
+      '1.3': 'John',       // GF universal name sub-field (first name)
+      '1.6': 'Smith',      // GF universal name sub-field (last name)
+      '4': 'john.smith@email.com',  // Email field
       payment_status: 'Paid'
     });
 
@@ -125,9 +126,10 @@ describe('getEntries Response Size Management', () => {
       expect(summary.date_created).toBe(entry.date_created);
       expect(summary.payment_status).toBe('Paid');
       
-      // Should contain common name/email fields
-      expect(summary['52']).toBe('John Smith'); // Name field
-      expect(summary['54']).toBe('john.smith@email.com'); // Email field
+      // Should contain dynamically detected name/email fields
+      expect(summary['1.3']).toBe('John'); // First name sub-field
+      expect(summary['1.6']).toBe('Smith'); // Last name sub-field
+      expect(summary['4']).toBe('john.smith@email.com'); // Email field (detected by @ pattern)
       
       // Should NOT contain the huge extra fields
       expect(summary['60']).toBeUndefined();
@@ -148,7 +150,8 @@ describe('getEntries Response Size Management', () => {
       // For normal-sized entries, summary should include more fields
       expect(Object.keys(summary).length).toBeGreaterThan(5);
       expect(summary.id).toBe('123');
-      expect(summary['52']).toBe('John Smith');
+      expect(summary['1.3']).toBe('John');
+      expect(summary['1.6']).toBe('Smith');
     });
 
     it('should handle entries missing common fields gracefully', async () => {
@@ -167,8 +170,33 @@ describe('getEntries Response Size Management', () => {
       expect(summary.form_id).toBe('193');
       expect(summary.date_created).toBe('2024-01-01 12:00:00');
       expect(summary.payment_status).toBeUndefined(); // Missing is OK
-      expect(summary['52']).toBeUndefined(); // Missing is OK
+      expect(summary['1.3']).toBeUndefined(); // Missing is OK
       expect(summary['99']).toBe('Some other field'); // Other fields preserved if small
+    });
+
+    it('should not copy long free-text fields that merely contain "@" into the summary', async () => {
+      const server = createServer();
+      // Prose that happens to contain "@" and "." with spaces — must NOT be captured
+      // as an email, or it would defeat the response-size reduction on large entries.
+      const prose = 'Please contact me @ the rink. ' + 'x'.repeat(500);
+      const entry: any = {
+        id: '777',
+        form_id: '193',
+        date_created: '2024-01-01 12:00:00',
+        payment_status: 'Paid',
+        '4': 'jane.doe@email.com', // real email field
+        '60': prose,               // free-text prose containing "@" and "."
+        '61': 'y'.repeat(2500),    // filler to push the entry over the summary threshold
+      };
+
+      const summary = (server).createEntrySummary(entry);
+
+      // Real email field is still captured by the heuristic
+      expect(summary['4']).toBe('jane.doe@email.com');
+      // The long prose field is NOT copied wholesale (regression guard)
+      expect(summary['60']).toBeUndefined();
+      // Non-matching filler is excluded too
+      expect(summary['61']).toBeUndefined();
     });
   });
 
@@ -187,7 +215,7 @@ describe('getEntries Response Size Management', () => {
         // No response_mode specified - should default to 'auto' which uses 'full' for small responses
       });
 
-      expect(result.content[0].text).toContain('John Smith'); // Full entry details
+      expect(result.content[0].text).toContain('John'); // Full entry details
       expect(result.content[0].text).not.toContain('Response summarized'); // Not summarized
     });
 
@@ -206,7 +234,7 @@ describe('getEntries Response Size Management', () => {
       });
 
       expect(result.content[0].text).toContain('Response summarized'); // Should indicate summarization
-      expect(result.content[0].text).toContain('John Smith'); // Should still show essential info
+      expect(result.content[0].text).toContain('John'); // Should still show name fields
     });
 
     it('should use full mode when explicitly requested even for large responses', async () => {
@@ -271,7 +299,7 @@ describe('getEntries Response Size Management', () => {
       expect(mockFetch).toHaveBeenCalledTimes(1);
       
       // Should still return useful results (will be summarized due to size)
-      expect(result.content[0].text).toContain('John Smith');
+      expect(result.content[0].text).toContain('John');
       expect(result.content[0].text).toContain('Response summarized');
       
       // Should maintain reasonable response size
@@ -319,7 +347,7 @@ describe('getEntries Response Size Management', () => {
       });
 
       // Should handle the mixed sizes and provide reasonable response
-      expect(result.content[0].text).toContain('John Smith');
+      expect(result.content[0].text).toContain('John');
       expect(result.content[0].text).toContain('5 entries'); // Should process all entries
       
       const responseTokens = Math.ceil(result.content[0].text.length / 4);
@@ -346,7 +374,7 @@ describe('getEntries Response Size Management', () => {
       });
 
       // Should return full results as before (auto mode with small response)
-      expect(result.content[0].text).toContain('John Smith');
+      expect(result.content[0].text).toContain('John');
       expect(result.content[0].text).not.toContain('Response summarized');
       
       // Should maintain same response structure

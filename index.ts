@@ -19,6 +19,7 @@ import type { SearchStrategy } from "./utils/universalSearchManager.js";
 import { UniversalSearchManager } from "./utils/universalSearchManager.js";
 import type { SearchResult as FormattedSearchResult, FormInfo, OutputMode } from "./utils/searchResultsFormatter.js";
 import { SearchResultsFormatter } from "./utils/searchResultsFormatter.js";
+import { TemplateCreator } from "./utils/templateCreator.js";
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -64,7 +65,7 @@ export class GravityFormsMCPServer {
   private bulkOperationsManager?: BulkOperationsManager;
   private templateManager?: TemplateManager;
   private formImporter?: FormImporter;
-  private formCache?: FormCache | null;
+  private formCache: FormCache | null = null;
   private readonly fieldTypeDetector: FieldTypeDetector;
   private universalSearchManager?: UniversalSearchManager;
   private readonly searchResultsFormatter: SearchResultsFormatter;
@@ -99,7 +100,7 @@ export class GravityFormsMCPServer {
     // to avoid auth errors during server startup
     
     // FormCache will be initialized during startup if enabled
-    this.formCache = undefined;
+    // formCache is initialized to null in the field declaration; startup() will set it if caching is enabled
 
     this.setupToolHandlers();
   }
@@ -195,7 +196,23 @@ export class GravityFormsMCPServer {
    * Server startup lifecycle method
    */
   private async startup(): Promise<void> {
+    this.validateConfig();
     await this.initializeCache();
+  }
+
+  /**
+   * Validate that required environment variables are set.
+   * Logs warnings to stderr rather than throwing to allow Claude Desktop to surface the error.
+   */
+  private validateConfig(): void {
+    const missing: string[] = [];
+    if (!this.config.baseUrl) missing.push('GRAVITY_FORMS_BASE_URL');
+    if (!this.config.consumerKey) missing.push('GRAVITY_FORMS_CONSUMER_KEY');
+    if (!this.config.consumerSecret) missing.push('GRAVITY_FORMS_CONSUMER_SECRET');
+    if (missing.length > 0) {
+      console.error(`[FATAL] Missing required environment variables: ${missing.join(', ')}`);
+      console.error('[FATAL] Server will start but all API calls will fail. Set these variables and restart.');
+    }
   }
 
   /**
@@ -276,15 +293,28 @@ export class GravityFormsMCPServer {
       const response = await fetch(url, {
         method,
         headers,
-        body: body ? JSON.stringify(body) : undefined
+        body: body ? JSON.stringify(body) : undefined,
+        signal: AbortSignal.timeout(30000)
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        let errorDetail = `HTTP ${response.status}: ${response.statusText}`;
+        try {
+          const errorBody = await response.text();
+          if (errorBody) {
+            errorDetail += ` - ${errorBody}`;
+          }
+        } catch {
+          // Ignore errors reading the response body
+        }
+        throw new Error(errorDetail);
       }
 
       return await response.json();
     } catch (error) {
+      if (error instanceof McpError) {
+        throw error;
+      }
       throw new McpError(
         ErrorCode.InternalError,
         `API request failed: ${error instanceof Error ? error.message : 'Unknown error'}`
@@ -346,7 +376,7 @@ export class GravityFormsMCPServer {
                 },
                 search: {
                   type: "object",
-                  description: "Search criteria for filtering entries"
+                  description: "Search criteria for filtering entries. Example: { \"field_filters\": [{ \"key\": \"1\", \"value\": \"Smith\", \"operator\": \"contains\" }], \"status\": \"active\" }. Operators: is, isnot, contains, >, <, >=, <="
                 },
                 sorting: {
                   type: "object",
@@ -530,7 +560,7 @@ export class GravityFormsMCPServer {
                 },
                 partial_update: {
                   type: "boolean",
-                  description: "Enable partial updates (only update provided fields)"
+                  description: "Enable partial updates (only update provided fields). IMPORTANT: When false (default), both title and fields are required — missing fields will be removed from the form. Set to true to safely update individual properties without affecting others."
                 },
                 validate_fields: {
                   type: "boolean",
@@ -641,7 +671,7 @@ export class GravityFormsMCPServer {
                 },
                 field_ids: {
                   type: "array",
-                  description: "Array of field IDs to include in export (optional). If provided, only specified fields plus metadata will be exported.",
+                  description: "Array of Gravity Forms field IDs to include in export (optional). Use string format: [\"1\", \"2\", \"4.3\"]. If provided, only these fields plus metadata will be exported. Use get_field_mappings to discover field IDs.",
                   items: {
                     type: "string"
                   }
@@ -905,7 +935,7 @@ export class GravityFormsMCPServer {
           },
           {
             name: "search_entries_universal",
-            description: "Advanced multi-field search with custom targeting and strategies",
+            description: "Advanced multi-field search across name, email, phone, and custom fields with AND/OR logic. Use this for cross-field searches (e.g., name AND email), specific field ID targeting, or when search_entries_by_name is too limited. Use get_field_mappings first to discover field IDs for targeted searches.",
             inputSchema: {
               type: "object",
               properties: {
@@ -993,7 +1023,7 @@ export class GravityFormsMCPServer {
           },
           {
             name: "get_field_mappings",
-            description: "Analyze form structure and show detected field types for debugging",
+            description: "Analyze a form's field structure and detect field types (name, email, phone, address). Call this before search_entries_universal to discover which field IDs to target for accurate search results.",
             inputSchema: {
               type: "object",
               properties: {
@@ -1156,11 +1186,9 @@ export class GravityFormsMCPServer {
     if (entry.date_created !== undefined) summary.date_created = entry.date_created;
     if (entry.payment_status !== undefined) summary.payment_status = entry.payment_status;
     
-    // Common name fields - include standalone name fields and common name sub-fields
-    // Format: standalone fields (52, 55) + name sub-fields (X.3 = first name, X.6 = last name)
-    const nameFields = ['52', '55']; // Most common standalone name fields
-    
-    // Also check for name sub-fields (field_id.3 for first name, field_id.6 for last name)
+    // Name fields - detect dynamically using Gravity Forms sub-field conventions
+    // X.3 = first name, X.6 = last name (universal pattern for all GF name fields)
+    const nameFields: string[] = [];
     Object.keys(entry).forEach(key => {
       if (key.includes('.') && (key.endsWith('.3') || key.endsWith('.6'))) {
         nameFields.push(key);
@@ -1171,12 +1199,21 @@ export class GravityFormsMCPServer {
         summary[fieldId] = entry[fieldId];
       }
     });
-    
-    // Common email fields (50, 54)
-    const emailFields = ['50', '54'];
-    emailFields.forEach(fieldId => {
-      if (entry[fieldId] !== undefined) {
-        summary[fieldId] = entry[fieldId];
+
+    // Email fields - detect dynamically using Gravity Forms email field patterns.
+    // Constrain to short, single-token values so free-text prose that merely
+    // contains an "@" (e.g. "email me @ the rink.") is not copied wholesale into
+    // the summary, which would defeat this function's response-size reduction.
+    Object.keys(entry).forEach(key => {
+      const value = entry[key];
+      if (
+        typeof value === 'string' &&
+        value.length < 100 &&
+        !value.includes(' ') &&
+        value.includes('@') &&
+        value.includes('.')
+      ) {
+        summary[key] = value;
       }
     });
     
@@ -1336,12 +1373,13 @@ Consider using form templates or cloning for management.`;
           const endpoint = include_fields ? '/forms?include[]=form_fields' : '/forms';
           const forms = await this.makeRequest(endpoint);
           
+          const cacheFallbackWarning = `Note: Form cache unavailable (${message}). Showing active forms from API only — inactive/deleted forms are not included.\n\n`;
           if (message.includes('not available')) {
             return {
               content: [
                 {
                   type: "text",
-                  text: `${JSON.stringify(forms, null, 2)}`
+                  text: `${cacheFallbackWarning}${JSON.stringify(forms, null, 2)}`
                 }
               ]
             };
@@ -1350,7 +1388,7 @@ Consider using form templates or cloning for management.`;
               content: [
                 {
                   type: "text",
-                  text: `${JSON.stringify(forms, null, 2)}`
+                  text: `${cacheFallbackWarning}${JSON.stringify(forms, null, 2)}`
                 }
               ]
             };
@@ -1404,11 +1442,19 @@ Consider using form templates or cloning for management.`;
     const forms = await this.makeRequest(endpoint);
     
     // /forms endpoint only returns active forms, no filtering needed
+    // Add a human-readable summary before the JSON for quick orientation
+    const formsList = Array.isArray(forms) ? forms : [];
+    let summaryHeader = `Found ${formsList.length} active form${formsList.length === 1 ? '' : 's'}`;
+    if (formsList.length > 0) {
+      const listing = formsList.map((f: any) => `  - "${f.title || 'Untitled'}" (ID: ${f.id})`).join('\n');
+      summaryHeader += `:\n${listing}\n\nFull details:`;
+    }
+
     return {
       content: [
         {
           type: "text",
-          text: `Forms:\n${JSON.stringify(forms, null, 2)}`
+          text: `${summaryHeader}\n${JSON.stringify(forms, null, 2)}`
         }
       ]
     };
@@ -1607,12 +1653,11 @@ Consider using form templates or cloning for management.`;
     };
   }
 
-  private async handleUniversalSearch(form_id: string, search: any, response_mode: string, field_detection: boolean) {
-    try {
-      // Initialize universal search components
-      const fieldDetector = new FieldTypeDetector();
-      
-      // Create API client adapter with error handling
+  /**
+   * Get or create the UniversalSearchManager singleton with its API client adapter.
+   */
+  private getOrCreateSearchManager(): UniversalSearchManager {
+    if (!this.universalSearchManager) {
       const apiClient = {
         getFormDefinition: async (formId: string) => {
           try {
@@ -1623,18 +1668,12 @@ Consider using form templates or cloning for management.`;
         },
         searchEntries: async (formId: string, searchParams: any) => {
           try {
-            // Build search URL with proper encoding and pagination safety
             const params = new URLSearchParams();
-            
-            // Add pagination safety to prevent system crashes
-            params.append('paging[page_size]', '100'); // Safe limit for search operations
-            
+            params.append('paging[page_size]', '100');
             if (searchParams) {
               params.append('search', JSON.stringify(searchParams));
             }
             const endpoint = `/forms/${formId}/entries?${params.toString()}`;
-            
-            // Return full response to preserve total_count metadata
             const response = await this.makeRequest(endpoint);
             return response?.entries || response || [];
           } catch (error) {
@@ -1642,9 +1681,14 @@ Consider using form templates or cloning for management.`;
           }
         }
       };
-      
-      const searchManager = new UniversalSearchManager(fieldDetector, apiClient);
-      const resultsFormatter = new SearchResultsFormatter();
+      this.universalSearchManager = new UniversalSearchManager(this.fieldTypeDetector, apiClient);
+    }
+    return this.universalSearchManager;
+  }
+
+  private async handleUniversalSearch(form_id: string, search: any, response_mode: string, field_detection: boolean) {
+    try {
+      const searchManager = this.getOrCreateSearchManager();
 
     // Get form information for better context
     const formInfo: FormInfo = {
@@ -1709,7 +1753,7 @@ Consider using form templates or cloning for management.`;
       const outputMode: OutputMode = response_mode === 'summary' ? 'summary' : 
                                      response_mode === 'full' ? 'detailed' : 'auto';
 
-      const formattedResult = resultsFormatter.formatSearchResults(
+      const formattedResult = this.searchResultsFormatter.formatSearchResults(
         searchResult, 
         outputMode, 
         formInfo
@@ -1740,12 +1784,27 @@ Consider using form templates or cloning for management.`;
     };
 
     const response = await this.makeRequest(`/forms/${form_id}/submissions`, 'POST', submission);
-    
+
+    // Parse success/failure for clear AI-readable status
+    const isValid = response?.is_valid;
+    let statusLine: string;
+    if (isValid === true || isValid === 'true' || isValid === '1') {
+      statusLine = `Submission successful! Entry ID: ${response.entry_id || 'unknown'}`;
+    } else if (isValid === false || isValid === 'false' || isValid === '0') {
+      const validationMessages = response?.validation_messages;
+      const errorDetails = validationMessages
+        ? Object.entries(validationMessages).map(([field, msg]) => `  - Field ${field}: ${msg}`).join('\n')
+        : '  (no details provided)';
+      statusLine = `Submission failed - validation errors:\n${errorDetails}`;
+    } else {
+      statusLine = 'Form Submission Result:';
+    }
+
     return {
       content: [
         {
           type: "text",
-          text: `Form Submission Result:\n${JSON.stringify(response, null, 2)}`
+          text: `${statusLine}\n\n${JSON.stringify(response, null, 2)}`
         }
       ]
     };
@@ -1845,11 +1904,11 @@ Consider using form templates or cloning for management.`;
     const startTime = debug ? Date.now() : 0;
     
     if (debug) {
-      console.log('[UPDATE_FORM_DEBUG] Starting form update');
-      console.log(`[UPDATE_FORM_DEBUG] form_id: ${form_id}`);
-      console.log(`[UPDATE_FORM_DEBUG] partial_update: ${partial_update}`);
-      console.log(`[UPDATE_FORM_DEBUG] validate_fields: ${validate_fields}`);
-      console.log(`[UPDATE_FORM_DEBUG] response_format: ${response_format}`);
+      console.error('[UPDATE_FORM_DEBUG] Starting form update');
+      console.error(`[UPDATE_FORM_DEBUG] form_id: ${form_id}`);
+      console.error(`[UPDATE_FORM_DEBUG] partial_update: ${partial_update}`);
+      console.error(`[UPDATE_FORM_DEBUG] validate_fields: ${validate_fields}`);
+      console.error(`[UPDATE_FORM_DEBUG] response_format: ${response_format}`);
     }
     
     // Validate form_id (always required)
@@ -1885,7 +1944,7 @@ Consider using form templates or cloning for management.`;
     // If partial update, retrieve existing form data
     if (partial_update) {
       if (debug) {
-        console.log('[UPDATE_FORM_DEBUG] Retrieving existing form for partial update');
+        console.error('[UPDATE_FORM_DEBUG] Retrieving existing form for partial update');
       }
       
       existingForm = await this.makeRequest(`/forms/${form_id}`, 'GET');
@@ -1995,7 +2054,7 @@ Consider using form templates or cloning for management.`;
       for (const field of finalFields) {
         if (field.type && !validFieldTypes.includes(field.type)) {
           if (debug) {
-            console.log(`[UPDATE_FORM_DEBUG] Warning: Unknown field type '${field.type}' - this may be a custom field type`);
+            console.error(`[UPDATE_FORM_DEBUG] Warning: Unknown field type '${field.type}' - this may be a custom field type`);
           }
           // For now, just warn but don't fail - custom field types are possible
           // throw new McpError(
@@ -2006,7 +2065,7 @@ Consider using form templates or cloning for management.`;
       }
       
       if (debug) {
-        console.log(`[UPDATE_FORM_DEBUG] Field validation passed for ${finalFields.length} fields`);
+        console.error(`[UPDATE_FORM_DEBUG] Field validation passed for ${finalFields.length} fields`);
       }
     }
 
@@ -2026,7 +2085,7 @@ Consider using form templates or cloning for management.`;
     }
     
     if (debug) {
-      console.log(`[UPDATE_FORM_DEBUG] Request body size: ${JSON.stringify(formUpdateData).length} characters`);
+      console.error(`[UPDATE_FORM_DEBUG] Request body size: ${JSON.stringify(formUpdateData).length} characters`);
     }
     
     // Make the PUT request to update the form
@@ -2034,7 +2093,7 @@ Consider using form templates or cloning for management.`;
     
     if (debug) {
       const endTime = Date.now();
-      console.log(`[UPDATE_FORM_DEBUG] Update completed in ${endTime - startTime}ms`);
+      console.error(`[UPDATE_FORM_DEBUG] Update completed in ${endTime - startTime}ms`);
     }
     
     // Format response based on requested format
@@ -2096,8 +2155,8 @@ Consider using form templates or cloning for management.`;
     // Handle choices array specially
     if (Array.isArray(updates.choices) && Array.isArray(existing.choices)) {
       // Ensure both arrays contain objects with consistent typing
-      const existingChoices = existing.choices as Record<string, unknown>[];
-      const updatesChoices = updates.choices as Record<string, unknown>[];
+      const existingChoices = existing.choices as Array<Record<string, unknown>>;
+      const updatesChoices = updates.choices as Array<Record<string, unknown>>;
       
       // Skip validation - handle mixed types during merging
       // This allows for null values and other edge cases in choice arrays
@@ -2114,7 +2173,7 @@ Consider using form templates or cloning for management.`;
         if (existingChoice && typeof existingChoice === 'object' && !Array.isArray(existingChoice) && existingChoice !== null &&
             updateChoice && typeof updateChoice === 'object' && !Array.isArray(updateChoice) && updateChoice !== null) {
           // Merge existing choice with updates
-          mergedChoices.push({ ...(existingChoice as Record<string, unknown>), ...(updateChoice as Record<string, unknown>) });
+          mergedChoices.push({ ...(existingChoice), ...(updateChoice) });
         } else if (existingChoice !== undefined) {
           // Keep existing choice unchanged (including null values)
           mergedChoices.push(existingChoice);
@@ -2131,19 +2190,11 @@ Consider using form templates or cloning for management.`;
     return { ...existing, ...updates };
   }
 
-  private async validateForm(args: any) {
-    const { form_id, field_values } = args;
-    
-    const response = await this.makeRequest(`/forms/${form_id}/submissions/validation`, 'POST', field_values);
-    
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Validation Result:\n${JSON.stringify(response, null, 2)}`
-        }
-      ]
-    };
+  private async validateForm(args: any): Promise<{ content: Array<{ type: string; text: string }> }> {
+    throw new McpError(
+      ErrorCode.InternalError,
+      'validate_form is not currently functional: the Gravity Forms REST API v2 does not provide a validation-only endpoint. Use submit_form to test submissions, or inspect the form fields with get_forms (include_fields=true) to check required fields and validation rules.'
+    );
   }
 
   private async exportEntriesFormatted(args: any) {
@@ -2195,7 +2246,7 @@ Consider using form templates or cloning for management.`;
         }
         
         // Handle date filtering - support multiple LLM-friendly formats
-        let dateRange: any = {};
+        const dateRange: any = {};
 
         // Format 1: Structured date_range object (preferred)
         if (search.date_range) {
@@ -2261,7 +2312,7 @@ Consider using form templates or cloning for management.`;
       // Handle pagination parameters - maintain backward compatibility
       const maxExportEntries = GravityFormsMCPServer.MAX_EXPORT_ENTRIES;
       let pageSize: number | undefined;
-      let currentPage: number = 1;
+      let currentPage = 1;
       
       if (paging) {
         if (paging.page_size) {
@@ -2682,6 +2733,13 @@ Consider using form templates or cloning for management.`;
       const existingTemplates = await templateManager.listTemplates();
       const hasConflict = existingTemplates.some(template => template.name === finalTemplateName);
 
+      if (hasConflict) {
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          `Template name '${finalTemplateName}' already exists. Use a different name or rename the existing template first.`
+        );
+      }
+
       // Clone and sanitize the form data for template use
       const templateData = this.prepareTemplateData(sourceForm, finalTemplateName);
 
@@ -2695,10 +2753,6 @@ Consider using form templates or cloning for management.`;
         template_name: finalTemplateName,
         original_form_id: form_id
       };
-
-      if (hasConflict) {
-        response.warnings = [`Template name '${finalTemplateName}' may conflict with existing template`];
-      }
 
       return {
         content: [
@@ -2781,9 +2835,6 @@ Consider using form templates or cloning for management.`;
         );
       }
 
-      // Import TemplateCreator here to avoid circular import
-      const { TemplateCreator } = await import('./utils/templateCreator.js');
-      
       // Create TemplateCreator with API call function
       const templateCreator = new TemplateCreator((endpoint: string) => this.makeRequest(endpoint));
 
@@ -2804,7 +2855,7 @@ Consider using form templates or cloning for management.`;
       // Create the new form via API
       const result = await this.makeRequest('/forms', 'POST', clonedForm);
 
-      return {
+      const response = {
         success: true,
         message: 'Form created successfully from template',
         form: {
@@ -2814,6 +2865,15 @@ Consider using form templates or cloning for management.`;
           template_id: template_id,
           applied_renames: field_renames ? field_renames.length : 0
         }
+      };
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(response, null, 2)
+          }
+        ]
       };
     } catch (error) {
       if (error instanceof McpError) {
@@ -2908,7 +2968,7 @@ Consider using form templates or cloning for management.`;
       // Format JSON with proper indentation for readability
       const formattedJson = JSON.stringify(exportForm, null, 2);
 
-      return {
+      const response = {
         success: true,
         message: 'Form exported successfully as JSON',
         form_id: form_id,
@@ -2916,6 +2976,15 @@ Consider using form templates or cloning for management.`;
         export_size: formattedJson.length,
         fields_count: exportForm.fields ? exportForm.fields.length : 0,
         json_data: formattedJson
+      };
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(response, null, 2)
+          }
+        ]
       };
     } catch (error) {
       if (error instanceof McpError) {
@@ -3738,6 +3807,11 @@ Consider using form templates or cloning for management.`;
         responseText += `- For comprehensive searches of large datasets, consider:\n`;
         responseText += `  • Using more specific search terms\n`;
         responseText += `  • Using get_entries with pagination for complete data access\n`;
+      }
+
+      // Warn about AND logic limitation with large datasets
+      if (searchLogic === 'AND' && search_queries.length > 1) {
+        responseText += `\n\n⚠️  AND Logic Limitation: Results are intersected across separate API calls, each limited to 100 entries. For forms with more than 100 entries, some matches may be missed. For comprehensive AND searches on large forms, use get_entries with manual pagination and filtering.`;
       }
 
       return {
