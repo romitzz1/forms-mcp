@@ -8,7 +8,7 @@ Claude's name in this project is "TurboMan", and likes to talk about itself in t
 
 This is an **Enhanced** Model Context Protocol (MCP) server that provides comprehensive tools for interacting with Gravity Forms through its REST API v2. The server enables AI assistants and MCP clients to manage WordPress Gravity Forms with advanced capabilities including bulk operations, template management, data export, and form import/export functionality.
 
-**What makes this special:** This isn't just a basic API wrapper - it's a full-featured, battle-tested MCP server with 21 tools, comprehensive test coverage, and enterprise-grade safety mechanisms. Think of it as the Swiss Army knife of Gravity Forms automation!
+21 MCP tools are registered via the MCP SDK's `McpServer.registerTool` with hand-authored Zod input schemas (`utils/toolSchemas.ts`). The user-facing README documents them grouped by purpose; see "Architecture" below for where each tool's handler logic lives.
 
 ## Development Commands
 
@@ -19,7 +19,7 @@ npm install
 # Build TypeScript to JavaScript
 npm run build
 
-# Start the MCP server
+# Start the MCP server (runs dist/cli.js)
 npm start
 
 # Development mode (build and run)
@@ -39,87 +39,104 @@ npm run test:coverage
 
 # Run tests in watch mode during development
 npm run test:watch
+
+# Type-check, lint, and test in one shot
+npm run quality
 ```
+
+Node.js 24+ is required (`.nvmrc` and `package.json` `engines` both pin `>=24.0.0`), driven by `better-sqlite3` ^12's prebuilt binaries.
 
 ## Architecture
 
-### Core Components
+### Entry points
 
-- **Main Server Class**: `GravityFormsMCPServer` in `index.ts`
-  - Comprehensive MCP server with 21 total tools
-  - Uses Model Context Protocol SDK for server infrastructure
-  - Handles stdio communication with MCP clients
-  - Modular utility class architecture for maintainability
+- **`cli.ts`** — the executable entry point. `package.json`'s `main`/`bin`/`start`/`dev` scripts all point at the compiled `dist/cli.js`. It exists as a separate file from `index.ts` so that importing the library (e.g. under Jest) never auto-starts a server.
+- **`index.ts`** — a ~657-line library module exporting `class GravityFormsMCPServer`. It owns configuration loading, cache lifecycle, and tool dispatch, but delegates most tool *logic* to the per-cluster modules below. It builds an `McpServer` (from `@modelcontextprotocol/sdk/server/mcp.js`), registers all 21 tools from `TOOL_SCHEMAS` in a loop, and dispatches each call by name to a handler method.
 
-### Core Tools (Original 9)
+This is a migration away from the older, low-level `Server` + manual `ListTools`/`CallTool` request-handler pattern — the SDK's `McpServer.registerTool` now owns schema registration, and Zod schemas replace hand-written JSON Schema.
 
-1. `get_forms` - Retrieve form definitions and metadata
-2. `get_entries` - Query form entries with filtering/pagination
-3. `submit_form` - Submit forms with full processing (validation, notifications)
-4. `create_entry` - Create entries directly (bypasses form processing)
-5. `update_entry` - Update existing entries
-6. `delete_entry` - Delete/trash entries
-7. `create_form` - Create new forms programmatically
-8. `update_form` - Update existing forms
-9. `validate_form` - Validate submissions without saving
+### Tool handler modules (per cluster)
 
-### Enhanced Tools (New 12)
+Each module exports plain functions that take a small dependency-injection object (e.g. `{ makeRequest, ... }`) plus the tool's `args`, so they're testable without instantiating the whole server:
 
-10. `export_entries_formatted` - Export entries to CSV/JSON with advanced formatting
-11. `process_entries_bulk` - Bulk operations with safety confirmations and audit trails
-12. `list_form_templates` - Browse available form templates
-13. `save_form_as_template` - Convert existing forms to reusable templates
-14. `create_form_from_template` - Create forms from templates with customizations
-15. `clone_form_with_modifications` - Intelligent form cloning with modifications
-16. `export_form_json` - Export form definitions for backup/migration
-17. `import_form_json` - Import forms from JSON with conflict resolution
-18. `get_cache_status` - Monitor FormCache status and statistics
-19. `search_entries_by_name` - Search form entries by name fields automatically
-20. `search_entries_universal` - Advanced multi-field search with custom targeting
-21. `get_field_mappings` - Analyze form structure and show detected field types
+- `utils/entryCrudTools.ts` — `submit_form`, `create_entry`, `update_entry`, `delete_entry`
+- `utils/formsTools.ts` — `create_form`, `update_form`, `validate_form`
+- `utils/exportTools.ts` — `export_entries_formatted`, `export_form_json`
+- `utils/bulkTools.ts` — `process_entries_bulk`
+- `utils/templateTools.ts` — `save_form_as_template`, `create_form_from_template`, `clone_form_with_modifications`, `import_form_json`
+- `utils/fieldMappingTools.ts` — `get_field_mappings`
+- `utils/searchTools.ts` — `search_entries_by_name`, `search_entries_universal`
+- `utils/entriesQueryTools.ts` — `get_entries` (plus its universal-search helper)
+- `utils/cacheTools.ts` — `get_cache_status`, and (together with `formCache`) `get_forms`, `list_form_templates`
 
-### Utility Classes
+### Shared core
 
-#### Core Operations
-- **DataExporter** (`utils/dataExporter.ts`) - CSV/JSON export with base64 encoding
-- **ValidationHelper** (`utils/validation.ts`) - Comprehensive input validation and sanitization
-- **BulkOperationsManager** (`utils/bulkOperations.ts`) - Safe bulk operations with rollback
+- `utils/toolSchemas.ts` — `TOOL_SCHEMAS`: Zod input schemas + descriptions for all 21 tools; this is the single source of truth for tool names, inputs, and registered descriptions. Verified against the original hand-written JSON schemas by `toolSchemas.test.ts`.
+- `utils/gravityFormsClient.ts` — `GravityFormsClient`: HTTP client for the Gravity Forms REST API v2 (auth headers + request execution), isolating transport concerns from tool handlers.
+- `utils/responseSizeManager.ts` — token/size estimation and entry/form summarization helpers, used to keep large responses from overflowing model context.
+- `utils/cacheTypes.ts` — shared `ICacheConfig`/`ICacheStatus` interfaces used by `index.ts` and `cacheTools.ts`.
+- `utils/database.ts` — SQLite connection management (init, connect, cleanup) underlying `FormCache`.
 
-#### Template & Form Management
-- **TemplateManager** (`utils/templateManager.ts`) - Template identification and listing
-- **TemplateCreator** (`utils/templateCreator.ts`) - Safe template modifications and cloning
-- **FormImporter** (`utils/formImporter.ts`) - JSON form import with conflict handling
+### Supporting utility classes
 
-#### Caching & Performance
-- **FormCache** (`utils/formCache.ts`) - SQLite-based form caching system
-- **FieldMappingCache** (`utils/fieldMappingCache.ts`) - Cache for field type detection
-- **SearchResultsCache** (`utils/searchResultsCache.ts`) - Caching for search operations
-- **PerformanceMonitor** (`utils/performanceMonitor.ts`) - Performance tracking and monitoring
+- **DataExporter** (`utils/dataExporter.ts`) — CSV/JSON export with base64 encoding
+- **ValidationHelper** (`utils/validation.ts`) — input validation and sanitization
+- **BulkOperationsManager** (`utils/bulkOperations.ts`) — safe bulk operations with rollback and audit trails
+- **TemplateManager** (`utils/templateManager.ts`) — template identification and listing
+- **TemplateCreator** (`utils/templateCreator.ts`) — safe template modifications and cloning
+- **FormImporter** (`utils/formImporter.ts`) — JSON form import with conflict handling
+- **FormCache** (`utils/formCache.ts`) — SQLite-based form caching and discovery
+- **FieldMappingCache** (`utils/fieldMappingCache.ts`) — LRU cache for field type detection
+- **SearchResultsCache** (`utils/searchResultsCache.ts`) — LRU cache for repeated search queries
+- **PerformanceMonitor** (`utils/performanceMonitor.ts`) — execution time / cache hit tracking for search
+- **UniversalSearchManager** (`utils/universalSearchManager.ts`) — coordinates multi-field search strategies and confidence scoring
+- **FieldTypeDetector** (`utils/fieldTypeDetector.ts`) — pattern-based detection of name/email/phone/team fields
+- **SearchResultsFormatter** (`utils/searchResultsFormatter.ts`) — consistent search result formatting across output modes
+- **ErrorHandlingSystem** (`utils/errorHandlingSystem.ts`) — error classification, graceful degradation, recovery for search
 
-#### Search & Data Processing
-- **UniversalSearchManager** (`utils/universalSearchManager.ts`) - Advanced multi-field search capabilities
-- **FieldTypeDetector** (`utils/fieldTypeDetector.ts`) - Automatic field type detection
-- **SearchResultsFormatter** (`utils/searchResultsFormatter.ts`) - Search result formatting
-- **SearchApiClient** (`utils/searchApiClient.ts`) - API client for search operations
+### Transport: stdio or Streamable HTTP
 
-#### System Infrastructure
-- **ErrorHandlingSystem** (`utils/errorHandlingSystem.ts`) - Comprehensive error handling and recovery
+`GravityFormsMCPServer.run()` (in `index.ts`) picks a transport based on `MCP_TRANSPORT`:
+
+- **stdio** (default) — connects the SDK's `StdioServerTransport` directly.
+- **http** — dynamically imports `utils/httpTransport.ts` and calls `startHttpServer(server, { port, token })`. Requires `MCP_AUTH_TOKEN`; `run()` throws (and `cli.ts` exits non-zero) if it's missing when `MCP_TRANSPORT=http`.
+
+`utils/httpTransport.ts` is an Express app implementing the MCP Streamable HTTP transport:
+
+- `POST /mcp` — session-based JSON-RPC endpoint, guarded by a constant-time bearer-token check (`createBearerAuthMiddleware`, SHA-256 + `timingSafeEqual`)
+- `GET /mcp` / `DELETE /mcp` — session resumption/close, also bearer-guarded
+- `GET /health` — unauthenticated liveness probe (used by the Docker `HEALTHCHECK` and orchestrators)
+- Idle sessions are swept every 5 minutes and closed after 30 minutes of inactivity
+
+Default port is `9807` (`MCP_HTTP_PORT`).
+
+### Docker / central deployment
+
+`Dockerfile` is a two-stage build: `node:24-bookworm-slim` build stage compiles TypeScript and the native `better-sqlite3` binding (needs `python3 make g++`), then `npm prune --omit=dev`; the runtime stage copies only `node_modules`, `dist`, and `package.json`, runs as a non-root `appuser` (uid 10001), and defaults `MCP_TRANSPORT=http`. `docker-compose.yml` builds the image, maps `9807:9807`, loads `.env`, and mounts two named volumes: `gf-cache:/data` (SQLite cache) and `gf-exports:/exports` (file exports). Bring it up with `docker compose up -d --build`; the container's `HEALTHCHECK` polls `/health` every 30s.
 
 ### Authentication & Configuration
 
 - Uses Basic Authentication with WordPress REST API credentials
-- Configuration loaded from environment variables:
-  - `GRAVITY_FORMS_BASE_URL` - WordPress site URL
-  - `GRAVITY_FORMS_CONSUMER_KEY` - API consumer key
-  - `GRAVITY_FORMS_CONSUMER_SECRET` - API consumer secret
-  - `GRAVITY_FORMS_AUTH_METHOD` - Authentication method (currently only 'basic')
-  - `GRAVITY_FORMS_MIN_FORM_ID` - Minimum form ID for gap detection (optional, defaults to lowest existing ID)
-  - `GRAVITY_FORMS_FULL_SYNC_INTERVAL_HOURS` - Hours between comprehensive form discovery (default: 24)
-  - `GRAVITY_FORMS_CACHE_ENABLED` - Enable/disable form caching (default: true)
-  - `GRAVITY_FORMS_CACHE_DB_PATH` - SQLite database path (default: ./data/forms-cache.db)
-  - `GRAVITY_FORMS_CACHE_MAX_AGE_SECONDS` - Cache entry max age (default: 3600)
-  - `GRAVITY_FORMS_CACHE_AUTO_SYNC` - Automatic cache synchronization (default: true)
-  - `GRAVITY_FORMS_EXPORT_DIR` - Default directory for file exports (optional, defaults to ./exports)
+- Configuration loaded from environment variables (see `.env.example` for the authoritative list):
+  - `GRAVITY_FORMS_BASE_URL` — WordPress site URL
+  - `GRAVITY_FORMS_CONSUMER_KEY` — API consumer key
+  - `GRAVITY_FORMS_CONSUMER_SECRET` — API consumer secret
+  - `GRAVITY_FORMS_AUTH_METHOD` — Authentication method (currently only 'basic')
+  - `GRAVITY_FORMS_MIN_FORM_ID` — Minimum form ID for gap detection (optional, defaults to lowest existing ID)
+  - `GRAVITY_FORMS_FULL_SYNC_INTERVAL_HOURS` — Hours between comprehensive form discovery (default: 24)
+  - `GRAVITY_FORMS_CACHE_ENABLED` — Enable/disable form caching (default: true)
+  - `GRAVITY_FORMS_CACHE_DB_PATH` — SQLite database path (default: ./data/forms-cache.db)
+  - `GRAVITY_FORMS_CACHE_MAX_AGE_SECONDS` — Cache entry max age (default: 3600, clamped to 60-86400)
+  - `GRAVITY_FORMS_CACHE_MAX_PROBE_FAILURES` — Consecutive gap-probe failures before giving up during discovery (default: 10, clamped to 1-50)
+  - `GRAVITY_FORMS_CACHE_AUTO_SYNC` — Automatic cache synchronization (default: true)
+  - `GRAVITY_FORMS_EXPORT_DIR` — Default directory for file exports (default: ./exports)
+  - `MCP_TRANSPORT` — `stdio` (default) or `http`
+  - `MCP_HTTP_PORT` — HTTP transport port (default: 9807)
+  - `MCP_AUTH_TOKEN` — Bearer token; required when `MCP_TRANSPORT=http`
+  - `SEARCH_CACHE_ENABLED`, `SEARCH_CACHE_MAX_AGE_MS`, `SEARCH_CACHE_MAX_SIZE` — tuning for `SearchResultsCache` (see `utils/universalSearchManager.ts` / `utils/searchResultsCache.ts`)
+  - `PERFORMANCE_MONITORING_ENABLED` — enable `PerformanceMonitor` instrumentation (default: false)
+- Invalid or out-of-range numeric/boolean env values fall back to their defaults rather than throwing (see `parseBooleanEnv`/`parseIntEnv` in `index.ts`).
+- Missing required credentials (`GRAVITY_FORMS_BASE_URL`/`CONSUMER_KEY`/`CONSUMER_SECRET`) log a `[FATAL]` warning to stderr at startup rather than crashing, so Claude Desktop can surface the error instead of silently failing to launch.
 
 ### API Integration
 
@@ -134,38 +151,139 @@ npm run test:watch
 2. Fill in WordPress site URL and API credentials
 3. Ensure Gravity Forms REST API is enabled in WordPress admin
 4. Set appropriate user permissions for API access
+5. For the HTTP/Docker transport, also copy `.env.docker.example` and set `MCP_AUTH_TOKEN`
 
 ## MCP Client Configuration
 
-Use the provided `claude-config.json` as a template for MCP client configuration, updating the path to the built JavaScript file and environment variables with actual values.
+For stdio (Claude Desktop, etc.), point the client at `dist/cli.js` with `node` — see the README Quick Start for a full example. `claude-config.json` and `local.claude-config.json` at the repo root predate the `cli.ts` split and still reference `dist/index.js`; treat them as historical examples only, not copy-paste-ready templates, until they're updated.
 
 ## Key Dependencies
 
 ### Production
-- `@modelcontextprotocol/sdk` - Core MCP protocol implementation
-- `better-sqlite3` - SQLite database for caching and performance optimization
-- Node.js 18+ required for runtime
+
+- `@modelcontextprotocol/sdk` - Core MCP protocol implementation (`McpServer`, Streamable HTTP transport)
+- `better-sqlite3` (^12) - SQLite database for caching and performance optimization
+- `express` (^5) - HTTP transport server (`utils/httpTransport.ts`)
+- `zod` - Input schema definitions for all registered tools (`utils/toolSchemas.ts`)
+- Node.js 24+ required for runtime
 
 ### Development & Testing
+
 - `typescript` & `@types/node` - TypeScript development tools
-- `jest` & `ts-jest` - Comprehensive testing framework
-- `@types/jest` - TypeScript definitions for Jest
+- `jest` & `ts-jest` - Testing framework (tests live under `__tests__/`)
+- `eslint` / `typescript-eslint` - Linting (`npm run lint`, `npm run lint:check`)
+- `husky` / `lint-staged` - Pre-commit hooks (runs `eslint --fix` on staged `.ts`/`.tsx`, then the full test suite)
 
 ### Notable Features
-- **Comprehensive Test Coverage**: Unit tests covering all utility classes and tool implementations
+
+- **Extensive Test Coverage**: Jest suite under `__tests__/` covering utility classes, tool handler modules, and server dispatch
 - **TypeScript Strict Mode**: Maximum type safety and error prevention
-- **Modular Architecture**: Clean separation of concerns with utility classes
+- **Modular Architecture**: Tool handler logic extracted into per-cluster modules, with `index.ts` reduced to configuration, lifecycle, and dispatch
 - **Comprehensive Error Handling**: Proper error propagation and user-friendly messages
-- **Security First**: Input validation, sanitization, and confirmation for destructive operations
+- **Security First**: Input validation, sanitization, and confirmation for destructive operations; constant-time bearer token comparison on the HTTP transport
 
 ## Field Input Names
 
 When submitting forms, use exact HTML input names:
+
 - Simple fields: `input_1`, `input_2`
 - Complex fields: `input_4_3` (field 4, input 3)
 - Name fields: `input_1_3` (first name), `input_1_6` (last name)
 
 Inspect form HTML in browser developer tools to find exact input names.
+
+## `update_form` Partial Update Behavior
+
+The README covers the short version. Full detail:
+
+When `partial_update: true` is used with a `fields` array, the server performs intelligent field-by-field merging:
+
+- **Existing fields** are preserved if not included in the update
+- **Updated fields** are merged by ID, preserving unmodified properties
+- **New fields** can be added during partial updates
+- **Nested properties** (like choices) are deep-merged intelligently
+- **Field order** is maintained automatically (sorted by ID)
+
+### Field merging examples
+
+Update a single field property without losing others:
+
+```javascript
+{
+  "form_id": "217",
+  "partial_update": true,
+  "fields": [
+    {
+      "id": 6,
+      "label": "Updated Checkbox Label"
+      // All other properties (choices, validation, etc.) are preserved
+    }
+  ]
+}
+```
+
+Update nested properties (choices in a checkbox field):
+
+```javascript
+{
+  "form_id": "217",
+  "partial_update": true,
+  "fields": [
+    {
+      "id": 6,
+      "choices": [
+        { "text": "Yes, as event lead.", "inventory_limit": "1" },
+        { "text": "Yes, as primary instructor.", "inventory_limit": 7 },
+        { "text": "Yes, as assistant.", "inventory_limit": "4" }
+      ]
+    }
+  ]
+}
+```
+
+Add a new field during a partial update:
+
+```javascript
+{
+  "form_id": "217",
+  "partial_update": true,
+  "fields": [
+    {
+      "id": 10,
+      "type": "text",
+      "label": "Additional Information"
+    }
+  ]
+}
+```
+
+### Full vs. partial updates
+
+**Full update** (`partial_update: false` or omitted):
+
+- Replaces ALL form properties with provided values
+- Missing fields are removed from the form
+- Use when rebuilding the entire form structure
+
+**Partial update** (`partial_update: true`):
+
+- Merges provided fields with existing ones
+- Preserves fields not included in the update
+- Use when modifying specific properties only
+
+### Troubleshooting partial updates
+
+1. **Fields without IDs are ignored**: Always include field `id` when using `partial_update: true`
+2. **Nested properties not updating**: Use arrays with complete choice objects, not partial ones
+3. **Field order changes**: Fields are automatically sorted by ID for consistency
+4. **Validation errors**: Enable `debug: true` to see detailed operation logs
+
+**Best practices:**
+
+- Use `partial_update: true` when modifying existing forms to preserve data
+- Always include field IDs in your updates
+- Test with `debug: true` first to understand the merge behavior
+- Use `validate_fields: true` to catch field type issues early
 
 ## 🔗 **Critical API Documentation Reference**
 
