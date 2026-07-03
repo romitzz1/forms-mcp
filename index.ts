@@ -19,8 +19,6 @@ import { UniversalSearchManager } from "./utils/universalSearchManager.js";
 import { SearchResultsFormatter } from "./utils/searchResultsFormatter.js";
 import {
   createEntrySummary,
-  createFormSummary,
-  estimateEntriesResponseSize,
   estimateTokenCount,
 } from "./utils/responseSizeManager.js";
 import { GravityFormsClient } from "./utils/gravityFormsClient.js";
@@ -1124,24 +1122,10 @@ export class GravityFormsMCPServer {
   }
 
   /**
-   * Efficiently estimate response size without full JSON generation
-   */
-  private estimateEntriesResponseSize(entries: any[]): number {
-    return estimateEntriesResponseSize(entries);
-  }
-
-  /**
    * Create a summary of a large entry object to prevent context overflow
    */
   private createEntrySummary(entry: any): any {
     return createEntrySummary(entry);
-  }
-
-  /**
-   * Create a summary of a large form object to prevent context overflow
-   */
-  private createFormSummary(form: any): string {
-    return createFormSummary(form);
   }
 
   // Tool implementation methods
