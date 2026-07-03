@@ -35,6 +35,11 @@ export function startHttpServer(
   const app = express();
   app.use(express.json());
 
+  // Unauthenticated liveness probe for container/orchestrator health checks.
+  app.get('/health', (_req, res) => {
+    res.status(200).json({ status: 'ok' });
+  });
+
   const transports: Record<string, StreamableHTTPServerTransport> = {};
   const lastActivity: Record<string, number> = {};
   const auth = createBearerAuthMiddleware(opts.token);
