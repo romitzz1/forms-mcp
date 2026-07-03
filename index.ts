@@ -27,6 +27,7 @@ import {
   estimateEntriesResponseSize,
   estimateTokenCount,
 } from "./utils/responseSizeManager.js";
+import { GravityFormsClient } from "./utils/gravityFormsClient.js";
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -66,6 +67,7 @@ export class GravityFormsMCPServer {
   
   private readonly server: Server;
   private readonly config: IGravityFormsConfig;
+  private readonly gfClient: GravityFormsClient;
   private readonly cacheConfig: ICacheConfig;
   private readonly dataExporter: DataExporter;
   private readonly validator: ValidationHelper;
@@ -95,6 +97,13 @@ export class GravityFormsMCPServer {
       consumerSecret: process.env.GRAVITY_FORMS_CONSUMER_SECRET ?? '',
       authMethod: (process.env.GRAVITY_FORMS_AUTH_METHOD as 'basic' | 'oauth') ?? 'basic'
     };
+
+    this.gfClient = new GravityFormsClient({
+      baseUrl: this.config.baseUrl,
+      consumerKey: this.config.consumerKey,
+      consumerSecret: this.config.consumerSecret,
+      authMethod: this.config.authMethod
+    });
 
     // Load cache configuration
     this.cacheConfig = this.loadCacheConfig();
@@ -281,55 +290,11 @@ export class GravityFormsMCPServer {
   }
 
   private getAuthHeaders(): Record<string, string> {
-    if (this.config.authMethod === 'basic') {
-      const credentials = Buffer.from(`${this.config.consumerKey}:${this.config.consumerSecret}`).toString('base64');
-      return {
-        'Authorization': `Basic ${credentials}`,
-        'Content-Type': 'application/json'
-      };
-    }
-    // OAuth implementation would go here
-    throw new McpError(
-      ErrorCode.InvalidParams,
-      'OAuth authentication not implemented yet'
-    );
+    return this.gfClient.getAuthHeaders();
   }
 
   private async makeRequest(endpoint: string, method = 'GET', body?: any): Promise<any> {
-    const url = `${this.config.baseUrl}/wp-json/gf/v2${endpoint}`;
-    const headers = this.getAuthHeaders();
-
-    try {
-      const response = await fetch(url, {
-        method,
-        headers,
-        body: body ? JSON.stringify(body) : undefined,
-        signal: AbortSignal.timeout(30000)
-      });
-
-      if (!response.ok) {
-        let errorDetail = `HTTP ${response.status}: ${response.statusText}`;
-        try {
-          const errorBody = await response.text();
-          if (errorBody) {
-            errorDetail += ` - ${errorBody}`;
-          }
-        } catch {
-          // Ignore errors reading the response body
-        }
-        throw new Error(errorDetail);
-      }
-
-      return await response.json();
-    } catch (error) {
-      if (error instanceof McpError) {
-        throw error;
-      }
-      throw new McpError(
-        ErrorCode.InternalError,
-        `API request failed: ${error instanceof Error ? error.message : 'Unknown error'}`
-      );
-    }
+    return this.gfClient.makeRequest(endpoint, method, body);
   }
 
   private setupToolHandlers() {
