@@ -15,10 +15,7 @@ import { TemplateManager } from "./utils/templateManager.js";
 import { FormImporter } from "./utils/formImporter.js";
 import { FormCache } from "./utils/formCache.js";
 import { FieldTypeDetector } from "./utils/fieldTypeDetector.js";
-import type { FieldTypeInfo } from "./utils/fieldTypeDetector.js";
-import type { SearchStrategy } from "./utils/universalSearchManager.js";
 import { UniversalSearchManager } from "./utils/universalSearchManager.js";
-import type { SearchResult as FormattedSearchResult, FormInfo, OutputMode } from "./utils/searchResultsFormatter.js";
 import { SearchResultsFormatter } from "./utils/searchResultsFormatter.js";
 import {
   createEntrySummary,
