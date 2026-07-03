@@ -8,6 +8,7 @@ COPY package.json package-lock.json ./
 RUN npm ci
 COPY tsconfig.json ./
 COPY index.ts ./
+COPY cli.ts ./
 COPY utils ./utils
 RUN npm run build
 # Drop dev dependencies but keep the compiled better-sqlite3 binary
@@ -30,4 +31,4 @@ ENV MCP_TRANSPORT=http \
 EXPOSE 9807
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.MCP_HTTP_PORT||9807)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
-CMD ["node", "dist/index.js"]
+CMD ["node", "dist/cli.js"]
