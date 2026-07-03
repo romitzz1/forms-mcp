@@ -1030,76 +1030,7 @@ export class GravityFormsMCPServer {
       const { name, arguments: args } = request.params;
 
       try {
-        switch (name) {
-          case "get_forms":
-            return await this.getForms(args);
-          
-          case "get_entries":
-            return await this.getEntries(args);
-          
-          case "submit_form":
-            return await this.submitForm(args);
-          
-          case "create_entry":
-            return await this.createEntry(args);
-          
-          case "update_entry":
-            return await this.updateEntry(args);
-          
-          case "delete_entry":
-            return await this.deleteEntry(args);
-          
-          case "create_form":
-            return await this.createForm(args);
-          
-          case "update_form":
-            return await this.updateForm(args);
-          
-          case "validate_form":
-            return await this.validateForm(args);
-          
-          case "export_entries_formatted":
-            return await this.exportEntriesFormatted(args);
-          
-          case "process_entries_bulk":
-            return await this.processEntriesBulk(args);
-          
-          case "list_form_templates":
-            return await this.listFormTemplates(args);
-          
-          case "save_form_as_template":
-            return await this.saveFormAsTemplate(args);
-          
-          case "create_form_from_template":
-            return await this.createFormFromTemplate(args);
-          
-          case "export_form_json":
-            return await this.exportFormJson(args);
-          
-          case "import_form_json":
-            return await this.importFormJson(args);
-          
-          case "clone_form_with_modifications":
-            return await this.cloneFormWithModifications(args);
-          
-          case "get_cache_status":
-            return await this.getCacheStatusTool();
-          
-          case "search_entries_by_name":
-            return await this.searchEntriesByName(args);
-          
-          case "search_entries_universal":
-            return await this.searchEntriesUniversal(args);
-          
-          case "get_field_mappings":
-            return await this.getFieldMappings(args);
-          
-          default:
-            throw new McpError(
-              ErrorCode.MethodNotFound,
-              `Unknown tool: ${name}`
-            );
-        }
+        return await this.dispatchTool(name, args);
       } catch (error) {
         if (error instanceof McpError) {
           throw error;
@@ -1110,6 +1041,79 @@ export class GravityFormsMCPServer {
         );
       }
     });
+  }
+
+  private async dispatchTool(name: string, args: any) {
+    switch (name) {
+      case "get_forms":
+        return this.getForms(args);
+
+      case "get_entries":
+        return this.getEntries(args);
+
+      case "submit_form":
+        return this.submitForm(args);
+
+      case "create_entry":
+        return this.createEntry(args);
+
+      case "update_entry":
+        return this.updateEntry(args);
+
+      case "delete_entry":
+        return this.deleteEntry(args);
+
+      case "create_form":
+        return this.createForm(args);
+
+      case "update_form":
+        return this.updateForm(args);
+
+      case "validate_form":
+        return this.validateForm(args);
+
+      case "export_entries_formatted":
+        return this.exportEntriesFormatted(args);
+
+      case "process_entries_bulk":
+        return this.processEntriesBulk(args);
+
+      case "list_form_templates":
+        return this.listFormTemplates(args);
+
+      case "save_form_as_template":
+        return this.saveFormAsTemplate(args);
+
+      case "create_form_from_template":
+        return this.createFormFromTemplate(args);
+
+      case "export_form_json":
+        return this.exportFormJson(args);
+
+      case "import_form_json":
+        return this.importFormJson(args);
+
+      case "clone_form_with_modifications":
+        return this.cloneFormWithModifications(args);
+
+      case "get_cache_status":
+        return this.getCacheStatusTool();
+
+      case "search_entries_by_name":
+        return this.searchEntriesByName(args);
+
+      case "search_entries_universal":
+        return this.searchEntriesUniversal(args);
+
+      case "get_field_mappings":
+        return this.getFieldMappings(args);
+
+      default:
+        throw new McpError(
+          ErrorCode.MethodNotFound,
+          `Unknown tool: ${name}`
+        );
+    }
   }
 
   /**
@@ -1348,141 +1352,22 @@ export class GravityFormsMCPServer {
   }
 
   /**
-   * Public method to list available tools (for testing)
-   */
-  listTools() {
-    return {
-      tools: [
-        {
-          name: "get_forms",
-          description: "Get all forms or specific form details",
-        },
-        {
-          name: "get_entries", 
-          description: "Get entries from forms with filtering and pagination",
-        },
-        {
-          name: "submit_form",
-          description: "Submit a form with field values",
-        },
-        {
-          name: "create_entry",
-          description: "Create a new entry directly (bypasses form validation)",
-        },
-        {
-          name: "update_entry",
-          description: "Update an existing entry",
-        },
-        {
-          name: "delete_entry", 
-          description: "Delete an entry (moves to trash by default)",
-        },
-        {
-          name: "create_form",
-          description: "Create a new form",
-        },
-        {
-          name: "validate_form",
-          description: "Validate form submission without saving",
-        },
-        {
-          name: "export_entries_formatted",
-          description: "Export entries from a form in CSV or JSON format with advanced formatting options",
-        },
-        {
-          name: "process_entries_bulk",
-          description: "Perform bulk operations on multiple entries (delete, update status, update fields)",
-        },
-        {
-          name: "list_form_templates",
-          description: "List all available form templates (forms with '-template' suffix)",
-        },
-        {
-          name: "save_form_as_template",
-          description: "Save an existing form as a reusable template",
-        },
-        {
-          name: "create_form_from_template",
-          description: "Create a new form from an existing template with optional field customizations",
-        },
-        {
-          name: "export_form_json",
-          description: "Export a complete form definition as JSON for backup, migration, or import purposes",
-        },
-        {
-          name: "import_form_json", 
-          description: "Import a form definition from JSON with automatic conflict resolution",
-        },
-        {
-          name: "clone_form_with_modifications",
-          description: "Clone an existing form with intelligent modifications including title changes and field label updates",
-        },
-        {
-          name: "get_cache_status",
-          description: "Get comprehensive FormCache status and statistics for monitoring and debugging",
-        },
-        {
-          name: "search_entries_by_name",
-          description: "Search form entries by name across all name fields automatically",
-        },
-        {
-          name: "search_entries_universal",
-          description: "Advanced multi-field search with custom targeting and strategies",
-        },
-        {
-          name: "get_field_mappings",
-          description: "Analyze form structure and show detected field types for debugging",
-        }
-      ]
-    };
-  }
-
-  /**
    * Public method to call tools (for testing)
    */
   async callTool(request: any) {
     const { name, arguments: args } = request.params;
-
     try {
-      switch (name) {
-        case "search_entries_by_name":
-          const result = await this.searchEntriesByName(args);
-          return {
-            isError: false,
-            ...result
-          };
-        
-        case "search_entries_universal":
-          const universalResult = await this.searchEntriesUniversal(args);
-          return {
-            isError: false,
-            ...universalResult
-          };
-        
-        case "get_field_mappings":
-          const mappingResult = await this.getFieldMappings(args);
-          return {
-            isError: false,
-            ...mappingResult
-          };
-        
-        default:
-          return {
-            isError: true,
-            content: [
-              {
-                type: "text",
-                text: `Tool ${name} not implemented in test interface`
-              }
-            ]
-          };
-      }
+      const result = await this.dispatchTool(name, args);
+      return {
+        isError: false,
+        ...result
+      };
     } catch (error) {
       return {
         isError: true,
         content: [
           {
-            type: "text", 
+            type: "text",
             text: error instanceof McpError ? error.message : `Error: ${error}`
           }
         ]
