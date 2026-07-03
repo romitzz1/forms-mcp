@@ -361,6 +361,27 @@ export class SearchResultsFormatter {
     return undefined;
   }
 
+  /**
+   * Scan the full entry data (not just the matched fields) for fields whose
+   * detected type matches the requested type. Search operations only match
+   * against the fields they searched (e.g. name search never touches email
+   * fields), so a field like email can be present on the entry without ever
+   * appearing in matchedFields. This lets extraction fall back to the full
+   * entry, keyed by the form's actual field mapping, instead of dropping it.
+   */
+  private findEntryFieldsByType(
+    entry: Record<string, any>,
+    fieldMapping: Record<string, FieldTypeInfo>,
+    type: FieldTypeInfo['fieldType']
+  ): Array<[string, string]> {
+    return Object.entries(entry).filter(
+      ([fieldId, value]) =>
+        typeof value === 'string' &&
+        value.trim() !== '' &&
+        this.resolveFieldType(fieldId, fieldMapping) === type
+    ) as Array<[string, string]>;
+  }
+
   private extractKeyFields(match: SearchMatch, fieldMapping: Record<string, FieldTypeInfo> = {}): Array<{ label: string; value: string }> {
     const entry = match.entryData;
     const matchedFields = match.matchedFields || {};
@@ -368,10 +389,14 @@ export class SearchResultsFormatter {
 
     // Prefer the actual matched fields, rendered using the form's field
     // mapping so name/email are found regardless of which field IDs the
-    // form happens to use.
+    // form happens to use. If the type wasn't among the matched fields
+    // (e.g. a name search never touches email fields), fall back to
+    // scanning the full entry by field mapping type before giving up to
+    // the legacy hardcoded field ID conventions.
     const nameMatches = Object.entries(matchedFields).filter(([fieldId]) => this.resolveFieldType(fieldId, fieldMapping) === 'name');
-    if (nameMatches.length > 0) {
-      nameMatches.forEach(([fieldId, value]) => {
+    const nameFields = nameMatches.length > 0 ? nameMatches : this.findEntryFieldsByType(entry, fieldMapping, 'name');
+    if (nameFields.length > 0) {
+      nameFields.forEach(([fieldId, value]) => {
         const label = fieldMapping[fieldId]?.label || fieldMapping[fieldId.split('.')[0]]?.label || 'Name';
         keyFields.push({ label, value: `${value} (field ${fieldId})` });
       });
@@ -388,8 +413,9 @@ export class SearchResultsFormatter {
     }
 
     const emailMatches = Object.entries(matchedFields).filter(([fieldId]) => this.resolveFieldType(fieldId, fieldMapping) === 'email');
-    if (emailMatches.length > 0) {
-      emailMatches.forEach(([fieldId, value]) => {
+    const emailFields = emailMatches.length > 0 ? emailMatches : this.findEntryFieldsByType(entry, fieldMapping, 'email');
+    if (emailFields.length > 0) {
+      emailFields.forEach(([fieldId, value]) => {
         const label = fieldMapping[fieldId]?.label || fieldMapping[fieldId.split('.')[0]]?.label || 'Email';
         keyFields.push({ label, value: `${value} (field ${fieldId})` });
       });
@@ -423,10 +449,13 @@ export class SearchResultsFormatter {
     const matchedFields = match.matchedFields || {};
     const entry = match.entryData;
 
-    // Prefer an actual matched field whose mapped type is 'name'.
+    // Prefer an actual matched field whose mapped type is 'name'. If the
+    // search didn't touch any name fields, fall back to scanning the full
+    // entry by field mapping type before giving up to legacy heuristics.
     const nameMatches = Object.entries(matchedFields).filter(([fieldId]) => this.resolveFieldType(fieldId, fieldMapping) === 'name');
-    if (nameMatches.length > 0) {
-      const combined = nameMatches.map(([, value]) => value).join(' ').trim();
+    const nameFields = nameMatches.length > 0 ? nameMatches : this.findEntryFieldsByType(entry, fieldMapping, 'name');
+    if (nameFields.length > 0) {
+      const combined = nameFields.map(([, value]) => value).join(' ').trim();
       if (combined) return combined;
     }
 
@@ -454,9 +483,15 @@ export class SearchResultsFormatter {
     const matchedFields = match.matchedFields || {};
     const entry = match.entryData;
 
-    // Prefer an actual matched field whose mapped type is 'email'.
+    // Prefer an actual matched field whose mapped type is 'email'. Email
+    // fields are never touched by a name-only search, so also fall back to
+    // scanning the full entry by field mapping type before giving up to
+    // legacy heuristics.
     const emailMatch = Object.entries(matchedFields).find(([fieldId]) => this.resolveFieldType(fieldId, fieldMapping) === 'email');
     if (emailMatch) return emailMatch[1];
+
+    const emailFromEntry = this.findEntryFieldsByType(entry, fieldMapping, 'email')[0];
+    if (emailFromEntry) return emailFromEntry[1];
 
     // Fall back to the legacy hardcoded email field IDs.
     for (const fieldId of this.COMMON_EMAIL_FIELDS) {

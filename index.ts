@@ -1756,11 +1756,18 @@ Consider using form templates or cloning for management.`;
       // so matched fields render by their actual detected type rather than
       // guessing from hardcoded field IDs.
       const formData = await this.makeRequest(`/forms/${form_id}`);
+      let fieldMapping: Record<string, FieldTypeInfo> = {};
+      try {
+        fieldMapping = this.fieldTypeDetector.analyzeFormFields(formData);
+      } catch {
+        // Degrade gracefully - matched fields still render, just without
+        // type-based labels/ordering.
+      }
       const formInfo: FormInfo = {
         id: form_id,
         title: formData.title || `Form ${form_id}`,
         fields: formData.fields || [],
-        fieldMapping: this.fieldTypeDetector.analyzeFormFields(formData)
+        fieldMapping
       };
 
       // Format results using SearchResultsFormatter
@@ -3340,16 +3347,13 @@ Consider using form templates or cloning for management.`;
       // Get form data for formatting context  
       const formData = await this.makeRequest(`/forms/${form_id}`);
 
-      // Transform UniversalSearchManager result to SearchResultsFormatter format
+      // Transform UniversalSearchManager result to SearchResultsFormatter format.
+      // entryData is kept as the full entry (not narrowed to matchedFields) so
+      // fields that weren't searched, e.g. email during a name search, are
+      // still available for the formatter to render. matchedFields stays on
+      // the match separately to indicate which fields actually matched.
       const transformedResult: FormattedSearchResult = {
-        matches: searchResult.matches.map(match => ({
-          ...match,
-          entryData: { 
-            id: match.entryId,
-            ...match.matchedFields,
-            form_id: form_id
-          }
-        })),
+        matches: searchResult.matches,
         totalFound: searchResult.totalFound,
         searchMetadata: {
           searchText: searchResult.searchMetadata.searchText,
@@ -3360,11 +3364,18 @@ Consider using form templates or cloning for management.`;
       };
 
       // Format results with SearchResultsFormatter
+      let fieldMapping: Record<string, FieldTypeInfo> = {};
+      try {
+        fieldMapping = this.fieldTypeDetector.analyzeFormFields(formData);
+      } catch {
+        // Degrade gracefully - matched fields still render, just without
+        // type-based labels/ordering.
+      }
       const formInfo: FormInfo = {
         id: formData.id,
         title: formData.title || `Form ${form_id}`,
         fields: formData.fields || [],
-        fieldMapping: this.fieldTypeDetector.analyzeFormFields(formData)
+        fieldMapping
       };
       
       const formattedResult = this.searchResultsFormatter.formatSearchResults(
@@ -3725,16 +3736,13 @@ Consider using form templates or cloning for management.`;
         }
       }
 
-      // Transform to SearchResultsFormatter format
+      // Transform to SearchResultsFormatter format. entryData is kept as the
+      // full entry (not narrowed to matchedFields) so fields that weren't
+      // searched, e.g. email during a name search, are still available for
+      // the formatter to render. matchedFields stays on the match separately
+      // to indicate which fields actually matched.
       const transformedResult: FormattedSearchResult = {
-        matches: combinedResults.matches.map((match: any) => ({
-          ...match,
-          entryData: { 
-            id: match.entryId,
-            ...match.matchedFields,
-            form_id: form_id
-          }
-        })),
+        matches: combinedResults.matches,
         totalFound: combinedResults.totalFound,
         searchMetadata: {
           searchText: `${search_queries.length} queries with ${searchLogic} logic`,
