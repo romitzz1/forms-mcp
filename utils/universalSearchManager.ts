@@ -412,7 +412,10 @@ export class UniversalSearchManager {
     private getOperatorForStrategy(strategy: SearchStrategy): string {
         switch (strategy) {
             case 'exact':
-                return '=';
+                // 'is' is the Gravity Forms operator for exact equality. '=' is NOT in the
+                // API's valid operator set (is/isnot/contains/>/</>=/<=) — it is either
+                // rejected or silently ignored, breaking short exact searches (audit A9).
+                return 'is';
             case 'contains':
             case 'fuzzy': // Fuzzy search uses contains for now
             case 'auto':

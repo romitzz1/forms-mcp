@@ -135,13 +135,16 @@ describe('UniversalSearchManager', () => {
         it('should handle exact search strategy', async () => {
             await searchManager.searchByName('193', 'John Smith', { strategy: 'exact' });
 
+            // Exact strategy must emit 'is' — the Gravity Forms operator for exact
+            // equality — not '=', which is not in the API's valid operator set and is
+            // either rejected or silently ignored (audit A9).
             expect(mockApiClient.searchEntries).toHaveBeenCalledWith(
                 '193',
                 expect.objectContaining({
                     field_filters: expect.arrayContaining([
-                        { key: '52', value: 'John Smith', operator: '=' },
-                        { key: '1.3', value: 'John Smith', operator: '=' },
-                        { key: '1.6', value: 'John Smith', operator: '=' }
+                        { key: '52', value: 'John Smith', operator: 'is' },
+                        { key: '1.3', value: 'John Smith', operator: 'is' },
+                        { key: '1.6', value: 'John Smith', operator: 'is' }
                     ])
                 })
             );
@@ -287,7 +290,7 @@ describe('UniversalSearchManager', () => {
             ];
 
             const exactFilters = searchManager.buildFieldFilters(fields, 'John Smith', 'exact');
-            expect(exactFilters[0].operator).toBe('=');
+            expect(exactFilters[0].operator).toBe('is'); // 'is' = GF exact-equality operator, not '=' (audit A9)
 
             const containsFilters = searchManager.buildFieldFilters(fields, 'John', 'contains');
             expect(containsFilters[0].operator).toBe('contains');
