@@ -187,6 +187,18 @@ npm run dev
 
 The server runs on stdio and can be connected to by MCP clients.
 
+### Running as a Central HTTP Server
+
+Prefer one server for the whole team instead of a process per client? Set `MCP_TRANSPORT=http` and the server swaps stdio for a shared HTTP endpoint.
+
+```bash
+MCP_TRANSPORT=http
+MCP_AUTH_TOKEN=a-long-random-string   # required — the server refuses to start without it
+MCP_HTTP_PORT=9807                    # optional, this is the default
+```
+
+Clients connect to `http://<host>:9807/mcp` with an `Authorization: Bearer <token>` header instead of spawning a local process. This is a single shared token, not full OAuth, so it's meant for a private network or VPN, not the open internet.
+
 ### Available Tools
 
 #### `get_forms`
