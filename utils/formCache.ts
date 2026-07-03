@@ -1327,6 +1327,7 @@ export class FormCache {
           title: form.title,
           entry_count: form.entry_count,
           is_active: form.is_active,
+          is_trash: form.is_trash,
           form_data: form.form_data
         });
       } else {
@@ -1766,6 +1767,7 @@ export class FormCache {
             title: form.title,
             entry_count: form.entry_count,
             is_active: form.is_active,
+            is_trash: form.is_trash,
             form_data: form.form_data
           });
           updated++;

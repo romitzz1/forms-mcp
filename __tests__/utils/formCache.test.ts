@@ -1254,6 +1254,25 @@ describe('FormCache', () => {
         expect(result.error).toBeUndefined();
       });
 
+      it('should refresh is_trash when re-probing an existing form (audit A6)', async () => {
+        // Form 42 cached as not-trashed
+        await formCache.insertForm({ id: 42, title: 'Form 42', is_active: true, is_trash: false });
+
+        // Admin trashes it upstream; a re-probe re-fetches with is_trash="1"
+        const mockApiCall = jest.fn().mockResolvedValue({
+          id: '42',
+          title: 'Form 42',
+          is_active: '1',
+          is_trash: '1',
+          entries: []
+        });
+
+        await formCache.probeFormById(42, mockApiCall);
+
+        const cached = await formCache.getForm(42);
+        expect(cached?.is_trash).toBe(true); // previously stayed false forever
+      });
+
       it('should handle 404 response (form not found)', async () => {
         const mockApiCall = jest.fn().mockRejectedValue(new Error('404 Not Found'));
         
