@@ -21,7 +21,11 @@ export function estimateEntriesResponseSize(entries: any[]): number {
 
   for (let i = 0; i < sampleSize; i++) {
     try {
-      const entryJson = JSON.stringify(entries[i]);
+      // Sample with indent-2 to match the ACTUAL response, which is emitted via
+      // JSON.stringify(processedEntries, null, 2). Sampling compact JSON here undercounts
+      // pretty-printed output by 30-50% for entries with many fields, so the size guard
+      // could classify a payload as 'full' that actually overflows the token budget (audit A11).
+      const entryJson = JSON.stringify(entries[i], null, 2);
       totalSampleSize += entryJson.length;
     } catch {
       // Fallback: estimate by field count and typical values

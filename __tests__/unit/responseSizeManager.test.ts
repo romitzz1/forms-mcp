@@ -3,6 +3,7 @@
 
 import {
   estimateTokenCount,
+  estimateEntriesResponseSize,
   createEntrySummary,
   createFormSummary,
 } from '../../utils/responseSizeManager';
@@ -11,6 +12,30 @@ describe('responseSizeManager', () => {
   describe('estimateTokenCount', () => {
     it('returns 0 for an empty string', () => {
       expect(estimateTokenCount('')).toBe(0);
+    });
+  });
+
+  describe('estimateEntriesResponseSize', () => {
+    it('returns 0 for empty input', () => {
+      expect(estimateEntriesResponseSize([])).toBe(0);
+    });
+
+    it('estimate tracks the pretty-printed output size, not compact JSON (audit A11)', () => {
+      // Many fields with SHORT values — the case where indentation/newlines dominate and
+      // pretty-printing is dramatically larger than compact JSON (real GF entries with lots
+      // of small input_x cells). This is where compact sampling most badly undercounts.
+      const entries = Array.from({ length: 40 }, (_, i) => {
+        const e: Record<string, string> = { id: String(i), form_id: '1' };
+        for (let f = 1; f <= 40; f++) e[`input_${f}`] = '1';
+        return e;
+      });
+
+      // The response is emitted with JSON.stringify(entries, null, 2), so the estimate must
+      // approximate the PRETTY size. Compact sampling undercounts it substantially here.
+      const actualPrettyTokens = estimateTokenCount(JSON.stringify(entries, null, 2));
+      const estimate = estimateEntriesResponseSize(entries);
+
+      expect(estimate).toBeGreaterThanOrEqual(Math.floor(actualPrettyTokens * 0.9));
     });
   });
 
