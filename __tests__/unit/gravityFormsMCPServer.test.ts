@@ -403,15 +403,15 @@ describe('GravityFormsMCPServer', () => {
       const buildCachedForms = () => [
         {
           id: 10, title: 'Beta Form', entry_count: 5, is_active: true, is_trash: false,
-          form_data: JSON.stringify({ date_created: '2026-01-15 10:00:00' })
+          form_data: '{}', date_created: '2026-01-15 10:00:00'
         },
         {
           id: 20, title: 'Alpha Form', entry_count: 50, is_active: false, is_trash: false,
-          form_data: JSON.stringify({ date_created: '2026-03-20 12:00:00' })
+          form_data: '{}', date_created: '2026-03-20 12:00:00'
         },
         {
           id: 30, title: 'Gamma Form', entry_count: 1, is_active: true, is_trash: false,
-          form_data: JSON.stringify({ date_created: '2026-02-10 09:00:00' })
+          form_data: '{}', date_created: '2026-02-10 09:00:00'
         }
       ];
 
@@ -428,7 +428,7 @@ describe('GravityFormsMCPServer', () => {
         return JSON.parse(text.slice(text.indexOf('[')));
       };
 
-      it('should include date_created extracted from cached form_data', async () => {
+      it('should include date_created from the cache column', async () => {
         mockFreshCache(buildCachedForms());
         const result = await server.getForms({ include_all: true });
         const forms = parseForms(result);
@@ -436,7 +436,7 @@ describe('GravityFormsMCPServer', () => {
         expect(beta.date_created).toBe('2026-01-15 10:00:00');
       });
 
-      it('should default date_created to null when form_data lacks it', async () => {
+      it('should default date_created to null when the cache column is empty', async () => {
         mockFreshCache([
           { id: 40, title: 'No Date Form', entry_count: 0, is_active: true, is_trash: false, form_data: JSON.stringify({}) }
         ]);
