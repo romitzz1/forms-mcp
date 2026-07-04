@@ -6,6 +6,30 @@ import type Database from 'better-sqlite3';
 
 const CURRENT_SCHEMA_VERSION = 3;
 
+/**
+ * Parse a timestamp stored by SQLite's CURRENT_TIMESTAMP into epoch milliseconds.
+ * Those values are naive UTC ("YYYY-MM-DD HH:MM:SS") — `new Date(str)` would parse
+ * them in the host's local timezone, so on any non-UTC machine last_synced reads
+ * hours off (e.g. in the future under UTC-4), breaking cache-age comparisons.
+ * Appending the ISO "T"/"Z" markers forces UTC parsing. Values already in ISO-8601
+ * form (containing a "T") are passed through unchanged.
+ */
+export function parseDbTimestamp(ts: string): number {
+  const iso = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(ts)
+    ? ts.replace(' ', 'T') + 'Z'
+    : ts;
+  return new Date(iso).getTime();
+}
+
+/**
+ * Format epoch milliseconds as SQLite's naive-UTC timestamp ("YYYY-MM-DD HH:MM:SS")
+ * so it compares correctly (lexically and temporally) against stored last_synced
+ * values in SQL WHERE clauses.
+ */
+export function formatDbTimestamp(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
+}
+
 // =====================================
 // Step 14: Error Classification System
 // =====================================
@@ -1790,7 +1814,7 @@ export class FormCache {
       }
       
       // Check if individual form is stale (use configured cache age)
-      const lastSync = new Date(existing.last_synced).getTime();
+      const lastSync = parseDbTimestamp(existing.last_synced);
       const now = Date.now();
       const cacheAge = now - lastSync;
       
@@ -2063,8 +2087,8 @@ export class FormCache {
       SELECT MAX(last_synced) as last_sync FROM forms
     `).get() as { last_sync: string | null };
 
-    const lastSyncTime = lastSyncResult.last_sync ? new Date(lastSyncResult.last_sync) : null;
-    
+    const lastSyncTime = lastSyncResult.last_sync ? new Date(parseDbTimestamp(lastSyncResult.last_sync)) : null;
+
     // Calculate cache age and determine if sync needed
     const now = Date.now();
     const cacheAge = lastSyncTime ? now - lastSyncTime.getTime() : Infinity;
@@ -2108,7 +2132,7 @@ export class FormCache {
       return true;
     }
 
-    const lastSyncTime = new Date(lastSyncResult.last_sync).getTime();
+    const lastSyncTime = parseDbTimestamp(lastSyncResult.last_sync);
     const now = Date.now();
     const cacheAge = now - lastSyncTime;
 
@@ -2169,9 +2193,9 @@ export class FormCache {
       newest_entry: string | null;
     };
 
-    const lastSync = syncStatsResult.last_sync ? new Date(syncStatsResult.last_sync) : null;
-    const oldestEntry = syncStatsResult.oldest_entry ? new Date(syncStatsResult.oldest_entry) : null;
-    const newestEntry = syncStatsResult.newest_entry ? new Date(syncStatsResult.newest_entry) : null;
+    const lastSync = syncStatsResult.last_sync ? new Date(parseDbTimestamp(syncStatsResult.last_sync)) : null;
+    const oldestEntry = syncStatsResult.oldest_entry ? new Date(parseDbTimestamp(syncStatsResult.oldest_entry)) : null;
+    const newestEntry = syncStatsResult.newest_entry ? new Date(parseDbTimestamp(syncStatsResult.newest_entry)) : null;
 
     return {
       totalForms,
@@ -2192,10 +2216,12 @@ export class FormCache {
     }
 
     const db = this.getDatabase();
-    const cutoffTime = new Date(Date.now() - maxAge).toISOString();
+    // Compare against a naive-UTC cutoff matching the stored last_synced format;
+    // an ISO string (with "T") would sort/compare incorrectly against those values.
+    const cutoffTime = formatDbTimestamp(Date.now() - maxAge);
 
     const result = db.prepare(`
-      DELETE FROM forms 
+      DELETE FROM forms
       WHERE last_synced < ?
     `).run(cutoffTime);
 
