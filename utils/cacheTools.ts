@@ -110,29 +110,25 @@ export async function getForms(ctx: FormsCacheToolContext, args: any) {
 
         // Transform cached form data to match API format
         let formsData = allForms.map(form => {
-          // Parse the cached form JSON once: it carries date_created (not stored as
-          // its own cache column) and, when requested, the full field definitions.
-          let parsedData: any = null;
-          if (form.form_data) {
-            try {
-              parsedData = JSON.parse(form.form_data);
-            } catch {
-              parsedData = null;
-            }
-          }
-
           const baseForm = {
             id: form.id.toString(),
             title: form.title,
             entry_count: form.entry_count,
             is_active: form.is_active ? '1' : '0',
             is_trash: form.is_trash ? '1' : '0',
-            date_created: parsedData?.date_created ?? null
+            // Read from the dedicated column, backfilled from full form definitions.
+            date_created: form.date_created ?? null
           };
 
-          // Include full form data when include_fields is true
-          if (include_fields && parsedData) {
-            return { ...baseForm, ...parsedData };
+          // Include full field definitions when requested (parsed from cached
+          // form_data). Keep date_created from the column authoritative.
+          if (include_fields && form.form_data) {
+            try {
+              const parsedData = JSON.parse(form.form_data);
+              return { ...baseForm, ...parsedData, date_created: form.date_created ?? parsedData?.date_created ?? null };
+            } catch {
+              return baseForm;
+            }
           }
 
           return baseForm;
