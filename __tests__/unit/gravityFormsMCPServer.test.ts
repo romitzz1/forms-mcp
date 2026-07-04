@@ -296,48 +296,28 @@ describe('GravityFormsMCPServer', () => {
         expect((global as any).fetch).not.toHaveBeenCalled(); // No API call
       });
 
-      it('should perform sync when include_all=true but cache is stale', async () => {
-        const mockApiResponse = [
-          { id: '1', title: 'API Form 1', is_active: '1' }
-        ];
-
-        const mockCachedFormsAfterSync = [
+      it('should trigger a background refresh when stale and return cached forms immediately', async () => {
+        // Stale-while-revalidate: the tool call must NOT block on a sync; it triggers
+        // a background refresh and returns whatever is cached now (incl. hidden forms).
+        const mockCachedForms = [
           { id: 1, title: 'API Form 1', is_active: true },
-          { id: 2, title: 'Hidden Form 2', is_active: false } // Found via sync
+          { id: 2, title: 'Hidden Form 2', is_active: false }
         ];
-
-        // Mock cache as stale, then fresh after sync
         server.formCache = {
           isReady: jest.fn().mockReturnValue(true),
-          isStale: jest.fn()
-            .mockResolvedValueOnce(true)  // First call: stale
-            .mockResolvedValueOnce(false), // After sync: fresh
-          performHybridSync: jest.fn().mockResolvedValue({
-            discovered: 2,
-            updated: 0,
-            errors: []
-          }),
-          getAllForms: jest.fn().mockResolvedValue(mockCachedFormsAfterSync)
+          isStale: jest.fn().mockResolvedValue(true),
+          syncInBackground: jest.fn(),
+          getAllForms: jest.fn().mockResolvedValue(mockCachedForms)
         };
 
-        // Mock API call for sync
-        (global as any).fetch.mockResolvedValueOnce({
-          ok: true,
-          json: async () => mockApiResponse
-        });
-
         const result = await server.getForms({ include_all: true });
-        
-        expect(server.formCache.performHybridSync).toHaveBeenCalledTimes(1);
+
+        expect(server.formCache.syncInBackground).toHaveBeenCalledTimes(1);
         expect(server.formCache.getAllForms).toHaveBeenCalledTimes(1);
-        expect(result.content[0].text).toContain('Hidden Form 2'); // Should include hidden forms
+        expect(result.content[0].text).toContain('Hidden Form 2'); // cached forms returned now
       });
 
       it('should initialize cache if not ready', async () => {
-        const mockApiResponse = [
-          { id: '1', title: 'API Form', is_active: '1' }
-        ];
-
         const mockCachedForms = [
           { id: 1, title: 'API Form', is_active: true }
         ];
@@ -349,40 +329,53 @@ describe('GravityFormsMCPServer', () => {
             .mockReturnValueOnce(true), // After init: ready
           init: jest.fn().mockResolvedValue(undefined),
           isStale: jest.fn().mockResolvedValue(true),
-          performHybridSync: jest.fn().mockResolvedValue({
-            discovered: 1,
-            updated: 0,
-            errors: []
-          }),
+          syncInBackground: jest.fn(),
           getAllForms: jest.fn().mockResolvedValue(mockCachedForms)
         };
 
-        // Mock API call
-        (global as any).fetch.mockResolvedValueOnce({
-          ok: true,
-          json: async () => mockApiResponse
-        });
-
         const result = await server.getForms({ include_all: true });
-        
+
         expect(server.formCache.init).toHaveBeenCalledTimes(1);
-        expect(server.formCache.performHybridSync).toHaveBeenCalledTimes(1);
+        expect(server.formCache.syncInBackground).toHaveBeenCalledTimes(1);
         expect(result.content[0].text).toContain('API Form');
       });
 
-      it('should handle sync failures gracefully', async () => {
+      it('falls back to the /forms API while the cache is cold (first sync warming)', async () => {
+        // Cold cache: getAllForms is empty because the first discovery sync is still
+        // running in the background. Rather than an empty list, fall back to a direct
+        // /forms call so the caller gets active forms immediately.
         server.formCache = {
           isReady: jest.fn().mockReturnValue(true),
           isStale: jest.fn().mockResolvedValue(true),
-          performHybridSync: jest.fn().mockRejectedValue(new Error('Sync failed')),
+          syncInBackground: jest.fn(),
           getAllForms: jest.fn().mockResolvedValue([])
         };
+        (global as any).fetch.mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ '1': { id: '1', title: 'Active Form', is_active: '1' } })
+        });
 
         const result = await server.getForms({ include_all: true });
-        
-        expect(result.content[0].text).toContain('Error accessing complete form cache');
-        expect(result.content[0].text).toContain('Sync failed');
-        expect(server.formCache.performHybridSync).toHaveBeenCalledTimes(1);
+
+        expect(server.formCache.syncInBackground).toHaveBeenCalledTimes(1);
+        expect(result.content[0].text).toContain('warming up in the background');
+        expect(result.content[0].text).toContain('Active Form');
+      });
+
+      it('does not show the warming note for a genuinely empty site', async () => {
+        // Empty cache + empty API => the site truly has no forms; the "warming up"
+        // note (which never converges on an always-stale empty cache) must not show.
+        server.formCache = {
+          isReady: jest.fn().mockReturnValue(true),
+          isStale: jest.fn().mockResolvedValue(true),
+          syncInBackground: jest.fn(),
+          getAllForms: jest.fn().mockResolvedValue([])
+        };
+        (global as any).fetch.mockResolvedValueOnce({ ok: true, json: async () => ({}) });
+
+        const result = await server.getForms({ include_all: true });
+
+        expect(result.content[0].text).not.toContain('warming up');
       });
 
       it('should handle cache initialization failures', async () => {
