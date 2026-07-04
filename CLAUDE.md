@@ -8,7 +8,7 @@ Claude's name in this project is "TurboMan", and likes to talk about itself in t
 
 This is an **Enhanced** Model Context Protocol (MCP) server that provides comprehensive tools for interacting with Gravity Forms through its REST API v2. The server enables AI assistants and MCP clients to manage WordPress Gravity Forms with advanced capabilities including bulk operations, template management, data export, and form import/export functionality.
 
-21 MCP tools are registered via the MCP SDK's `McpServer.registerTool` with hand-authored Zod input schemas (`utils/toolSchemas.ts`). The user-facing README documents them grouped by purpose; see "Architecture" below for where each tool's handler logic lives.
+20 MCP tools are registered via the MCP SDK's `McpServer.registerTool` with hand-authored Zod input schemas (`utils/toolSchemas.ts`). The user-facing README documents them grouped by purpose; see "Architecture" below for where each tool's handler logic lives.
 
 ## Development Commands
 
@@ -51,7 +51,7 @@ Node.js 24+ is required (`.nvmrc` and `package.json` `engines` both pin `>=24.0.
 ### Entry points
 
 - **`cli.ts`** — the executable entry point. `package.json`'s `main`/`bin`/`start`/`dev` scripts all point at the compiled `dist/cli.js`. It exists as a separate file from `index.ts` so that importing the library (e.g. under Jest) never auto-starts a server.
-- **`index.ts`** — a ~657-line library module exporting `class GravityFormsMCPServer`. It owns configuration loading, cache lifecycle, and tool dispatch, but delegates most tool *logic* to the per-cluster modules below. It builds an `McpServer` (from `@modelcontextprotocol/sdk/server/mcp.js`), registers all 21 tools from `TOOL_SCHEMAS` in a loop, and dispatches each call by name to a handler method.
+- **`index.ts`** — a ~657-line library module exporting `class GravityFormsMCPServer`. It owns configuration loading, cache lifecycle, and tool dispatch, but delegates most tool *logic* to the per-cluster modules below. It builds an `McpServer` (from `@modelcontextprotocol/sdk/server/mcp.js`), registers all 20 tools from `TOOL_SCHEMAS` in a loop, and dispatches each call by name to a handler method.
 
 This is a migration away from the older, low-level `Server` + manual `ListTools`/`CallTool` request-handler pattern — the SDK's `McpServer.registerTool` now owns schema registration, and Zod schemas replace hand-written JSON Schema.
 
@@ -60,7 +60,7 @@ This is a migration away from the older, low-level `Server` + manual `ListTools`
 Each module exports plain functions that take a small dependency-injection object (e.g. `{ makeRequest, ... }`) plus the tool's `args`, so they're testable without instantiating the whole server:
 
 - `utils/entryCrudTools.ts` — `submit_form`, `create_entry`, `update_entry`, `delete_entry`
-- `utils/formsTools.ts` — `create_form`, `update_form`, `validate_form`
+- `utils/formsTools.ts` — `create_form`, `update_form`
 - `utils/exportTools.ts` — `export_entries_formatted`, `export_form_json`
 - `utils/bulkTools.ts` — `process_entries_bulk`
 - `utils/templateTools.ts` — `save_form_as_template`, `create_form_from_template`, `clone_form_with_modifications`, `import_form_json`
@@ -71,7 +71,7 @@ Each module exports plain functions that take a small dependency-injection objec
 
 ### Shared core
 
-- `utils/toolSchemas.ts` — `TOOL_SCHEMAS`: Zod input schemas + descriptions for all 21 tools; this is the single source of truth for tool names, inputs, and registered descriptions. Verified against the original hand-written JSON schemas by `toolSchemas.test.ts`.
+- `utils/toolSchemas.ts` — `TOOL_SCHEMAS`: Zod input schemas + descriptions for all 20 tools; this is the single source of truth for tool names, inputs, and registered descriptions. Verified against the original hand-written JSON schemas by `toolSchemas.test.ts`.
 - `utils/gravityFormsClient.ts` — `GravityFormsClient`: HTTP client for the Gravity Forms REST API v2 (auth headers + request execution), isolating transport concerns from tool handlers.
 - `utils/responseSizeManager.ts` — token/size estimation and entry/form summarization helpers, used to keep large responses from overflowing model context.
 - `utils/cacheTypes.ts` — shared `ICacheConfig`/`ICacheStatus` interfaces used by `index.ts` and `cacheTools.ts`.

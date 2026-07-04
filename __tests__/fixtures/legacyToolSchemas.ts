@@ -221,20 +221,6 @@ export const LEGACY_TOOL_SCHEMAS: Record<string, any> = {
     },
     required: ["form_id"]
   },
-  validate_form: {
-    type: "object",
-    properties: {
-      form_id: {
-        type: "string",
-        description: "Form ID to validate against"
-      },
-      field_values: {
-        type: "object",
-        description: "Field values to validate"
-      }
-    },
-    required: ["form_id", "field_values"]
-  },
   export_entries_formatted: {
     type: "object",
     properties: {

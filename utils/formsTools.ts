@@ -1,4 +1,4 @@
-// ABOUTME: Forms-CRUD MCP tool handlers (create_form, update_form, validate_form)
+// ABOUTME: Forms-CRUD MCP tool handlers (create_form, update_form)
 // ABOUTME: Extracted from GravityFormsMCPServer to isolate handler logic from server infrastructure
 
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
@@ -333,11 +333,4 @@ function mergeFieldProperties(existing: Record<string, unknown>, updates: Record
 
   // Default shallow merge for other properties
   return { ...existing, ...updates };
-}
-
-export async function validateForm(ctx: FormsToolContext, args: any): Promise<{ content: Array<{ type: string; text: string }> }> {
-  throw new McpError(
-    ErrorCode.InternalError,
-    'validate_form is not currently functional: the Gravity Forms REST API v2 does not provide a validation-only endpoint. Use submit_form to test submissions, or inspect the form fields with get_forms (include_fields=true) to check required fields and validation rules.'
-  );
 }

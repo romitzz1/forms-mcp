@@ -1,4 +1,4 @@
-// ABOUTME: Zod input schemas + descriptions for all 21 MCP tools (McpServer registerTool)
+// ABOUTME: Zod input schemas + descriptions for all 20 MCP tools (McpServer registerTool)
 // ABOUTME: Faithful conversion of the original JSON inputSchemas; verified by toolSchemas.test.ts
 import { z } from "zod";
 
@@ -138,14 +138,6 @@ export const TOOL_SCHEMAS: Record<string, { description: string; inputSchema: z.
         .describe("Response format (detailed, compact, or minimal)")
         .optional(),
       debug: z.boolean().describe("Enable debug logging for troubleshooting").optional(),
-    },
-  },
-
-  validate_form: {
-    description: "Validate form submission without saving",
-    inputSchema: {
-      form_id: z.string().describe("Form ID to validate against"),
-      field_values: z.record(z.string(), z.unknown()).describe("Field values to validate"),
     },
   },
 

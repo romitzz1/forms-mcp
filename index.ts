@@ -29,7 +29,6 @@ import {
 import {
   createForm as createFormHandler,
   updateForm as updateFormHandler,
-  validateForm as validateFormHandler,
 } from "./utils/formsTools.js";
 import {
   exportEntriesFormatted as exportEntriesFormattedHandler,
@@ -331,9 +330,6 @@ export class GravityFormsMCPServer {
       case "update_form":
         return this.updateForm(args);
 
-      case "validate_form":
-        return this.validateForm(args);
-
       case "export_entries_formatted":
         return this.exportEntriesFormatted(args);
 
@@ -475,10 +471,6 @@ export class GravityFormsMCPServer {
 
   private async updateForm(args: any) {
     return updateFormHandler({ makeRequest: (endpoint, method, body) => this.makeRequest(endpoint, method, body) }, args);
-  }
-
-  private async validateForm(args: any): Promise<{ content: Array<{ type: string; text: string }> }> {
-    return validateFormHandler({ makeRequest: (endpoint, method, body) => this.makeRequest(endpoint, method, body) }, args);
   }
 
   private async exportEntriesFormatted(args: any) {
