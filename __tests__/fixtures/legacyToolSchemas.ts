@@ -201,10 +201,6 @@ export const LEGACY_TOOL_SCHEMAS: Record<string, any> = {
         type: "object",
         description: "Form notifications"
       },
-      partial_update: {
-        type: "boolean",
-        description: "Enable partial updates (only update provided fields). IMPORTANT: When false (default), both title and fields are required — missing fields will be removed from the form. Set to true to safely update individual properties without affecting others."
-      },
       validate_fields: {
         type: "boolean",
         description: "Validate field types before updating"

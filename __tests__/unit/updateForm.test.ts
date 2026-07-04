@@ -62,12 +62,12 @@ describe('Update Form Tool', () => {
     });
 
     it('should have correct tool description', () => {
-      expect(TOOL_SCHEMAS.update_form.description).toBe('Update an existing form');
+      expect(TOOL_SCHEMAS.update_form.description).toBe('Replace an existing form with a full form definition. Both title and fields are required — the form is fully replaced, so any fields omitted from the payload will be removed.');
     });
 
     it('should have correct required parameters in input schema', () => {
       const generated: any = zodToJsonSchema(z.object(TOOL_SCHEMAS.update_form.inputSchema), { target: 'jsonSchema7' });
-      // With advanced features, only form_id is required (supports partial updates)
+      // form_id is the only schema-level required property; title/fields are validated at runtime
       expect(generated.required).toEqual(expect.arrayContaining(['form_id']));
       expect(generated.required).toHaveLength(1);
     });
@@ -392,100 +392,6 @@ describe('Update Form Tool', () => {
       global.fetch = mockFetch;
     });
 
-    describe('Partial Updates', () => {
-      it('should support updating only title (partial update)', async () => {
-        const { GravityFormsMCPServer } = require('../../index');
-        const server = new GravityFormsMCPServer();
-        
-        // Mock the form retrieval first to get existing form
-        global.fetch
-          .mockResolvedValueOnce({
-            ok: true,
-            json: () => Promise.resolve({
-              id: "1",
-              title: "Old Title",
-              fields: [{ type: "text", label: "Existing Field" }],
-              description: "Existing description"
-            })
-          })
-          .mockResolvedValueOnce({
-            ok: true,
-            json: () => Promise.resolve({
-              id: "1",
-              title: "New Title",
-              fields: [{ type: "text", label: "Existing Field" }],
-              description: "Existing description"
-            })
-          });
-
-        const partialUpdateData = {
-          form_id: "1",
-          title: "New Title",
-          partial_update: true
-        };
-
-        const response = await server.updateForm(partialUpdateData);
-
-        expect(response.content[0].text).toContain('New Title');
-        expect(global.fetch).toHaveBeenCalledTimes(2);
-        // First call should be GET to retrieve existing form
-        expect(global.fetch).toHaveBeenNthCalledWith(1, expect.stringContaining('/forms/1'), expect.objectContaining({
-          method: 'GET'
-        }));
-      });
-
-      it('should support updating only fields (partial update)', async () => {
-        const { GravityFormsMCPServer } = require('../../index');
-        const server = new GravityFormsMCPServer();
-        
-        const newFields = [{ type: "email", label: "New Email Field" }];
-        
-        // Mock the form retrieval and update
-        global.fetch
-          .mockResolvedValueOnce({
-            ok: true,
-            json: () => Promise.resolve({
-              id: "1",
-              title: "Existing Title", 
-              fields: [{ type: "text", label: "Old Field" }],
-              description: "Existing description"
-            })
-          })
-          .mockResolvedValueOnce({
-            ok: true,
-            json: () => Promise.resolve({
-              id: "1",
-              title: "Existing Title",
-              fields: newFields,
-              description: "Existing description"
-            })
-          });
-
-        const partialUpdateData = {
-          form_id: "1",
-          fields: newFields,
-          partial_update: true
-        };
-
-        const response = await server.updateForm(partialUpdateData);
-
-        expect(response.content[0].text).toContain('New Email Field');
-        expect(global.fetch).toHaveBeenCalledTimes(2);
-      });
-
-      it('should require form_id even for partial updates', async () => {
-        const { GravityFormsMCPServer } = require('../../index');
-        const server = new GravityFormsMCPServer();
-
-        const partialUpdateData = {
-          title: "New Title",
-          partial_update: true
-        };
-
-        await expect(server.updateForm(partialUpdateData)).rejects.toThrow('form_id is required');
-      });
-    });
-
     describe('Field Type Validation', () => {
       it('should warn about unknown field types when validate_fields option is enabled', async () => {
         const { GravityFormsMCPServer } = require('../../index');
@@ -698,49 +604,6 @@ describe('Update Form Tool', () => {
         expect(requestBody.notifications).toEqual({ 1: { to: "newemail@test.com" } });
       });
 
-      it('should preserve existing settings when not provided', async () => {
-        const { GravityFormsMCPServer } = require('../../index');
-        const server = new GravityFormsMCPServer();
-
-        // Mock existing form with settings
-        global.fetch
-          .mockResolvedValueOnce({
-            ok: true,
-            json: () => Promise.resolve({
-              id: "1",
-              title: "Old Title",
-              fields: [{ type: "text", label: "Old Field" }],
-              confirmations: { 1: { message: "Existing confirmation" } },
-              notifications: { 1: { to: "existing@test.com" } }
-            })
-          })
-          .mockResolvedValueOnce({
-            ok: true,
-            json: () => Promise.resolve({
-              id: "1",
-              title: "New Title",
-              fields: [{ type: "text", label: "Old Field" }],
-              confirmations: { 1: { message: "Existing confirmation" } },
-              notifications: { 1: { to: "existing@test.com" } }
-            })
-          });
-
-        const updateData = {
-          form_id: "1",
-          title: "New Title",
-          partial_update: true
-        };
-
-        const response = await server.updateForm(updateData);
-        
-        expect(response.content[0].text).toContain('New Title');
-        
-        // Verify existing settings were preserved in the PUT request
-        const putCall = global.fetch.mock.calls.find(call => call[1].method === 'PUT');
-        const requestBody = JSON.parse(putCall[1].body);
-        expect(requestBody.confirmations).toEqual({ 1: { message: "Existing confirmation" } });
-        expect(requestBody.notifications).toEqual({ 1: { to: "existing@test.com" } });
-      });
     });
 
     describe('Logging and Debugging', () => {
@@ -928,62 +791,6 @@ describe('Update Form Tool', () => {
         );
       });
 
-      it('should update only specific fields with partial update', async () => {
-        const { GravityFormsMCPServer } = require('../../index');
-        const server = new GravityFormsMCPServer();
-
-        // Mock GET request for existing form
-        global.fetch
-          .mockResolvedValueOnce({
-            ok: true,
-            json: () => Promise.resolve({
-              id: "2",
-              title: "Original Title",
-              description: "Original description",
-              fields: [
-                { type: "text", id: 1, label: "Original Field" }
-              ],
-              confirmations: { "1": { message: "Original confirmation" } },
-              notifications: { "1": { to: "original@test.com" } }
-            })
-          })
-          .mockResolvedValueOnce({
-            ok: true,
-            json: () => Promise.resolve({
-              id: "2", 
-              title: "Updated Title Only",
-              description: "Original description",
-              fields: [
-                { type: "text", id: 1, label: "Original Field" }
-              ],
-              confirmations: { "1": { message: "Original confirmation" } },
-              notifications: { "1": { to: "original@test.com" } }
-            })
-          });
-
-        const partialUpdateData = {
-          form_id: "2",
-          title: "Updated Title Only",
-          partial_update: true
-        };
-
-        const response = await server.updateForm(partialUpdateData);
-
-        expect(response.content[0].text).toContain('Updated Title Only');
-        expect(response.content[0].text).toContain('Original description');
-        expect(response.content[0].text).toContain('Original Field');
-
-        // Verify both GET and PUT calls were made
-        expect(global.fetch).toHaveBeenCalledTimes(2);
-        expect(global.fetch).toHaveBeenNthCalledWith(1, 
-          expect.stringContaining('/forms/2'),
-          expect.objectContaining({ method: 'GET' })
-        );
-        expect(global.fetch).toHaveBeenNthCalledWith(2,
-          expect.stringContaining('/forms/2'),
-          expect.objectContaining({ method: 'PUT' })
-        );
-      });
     });
 
     describe('Error Handling Integration', () => {

@@ -117,7 +117,7 @@ export const TOOL_SCHEMAS: Record<string, { description: string; inputSchema: z.
   },
 
   update_form: {
-    description: "Update an existing form",
+    description: "Replace an existing form with a full form definition. Both title and fields are required — the form is fully replaced, so any fields omitted from the payload will be removed.",
     inputSchema: {
       form_id: z.string().describe("ID of the form to update"),
       title: z.string().describe("Updated form title").optional(),
@@ -126,12 +126,6 @@ export const TOOL_SCHEMAS: Record<string, { description: string; inputSchema: z.
       settings: z.record(z.string(), z.unknown()).describe("Updated form settings").optional(),
       confirmations: z.record(z.string(), z.unknown()).describe("Form confirmations").optional(),
       notifications: z.record(z.string(), z.unknown()).describe("Form notifications").optional(),
-      partial_update: z
-        .boolean()
-        .describe(
-          "Enable partial updates (only update provided fields). IMPORTANT: When false (default), both title and fields are required — missing fields will be removed from the form. Set to true to safely update individual properties without affecting others."
-        )
-        .optional(),
       validate_fields: z.boolean().describe("Validate field types before updating").optional(),
       response_format: z
         .enum(["detailed", "compact", "minimal"] as [string, ...string[]])

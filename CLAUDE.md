@@ -192,98 +192,14 @@ When submitting forms, use exact HTML input names:
 
 Inspect form HTML in browser developer tools to find exact input names.
 
-## `update_form` Partial Update Behavior
+## `update_form` Behavior
 
-The README covers the short version. Full detail:
-
-When `partial_update: true` is used with a `fields` array, the server performs intelligent field-by-field merging:
-
-- **Existing fields** are preserved if not included in the update
-- **Updated fields** are merged by ID, preserving unmodified properties
-- **New fields** can be added during partial updates
-- **Nested properties** (like choices) are deep-merged intelligently
-- **Field order** is maintained automatically (sorted by ID)
-
-### Field merging examples
-
-Update a single field property without losing others:
-
-```javascript
-{
-  "form_id": "217",
-  "partial_update": true,
-  "fields": [
-    {
-      "id": 6,
-      "label": "Updated Checkbox Label"
-      // All other properties (choices, validation, etc.) are preserved
-    }
-  ]
-}
-```
-
-Update nested properties (choices in a checkbox field):
-
-```javascript
-{
-  "form_id": "217",
-  "partial_update": true,
-  "fields": [
-    {
-      "id": 6,
-      "choices": [
-        { "text": "Yes, as event lead.", "inventory_limit": "1" },
-        { "text": "Yes, as primary instructor.", "inventory_limit": 7 },
-        { "text": "Yes, as assistant.", "inventory_limit": "4" }
-      ]
-    }
-  ]
-}
-```
-
-Add a new field during a partial update:
-
-```javascript
-{
-  "form_id": "217",
-  "partial_update": true,
-  "fields": [
-    {
-      "id": 10,
-      "type": "text",
-      "label": "Additional Information"
-    }
-  ]
-}
-```
-
-### Full vs. partial updates
-
-**Full update** (`partial_update: false` or omitted):
-
-- Replaces ALL form properties with provided values
-- Missing fields are removed from the form
-- Use when rebuilding the entire form structure
-
-**Partial update** (`partial_update: true`):
-
-- Merges provided fields with existing ones
-- Preserves fields not included in the update
-- Use when modifying specific properties only
-
-### Troubleshooting partial updates
-
-1. **Fields without IDs are ignored**: Always include field `id` when using `partial_update: true`
-2. **Nested properties not updating**: Use arrays with complete choice objects, not partial ones
-3. **Field order changes**: Fields are automatically sorted by ID for consistency
-4. **Validation errors**: Enable `debug: true` to see detailed operation logs
-
-**Best practices:**
-
-- Use `partial_update: true` when modifying existing forms to preserve data
-- Always include field IDs in your updates
-- Test with `debug: true` first to understand the merge behavior
-- Use `validate_fields: true` to catch field type issues early
+`update_form` always performs a full replace: `form_id`, `title`, and `fields`
+are required, and the payload you send becomes the form's new definition.
+Any field not included in `fields` is removed from the form, so always send
+the complete field list (fetch the form first with `get_forms` if you need
+to preserve existing fields). Use `validate_fields: true` to catch field
+type issues early, and `debug: true` to see detailed operation logs.
 
 ## 🔗 **Critical API Documentation Reference**
 

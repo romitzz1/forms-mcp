@@ -144,7 +144,7 @@ schemas in `utils/toolSchemas.ts`.
 - `update_entry` — Update an existing entry
 - `delete_entry` — Delete an entry (trash by default, or permanent with `force`)
 - `create_form` — Create a new form
-- `update_form` — Update an existing form; supports partial updates (see below)
+- `update_form` — Replace an existing form with a full form definition (`title` and `fields` required)
 
 ### Search
 
@@ -172,17 +172,6 @@ schemas in `utils/toolSchemas.ts`.
 ### Cache
 
 - `get_cache_status` — Inspect the SQLite form cache's health, config, and sync status
-
-### Partial Update Behavior
-
-`update_form` supports `partial_update: true`, which merges the `fields` you
-provide into the form's existing fields by `id` (deep-merging nested
-properties like `choices`) instead of replacing the whole field list. Fields
-you omit are left untouched; fields without an `id` are ignored. Without
-`partial_update` (the default), the update is a full replace — any field not
-included is removed from the form.
-
-See `CLAUDE.md` for worked examples of partial vs. full updates.
 
 ## Field Input Names
 
