@@ -62,6 +62,7 @@ async function fetchEntries(
   const collected: any[] = [];
   const searchObject = buildSearchObject(search);
   let page = 1;
+  let totalCount: number | undefined;
 
   while (collected.length < maxEntries) {
     const params = new URLSearchParams();
@@ -72,6 +73,10 @@ async function fetchEntries(
     params.append('paging[current_page]', String(page));
 
     const response = await ctx.makeRequest(`/forms/${formId}/entries?${params.toString()}`);
+    if (totalCount === undefined && response?.total_count !== undefined) {
+      const parsed = Number(response.total_count);
+      if (Number.isFinite(parsed)) totalCount = parsed;
+    }
     const batch = response?.entries ?? (Array.isArray(response) ? response : []);
     if (!Array.isArray(batch) || batch.length === 0) break;
 
@@ -80,8 +85,14 @@ async function fetchEntries(
     page++;
   }
 
-  const capped = collected.length > maxEntries;
-  return { entries: collected.slice(0, maxEntries), capped };
+  const entries = collected.slice(0, maxEntries);
+  // "capped" means the scan stopped before covering every entry. Prefer the API's
+  // total_count for a precise answer (it stays correct even when maxEntries falls on
+  // a page boundary); fall back to "we filled up to the cap" when it isn't reported.
+  const capped = totalCount !== undefined
+    ? totalCount > entries.length
+    : collected.length >= maxEntries;
+  return { entries, capped };
 }
 
 // Map field id -> label from a form definition, so tallies read as questions

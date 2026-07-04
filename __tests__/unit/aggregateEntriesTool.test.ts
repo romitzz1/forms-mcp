@@ -10,13 +10,16 @@ function makeCtx(handler: (endpoint: string) => any): AggregateEntriesToolContex
 }
 
 // Routes /forms/{id}/entries to a paged entry source and /forms/{id} to a form definition.
-function routed(entries: any[], form: any = { fields: [] }, pageSize = 100) {
+// When withTotalCount is true, entry pages carry the API's total_count (as GF v2 does).
+function routed(entries: any[], form: any = { fields: [] }, pageSize = 100, withTotalCount = false) {
   return (endpoint: string) => {
     if (/\/forms\/\d+\/entries/.test(endpoint)) {
-      const pageMatch = endpoint.match(/paging\[current_page\]=(\d+)/);
+      // URLSearchParams percent-encodes the brackets, so match both raw and encoded forms.
+      const pageMatch = endpoint.match(/paging(?:\[|%5B)current_page(?:\]|%5D)=(\d+)/i);
       const page = pageMatch ? Number(pageMatch[1]) : 1;
       const start = (page - 1) * pageSize;
-      return { entries: entries.slice(start, start + pageSize) };
+      const pageEntries = entries.slice(start, start + pageSize);
+      return withTotalCount ? { entries: pageEntries, total_count: entries.length } : { entries: pageEntries };
     }
     return form; // /forms/{id}
   };
@@ -104,6 +107,31 @@ describe('aggregate_entries', () => {
     expect(parsed.entries_scanned).toBe(150);
     expect(parsed.capped).toBe(true);
     expect(parsed.fields[0].distribution[0].count).toBe(150);
+  });
+
+  it('flags capped via total_count even when max_entries lands on a page boundary', async () => {
+    // 205 entries, cap 200 (a multiple of the 100 page size). Without total_count the
+    // scan would stop at exactly 200 and wrongly claim it was complete.
+    const entries = Array.from({ length: 205 }, (_, i) => ({ id: String(i), '6': 'A' }));
+    const ctx = makeCtx(routed(entries, { fields: [{ id: 6, label: 'Q' }] }, 100, true));
+
+    const result = await aggregateEntries(ctx, { form_id: '309', field_ids: ['6'], max_entries: 200 });
+    const text = result.content[0].text;
+
+    expect(text).toContain('Scan capped at max_entries=200');
+    const parsed = JSON.parse(text.slice(text.indexOf('{')));
+    expect(parsed.entries_scanned).toBe(200);
+    expect(parsed.capped).toBe(true);
+  });
+
+  it('does not flag capped when total_count equals the number scanned', async () => {
+    const entries = Array.from({ length: 200 }, (_, i) => ({ id: String(i), '6': 'A' }));
+    const ctx = makeCtx(routed(entries, { fields: [{ id: 6, label: 'Q' }] }, 100, true));
+
+    const result = await aggregateEntries(ctx, { form_id: '309', field_ids: ['6'] });
+    const parsed = JSON.parse(result.content[0].text.slice(result.content[0].text.indexOf('{')));
+    expect(parsed.entries_scanned).toBe(200);
+    expect(parsed.capped).toBe(false);
   });
 
   it('limits distinct values per field when top is given', async () => {
