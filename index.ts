@@ -296,13 +296,32 @@ export class GravityFormsMCPServer {
   }
 
   private setupToolHandlers() {
+    this.registerTools(this.mcpServer);
+  }
+
+  /**
+   * Register all tools on the given McpServer. Handlers dispatch back into this
+   * instance, so every server built this way shares the same caches and API client.
+   */
+  private registerTools(target: McpServer) {
     for (const [name, def] of Object.entries(TOOL_SCHEMAS)) {
-      this.mcpServer.registerTool(
+      target.registerTool(
         name,
         { description: def.description, inputSchema: def.inputSchema as any },
         async (args: any): Promise<any> => this.dispatchTool(name, args)
       );
     }
+  }
+
+  /**
+   * Build a fresh MCP server (all tools registered) for a single connection. The
+   * Streamable HTTP transport needs one server per session because a server can
+   * only connect to a single transport; the shared handlers keep caches unified.
+   */
+  private createSessionServer(): Server {
+    const mcpServer = new McpServer({ name: "gravity-forms-mcp", version: "1.0.0" });
+    this.registerTools(mcpServer);
+    return mcpServer.server;
   }
 
   private async dispatchTool(name: string, args: any) {
@@ -649,7 +668,7 @@ export class GravityFormsMCPServer {
       }
       const port = Number(process.env.MCP_HTTP_PORT ?? "9807");
       const { startHttpServer } = await import("./utils/httpTransport.js");
-      await startHttpServer(this.server, { port, token });
+      await startHttpServer(() => this.createSessionServer(), { port, token });
       console.error(`Gravity Forms MCP server listening on http://0.0.0.0:${port}/mcp`);
     } else {
       const transport = new StdioServerTransport();

@@ -29,7 +29,7 @@ export function createBearerAuthMiddleware(expected: string): express.RequestHan
 }
 
 export function startHttpServer(
-  server: Server,
+  createServer: () => Server,
   opts: { port: number; token: string }
 ): Promise<HttpServer> {
   const app = express();
@@ -59,13 +59,18 @@ export function startHttpServer(
           lastActivity[sid] = Date.now();
         },
       });
+      // Each session gets its own MCP server: a server can only connect to a
+      // single transport, so reusing one across sessions throws "Already
+      // connected to a transport" and 500s every client after the first.
+      const sessionServer = createServer();
       transport.onclose = () => {
         if (transport.sessionId) {
           delete transports[transport.sessionId];
           delete lastActivity[transport.sessionId];
         }
+        void sessionServer.close();
       };
-      await server.connect(transport);
+      await sessionServer.connect(transport);
       await transport.handleRequest(req, res, req.body);
       return;
     } else {
