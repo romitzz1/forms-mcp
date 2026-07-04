@@ -1,5 +1,6 @@
 import { createBearerAuthMiddleware, startHttpServer } from '../../utils/httpTransport';
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import * as http from 'node:http';
 
 function mockRes() {
@@ -35,8 +36,7 @@ describe('createBearerAuthMiddleware', () => {
 
 describe('GET /health', () => {
   it('returns 200 {status:ok} without authentication', async () => {
-    const fakeServer = {} as unknown as Server;
-    const httpServer = await startHttpServer(fakeServer, { port: 0, token: 'unused' });
+    const httpServer = await startHttpServer(() => ({} as unknown as Server), { port: 0, token: 'unused' });
     const addr = httpServer.address();
     const port = typeof addr === 'object' && addr ? addr.port : 0;
     try {
@@ -54,6 +54,71 @@ describe('GET /health', () => {
       });
       expect(status).toBe(200);
       expect(JSON.parse(body)).toEqual({ status: 'ok' });
+    } finally {
+      await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+    }
+  });
+});
+
+describe('POST /mcp session handling', () => {
+  const TOKEN = 'sekret';
+
+  function postInitialize(port: number): Promise<{ status: number; sessionId?: string }> {
+    const payload = JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'initialize',
+      params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 't', version: '1' } },
+    });
+    return new Promise((resolve, reject) => {
+      const req = http.request(
+        {
+          host: '127.0.0.1',
+          port,
+          path: '/mcp',
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json, text/event-stream',
+            Authorization: `Bearer ${TOKEN}`,
+            'Content-Length': Buffer.byteLength(payload),
+          },
+        },
+        (res) => {
+          res.on('data', () => { /* drain */ });
+          res.on('end', () =>
+            resolve({ status: res.statusCode ?? 0, sessionId: res.headers['mcp-session-id'] as string | undefined })
+          );
+        }
+      );
+      req.on('error', reject);
+      req.write(payload);
+      req.end();
+    });
+  }
+
+  it('gives every session its own server so a second client is not rejected with 500', async () => {
+    let built = 0;
+    const createServer = () => {
+      built++;
+      return new McpServer({ name: 'test', version: '1.0.0' }).server;
+    };
+
+    const httpServer = await startHttpServer(createServer, { port: 0, token: TOKEN });
+    const addr = httpServer.address();
+    const port = typeof addr === 'object' && addr ? addr.port : 0;
+    try {
+      const first = await postInitialize(port);
+      const second = await postInitialize(port);
+
+      // Regression: the second initialize used to 500 with "Already connected
+      // to a transport" because a single server was reused across sessions.
+      expect(first.status).toBe(200);
+      expect(second.status).toBe(200);
+      expect(first.sessionId).toBeTruthy();
+      expect(second.sessionId).toBeTruthy();
+      expect(first.sessionId).not.toBe(second.sessionId);
+      expect(built).toBe(2); // one fresh server per session
     } finally {
       await new Promise<void>((resolve) => httpServer.close(() => resolve()));
     }
