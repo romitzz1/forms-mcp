@@ -134,8 +134,12 @@ export class FieldTypeDetector {
             };
         }
 
-        // For unsupported native field types, mark as unknown
-        if (fieldType && !['text', 'textarea'].includes(fieldType)) {
+        // For unsupported native field types, mark as unknown. Choice fields
+        // (checkbox/radio/select/multiselect) are allowed through to label heuristics
+        // because team-signup and opt-in fields are commonly implemented as choice
+        // fields, and were previously always marked unknown regardless of label (audit A10).
+        const labelSearchableTypes = ['text', 'textarea', 'checkbox', 'radio', 'select', 'multiselect'];
+        if (fieldType && !labelSearchableTypes.includes(fieldType)) {
             return {
                 fieldId: field.id,
                 fieldType: 'unknown',
@@ -159,7 +163,21 @@ export class FieldTypeDetector {
         }
 
         // Handle compound phrases with priority (most specific first)
-        
+
+        // When a label contains BOTH a team keyword and an explicit email keyword
+        // (e.g. "Team Email", "Team Captain Email"), email wins — the field holds an
+        // email address. Previously team was checked first and swallowed these. Uses
+        // 'email'/'e-mail' (unambiguous) — NOT the broad 'mail'. Pure email labels fall
+        // through to normal detection, which assigns full email confidence (audit A13).
+        if (label.includes('team') && (label.includes('email') || label.includes('e-mail'))) {
+            return {
+                fieldId: field.id,
+                fieldType: 'email',
+                confidence: FieldTypeDetector.SPECIAL_CASE_CONFIDENCE,
+                label: field.label
+            };
+        }
+
         // "Team Captain" -> name (captain is a person, even if on a team)
         if (label.includes('team') && label.includes('captain')) {
             return {

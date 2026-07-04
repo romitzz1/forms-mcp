@@ -163,6 +163,31 @@ describe('FieldTypeDetector', () => {
         });
     });
 
+    describe('audit A10/A13 field-detection fixes', () => {
+        it('classifies a choice-type field by its label instead of always unknown (A10)', () => {
+            // A team opt-in implemented as a checkbox was previously marked unknown
+            // because it is not a text/textarea native type.
+            const result = detector.detectFieldType({ id: '12', label: 'Team Members', type: 'checkbox' });
+            expect(result.fieldType).toBe('team');
+        });
+
+        it('still marks non-searchable native types (date/file) as unknown (A10 guard)', () => {
+            expect(detector.detectFieldType({ id: '40', label: 'Event Date', type: 'date' }).fieldType).toBe('unknown');
+            expect(detector.detectFieldType({ id: '41', label: 'Upload', type: 'fileupload' }).fieldType).toBe('unknown');
+        });
+
+        it('classifies a team+email label as email, not team (A13)', () => {
+            expect(detector.detectFieldType({ id: '9', label: 'Team Email', type: 'text' }).fieldType).toBe('email');
+            expect(detector.detectFieldType({ id: '10', label: 'Team Captain Email', type: 'text' }).fieldType).toBe('email');
+        });
+
+        it('leaves pure email labels at full confidence (A13 is scoped to team+email)', () => {
+            const r = detector.detectFieldType({ id: '2', label: 'Email', type: 'text' });
+            expect(r.fieldType).toBe('email');
+            expect(r.confidence).toBeGreaterThanOrEqual(0.9);
+        });
+    });
+
     describe('Form Field Analysis', () => {
         it('should analyze complete form field mapping', () => {
             const mockForm = {
