@@ -24,6 +24,20 @@ export const TOOL_SCHEMAS: Record<string, { description: string; inputSchema: z.
           "Return only essential form info for large forms to prevent context overflow. Auto-enabled for forms >20k tokens."
         )
         .default(false),
+      sort_by: z
+        .enum(["id", "title", "entry_count", "date_created"] as [string, ...string[]])
+        .describe(
+          "When used with include_all=true, sort forms by this field. 'id' and 'date_created' both order by recency (highest/newest first when sort_order=desc)."
+        )
+        .optional(),
+      sort_order: z
+        .enum(["asc", "desc"] as [string, ...string[]])
+        .describe("Sort direction for sort_by. Defaults to 'desc' (newest/highest first).")
+        .default("desc"),
+      active_only: z
+        .boolean()
+        .describe("When used with include_all=true, return only active (non-inactive) forms.")
+        .default(false),
     },
   },
 

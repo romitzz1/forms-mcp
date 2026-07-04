@@ -27,6 +27,22 @@ export const LEGACY_TOOL_SCHEMAS: Record<string, any> = {
         type: "boolean",
         description: "Return only essential form info for large forms to prevent context overflow. Auto-enabled for forms >20k tokens.",
         default: false
+      },
+      sort_by: {
+        type: "string",
+        enum: ["id", "title", "entry_count", "date_created"],
+        description: "When used with include_all=true, sort forms by this field. 'id' and 'date_created' both order by recency (highest/newest first when sort_order=desc)."
+      },
+      sort_order: {
+        type: "string",
+        enum: ["asc", "desc"],
+        description: "Sort direction for sort_by. Defaults to 'desc' (newest/highest first).",
+        default: "desc"
+      },
+      active_only: {
+        type: "boolean",
+        description: "When used with include_all=true, return only active (non-inactive) forms.",
+        default: false
       }
     }
   },

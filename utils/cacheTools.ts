@@ -46,7 +46,7 @@ export async function getCacheStatusTool(ctx: CacheToolContext) {
 
 export async function getForms(ctx: FormsCacheToolContext, args: any) {
     const formCache = ctx.getFormCache();
-    const { form_id, include_fields, include_all, exclude_trash, summary_mode } = args;
+    const { form_id, include_fields, include_all, exclude_trash, summary_mode, sort_by, sort_order, active_only } = args;
 
     // When form_id is specified, always use API (ignore include_all)
     if (form_id) {
@@ -109,28 +109,60 @@ export async function getForms(ctx: FormsCacheToolContext, args: any) {
         const allForms = await formCache.getAllForms(false, exclude_trash);
 
         // Transform cached form data to match API format
-        const formsData = allForms.map(form => {
+        let formsData = allForms.map(form => {
+          // Parse the cached form JSON once: it carries date_created (not stored as
+          // its own cache column) and, when requested, the full field definitions.
+          let parsedData: any = null;
+          if (form.form_data) {
+            try {
+              parsedData = JSON.parse(form.form_data);
+            } catch {
+              parsedData = null;
+            }
+          }
+
           const baseForm = {
             id: form.id.toString(),
             title: form.title,
             entry_count: form.entry_count,
             is_active: form.is_active ? '1' : '0',
-            is_trash: form.is_trash ? '1' : '0'
+            is_trash: form.is_trash ? '1' : '0',
+            date_created: parsedData?.date_created ?? null
           };
 
-          // Include full form data when include_fields is true or form_data exists
-          if (include_fields && form.form_data) {
-            try {
-              const parsedData = JSON.parse(form.form_data);
-              return { ...baseForm, ...parsedData };
-            } catch {
-              // If form_data is invalid JSON, just return base form
-              return baseForm;
-            }
+          // Include full form data when include_fields is true
+          if (include_fields && parsedData) {
+            return { ...baseForm, ...parsedData };
           }
 
           return baseForm;
         });
+
+        // Optionally drop inactive forms so callers can focus on live forms.
+        if (active_only === true) {
+          formsData = formsData.filter(form => form.is_active === '1');
+        }
+
+        // Sort by a chosen key so callers can browse by recency, usage, or name
+        // without eyeballing an unordered list. Defaults to no sort (cache order).
+        if (sort_by) {
+          const direction = sort_order === 'asc' ? 1 : -1;
+          const numericKeys = new Set(['id', 'entry_count']);
+          formsData.sort((a: any, b: any) => {
+            let av = a[sort_by];
+            let bv = b[sort_by];
+            if (numericKeys.has(sort_by)) {
+              av = Number(av);
+              bv = Number(bv);
+            }
+            if (av == null && bv == null) return 0;
+            if (av == null) return 1;
+            if (bv == null) return -1;
+            if (av < bv) return -1 * direction;
+            if (av > bv) return 1 * direction;
+            return 0;
+          });
+        }
 
         return {
           content: [
