@@ -174,8 +174,6 @@ export async function getEntries(ctx: EntriesQueryToolContext, args: any) {
       entries = entries.filter((entry: any) => entryHasFieldValues(entry));
     }
 
-    const hasMorePages = totalCount && entries.length && paging?.page_size && totalCount > (paging.page_size * (paging.current_page || 1));
-
     // Handle empty results
     if (!entries || !Array.isArray(entries) || entries.length === 0) {
       let emptyMessage = "No entries found for the specified criteria.";
@@ -225,16 +223,29 @@ export async function getEntries(ctx: EntriesQueryToolContext, args: any) {
       const pageSize = paging?.page_size || entries.length;
       const totalPages = Math.ceil(totalCount / pageSize);
 
+      // "More pages" is judged by how many entries have actually been shown vs the
+      // total — not by whether the caller passed paging. Gravity Forms defaults to a
+      // small page size, so an unpaged first call returns only page 1; without this,
+      // a caller (or a model) with no paging in the request got no hint that more
+      // existed and would assume it had everything.
+      const shownThrough = ((currentPage - 1) * pageSize) + entries.length;
+      const hasMorePages = shownThrough < totalCount;
+
       paginationInfo = `\n📊 Pagination Info:\n`;
       paginationInfo += `- Total entries: ${totalCount}\n`;
       paginationInfo += `- Current page: ${currentPage}\n`;
       paginationInfo += `- Page size: ${pageSize}\n`;
       paginationInfo += `- Total pages: ${totalPages}\n`;
-      paginationInfo += `- Showing entries: ${((currentPage - 1) * pageSize) + 1} to ${Math.min(currentPage * pageSize, totalCount)}\n`;
+      paginationInfo += `- Showing entries: ${((currentPage - 1) * pageSize) + 1} to ${Math.min(shownThrough, totalCount)}\n`;
 
       if (hasMorePages) {
-        paginationInfo += `\n⚠️  More entries available! To get the next page, call with:\n`;
-        paginationInfo += `{ "paging": { "page_size": ${pageSize}, "current_page": ${currentPage + 1} } }\n`;
+        const remaining = totalCount - shownThrough;
+        paginationInfo += `\n⚠️  Showing ${entries.length} of ${totalCount} entries (page ${currentPage} of ${totalPages}) — ${remaining} more not shown.\n`;
+        paginationInfo += `To get the next page, call get_entries again with:\n`;
+        paginationInfo += `  { "paging": { "page_size": ${pageSize}, "current_page": ${currentPage + 1} } }\n`;
+        paginationInfo += `To get all ${totalCount} in one call, use:\n`;
+        paginationInfo += `  { "paging": { "page_size": ${totalCount} } }\n`;
+        paginationInfo += `(For wide forms, also pass "field_ids": [...] to return only the fields you need and keep the response small.)\n`;
       }
     }
 

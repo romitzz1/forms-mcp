@@ -331,6 +331,32 @@ describe('getEntries Response Size Management', () => {
     });
   });
 
+  describe('pagination guidance on an unpaged first call', () => {
+    it('tells the caller how to get more when the first (unpaged) page is not the whole set', async () => {
+      const server = createServer();
+      // Gravity Forms returns a small default page: 10 of 71, no paging requested.
+      const entries = Array.from({ length: 10 }, (_, i) => ({ id: String(i + 1), form_id: '302', '1': `E${i}` }));
+      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ entries, total_count: 71 }) });
+
+      const result = await (server).getEntries({ form_id: '302', response_mode: 'full' });
+      const text = result.content[0].text;
+
+      expect(text).toContain('Total entries: 71');
+      expect(text).toContain('more not shown');                 // hint appears despite no paging in the request
+      expect(text).toContain('"current_page": 2');              // next-page recipe
+      expect(text).toContain('To get all 71 in one call');      // all-at-once recipe
+    });
+
+    it('does not show the hint when the unpaged page already holds every entry', async () => {
+      const server = createServer();
+      const entries = Array.from({ length: 3 }, (_, i) => ({ id: String(i + 1), form_id: '5', '1': `E${i}` }));
+      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ entries, total_count: 3 }) });
+
+      const result = await (server).getEntries({ form_id: '5', response_mode: 'full' });
+      expect(result.content[0].text).not.toContain('more not shown');
+    });
+  });
+
   describe('single entry fetch by entry_id', () => {
     it('returns the entry when fetched by entry_id (single-object API response)', async () => {
       const server = createServer();
