@@ -64,3 +64,11 @@ local.claude-config.json
 
 data/
 exports/
+privateTools/
+
+# PII / data exports
+*.csv
+
+# Ad-hoc working files
+*.html
+*.xlsx
