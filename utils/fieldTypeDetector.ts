@@ -134,11 +134,13 @@ export class FieldTypeDetector {
             };
         }
 
-        // For unsupported native field types, mark as unknown. Choice fields
-        // (checkbox/radio/select/multiselect) are allowed through to label heuristics
-        // because team-signup and opt-in fields are commonly implemented as choice
-        // fields, and were previously always marked unknown regardless of label (audit A10).
-        const labelSearchableTypes = ['text', 'textarea', 'checkbox', 'radio', 'select', 'multiselect'];
+        // For unsupported native field types, mark as unknown. Several non-text types are
+        // allowed through to label heuristics: choice fields (checkbox/radio/select/multiselect)
+        // because team-signup/opt-in fields are commonly implemented as choices (audit A10);
+        // and 'hidden' because forms frequently pre-fill identity data (First Name, Email, etc.)
+        // from the logged-in user's profile into hidden fields — those hold real, searchable
+        // values, and a non-identity label simply won't match any pattern and stays unknown.
+        const labelSearchableTypes = ['text', 'textarea', 'checkbox', 'radio', 'select', 'multiselect', 'hidden'];
         if (fieldType && !labelSearchableTypes.includes(fieldType)) {
             return {
                 fieldId: field.id,

@@ -186,6 +186,20 @@ describe('FieldTypeDetector', () => {
             expect(r.fieldType).toBe('email');
             expect(r.confidence).toBeGreaterThanOrEqual(0.9);
         });
+
+        it('classifies hidden fields pre-filled with identity data by their label', () => {
+            // Forms commonly pre-fill First Name / Last Name / Email from the logged-in
+            // member's profile into HIDDEN fields — these hold real, searchable values.
+            expect(detector.detectFieldType({ id: '1', label: 'First Name', type: 'hidden' }).fieldType).toBe('name');
+            expect(detector.detectFieldType({ id: '2', label: 'Last Name', type: 'hidden' }).fieldType).toBe('name');
+            expect(detector.detectFieldType({ id: '3', label: 'Email', type: 'hidden' }).fieldType).toBe('email');
+        });
+
+        it('leaves hidden fields with non-identity labels as unknown', () => {
+            // A hidden field carrying meta/tracking data simply won't match a pattern.
+            expect(detector.detectFieldType({ id: '99', label: 'Source Tracking', type: 'hidden' }).fieldType).toBe('unknown');
+            expect(detector.detectFieldType({ id: '98', label: 'Hidden Field', type: 'hidden' }).fieldType).toBe('unknown');
+        });
     });
 
     describe('Form Field Analysis', () => {
