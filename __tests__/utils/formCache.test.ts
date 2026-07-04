@@ -2741,6 +2741,61 @@ describe('FormCache', () => {
     });
   });
 
+  describe('backfillActiveFormDates', () => {
+    beforeEach(async () => {
+      formCache = new FormCache(testDbPath);
+      await formCache.init();
+    });
+
+    const record = (id: number): FormCacheRecord => ({
+      id, title: `Form ${id}`, entry_count: 0, is_active: true, is_trash: false,
+      last_synced: new Date().toISOString(), form_data: '{}', date_created: null
+    });
+
+    it('fetches the full form once to populate a missing date_created', async () => {
+      await formCache.insertForm({ id: 10, title: 'Stub', date_created: null });
+      const apiCall = jest.fn().mockResolvedValue({ id: '10', title: 'Stub', date_created: '2023-03-03 03:03:03' });
+
+      await formCache.backfillActiveFormDates([record(10)], apiCall);
+
+      expect(apiCall).toHaveBeenCalledWith('/forms/10');
+      expect((await formCache.getForm(10))?.date_created).toBe('2023-03-03 03:03:03');
+    });
+
+    it('skips forms that already have date_created (no fetch)', async () => {
+      await formCache.insertForm({ id: 11, title: 'Has Date', date_created: '2022-02-02 02:02:02' });
+      const apiCall = jest.fn().mockResolvedValue({ id: '11', date_created: '2099-01-01 00:00:00' });
+
+      await formCache.backfillActiveFormDates([{ ...record(11), date_created: '2022-02-02 02:02:02' }], apiCall);
+
+      expect(apiCall).not.toHaveBeenCalled();
+      expect((await formCache.getForm(11))?.date_created).toBe('2022-02-02 02:02:02'); // unchanged
+    });
+
+    it('is non-fatal when a per-form fetch fails, still backfilling the others', async () => {
+      await formCache.insertForm({ id: 12, title: 'Fails', date_created: null });
+      await formCache.insertForm({ id: 13, title: 'Works', date_created: null });
+      const apiCall = jest.fn(async (endpoint: string) => {
+        if (endpoint === '/forms/12') throw new Error('boom');
+        return { id: '13', date_created: '2021-01-01 01:01:01' };
+      });
+
+      await expect(formCache.backfillActiveFormDates([record(12), record(13)], apiCall)).resolves.toBeUndefined();
+
+      expect((await formCache.getForm(12))?.date_created).toBeNull();
+      expect((await formCache.getForm(13))?.date_created).toBe('2021-01-01 01:01:01');
+    });
+
+    it('leaves date_created null when the full form has no date_created', async () => {
+      await formCache.insertForm({ id: 14, title: 'NoDate', date_created: null });
+      const apiCall = jest.fn().mockResolvedValue({ id: '14', title: 'NoDate' });
+
+      await formCache.backfillActiveFormDates([record(14)], apiCall);
+
+      expect((await formCache.getForm(14))?.date_created).toBeNull();
+    });
+  });
+
   describe('date_created schema migration (v2 -> v3)', () => {
     it('adds the date_created column to a pre-existing v2 database', async () => {
       const Database = require('better-sqlite3');

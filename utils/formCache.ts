@@ -1352,6 +1352,37 @@ export class FormCache {
   /**
    * Probe a single form by ID via API
    */
+  /**
+   * Backfill the date_created column for active forms that don't have it yet.
+   * The /forms list endpoint returns only {id, title, entries}, so date_created
+   * is fetched from each form's full /forms/{id} definition. Because date_created
+   * never changes, a form is fetched at most once — already-populated forms are
+   * skipped. Per-form failures are non-fatal so one bad form can't abort the sync.
+   */
+  async backfillActiveFormDates(activeForms: FormCacheRecord[], apiCall: ApiCallFunction): Promise<void> {
+    for (const form of activeForms) {
+      const cached = await this.getForm(form.id);
+      if (!cached || cached.date_created != null) {
+        continue; // already have it (or form vanished) — no fetch needed
+      }
+
+      try {
+        const full = await apiCall(`/forms/${form.id}`);
+        const dateCreated = full?.date_created ?? null;
+        if (dateCreated != null) {
+          await this.updateForm(form.id, { date_created: String(dateCreated) });
+        }
+      } catch (error) {
+        // Leave date_created null and retry on a future sync rather than failing.
+        this.logger.debug('date_created backfill failed', {
+          operation: 'backfillActiveFormDates',
+          form_id: form.id,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    }
+  }
+
   async probeFormById(id: number, apiCall: ApiCallFunction, updateStats = true): Promise<FormProbeResult> {
     // Validate form ID
     if (!Number.isInteger(id) || id <= 0) {
@@ -1827,6 +1858,12 @@ export class FormCache {
         discovered++; // Count all processed forms
         foundCount++;
       }
+
+      // Phase 1b: Backfill date_created for active forms that lack it. The lean
+      // /forms list payload omits date_created, so fetch each such form's full
+      // definition once. date_created is immutable, so once populated a form is
+      // never re-fetched here — the initial sync pays the cost, steady state is free.
+      await this.backfillActiveFormDates(activeForms, apiCall);
 
       // Phase 2: Detect ID gaps and probe missing IDs
       reportProgress('probing-gaps', 0, 0);
