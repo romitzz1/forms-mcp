@@ -273,7 +273,7 @@ describe('FieldMappingCache', () => {
     });
 
     describe('Concurrent Access Safety', () => {
-        it('should handle rapid successive operations safely', () => {
+        it('should handle rapid successive operations safely', async () => {
             const operations = [];
 
             // Simulate concurrent access
@@ -286,7 +286,7 @@ describe('FieldMappingCache', () => {
                 );
             }
 
-            return Promise.all(operations).then(results => {
+            await Promise.all(operations).then(results => {
                 // Should complete without errors
                 expect(results).toHaveLength(100);
                 // All successful gets should return the mapping
@@ -298,7 +298,7 @@ describe('FieldMappingCache', () => {
             });
         });
 
-        it('should maintain consistency during cleanup operations', () => {
+        it('should maintain consistency during cleanup operations', async () => {
             // Add entries
             for (let i = 0; i < 10; i++) {
                 cache.set(`form${i}`, mockMapping);
@@ -312,7 +312,7 @@ describe('FieldMappingCache', () => {
                 Promise.resolve().then(() => cache.getCacheStats())
             ];
 
-            return Promise.all(operations).then(() => {
+            await Promise.all(operations).then(() => {
                 // Should complete without errors and maintain cache integrity
                 const stats = cache.getCacheStats();
                 expect(stats.entryCount).toBeGreaterThanOrEqual(0);

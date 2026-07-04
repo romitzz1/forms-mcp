@@ -10,7 +10,6 @@
 const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
-const os = require('os');
 
 class MCPSetup {
     constructor() {

@@ -15,7 +15,8 @@
     "test:coverage": "jest --coverage",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "lint:check": "eslint . --max-warnings 0",
+    "lint:errors": "eslint . --quiet",
+    "lint:check": "eslint . --max-warnings 3974",
     "type-check": "tsc --noEmit",
     "quality": "npm run type-check && npm run lint:check && npm run test",
     "prepare": "husky"

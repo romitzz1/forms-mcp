@@ -4,6 +4,7 @@
 import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 import jestPlugin from 'eslint-plugin-jest';
+import globals from 'globals';
 
 export default tseslint.config(
   // Global ignores (replaces .eslintignore)
@@ -28,13 +29,22 @@ export default tseslint.config(
       'yarn.lock',
       'pnpm-lock.yaml',
       'privateTools/**',
+      // Gitignored data/output directories — not source, and their ad-hoc scripts
+      // are not written to the project's lint standards.
+      'exports/**',
+      'data/**',
     ],
   },
-  
+
   // Base configuration for all files
   {
     files: ['**/*.{js,mjs,cjs,ts,tsx}'],
     extends: [js.configs.recommended],
+    languageOptions: {
+      globals: {
+        ...globals.node,
+      },
+    },
     rules: {
       // General JS/TS rules that don't require type information
       'no-eval': 'error',
@@ -170,9 +180,8 @@ export default tseslint.config(
       
       // Generic constraints and usage
       '@typescript-eslint/no-unnecessary-type-constraint': 'error',
-      
-      // Interface vs type preference
-      '@typescript-eslint/consistent-type-definitions': ['error', 'interface'],
+
+      // Interface vs type preference (consistent-type-definitions is set once above)
       '@typescript-eslint/no-empty-interface': ['error', {
         allowSingleExtends: true,
       }],
@@ -186,9 +195,10 @@ export default tseslint.config(
     },
   },
   
-  // JavaScript configuration files (no TypeScript parser)
+  // CommonJS configuration files (jest.config.cjs etc.) — script sourceType.
+  // ESM config files like eslint.config.js are covered by the base block (module).
   {
-    files: ['*.config.{js,cjs,mjs}', 'jest.config.*'],
+    files: ['*.config.cjs', 'jest.config.cjs'],
     extends: [js.configs.recommended],
     languageOptions: {
       ecmaVersion: 2020,
