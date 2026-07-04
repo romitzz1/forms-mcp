@@ -298,9 +298,17 @@ export const TOOL_SCHEMAS: Record<string, { description: string; inputSchema: z.
 
   export_form_json: {
     description:
-      "Export a complete form definition as JSON for backup, migration, or import purposes. Removes sensitive data (API keys, private settings) while preserving all form structure, fields, conditional logic, and calculations. Returns formatted JSON suitable for import.",
+      "Export a complete form definition as JSON for backup, migration, or import purposes. Removes sensitive data (API keys, private settings) while preserving all form structure, fields, conditional logic, and calculations. Always writes the JSON to disk and returns the file path plus a summary (never inlines the full definition, which can overflow context).",
     inputSchema: {
       form_id: z.string().describe("ID of the form to export (required)"),
+      filename: z
+        .string()
+        .describe("Optional output filename. Defaults to form-{form_id}-{title-slug}.json.")
+        .optional(),
+      output_path: z
+        .string()
+        .describe("Optional path (absolute, or relative to the working directory) to write the export to. Defaults to the configured export directory (GRAVITY_FORMS_EXPORT_DIR), organized by form ID and date.")
+        .optional(),
     },
   },
 

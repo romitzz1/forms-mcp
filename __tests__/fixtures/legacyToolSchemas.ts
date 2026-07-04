@@ -469,6 +469,14 @@ export const LEGACY_TOOL_SCHEMAS: Record<string, any> = {
       form_id: {
         type: "string",
         description: "ID of the form to export (required)"
+      },
+      filename: {
+        type: "string",
+        description: "Optional output filename. Defaults to form-{form_id}-{title-slug}.json."
+      },
+      output_path: {
+        type: "string",
+        description: "Optional path (absolute, or relative to the working directory) to write the export to. Defaults to the configured export directory (GRAVITY_FORMS_EXPORT_DIR), organized by form ID and date."
       }
     },
     required: ["form_id"]

@@ -355,14 +355,33 @@ export async function exportFormJson(ctx: ExportToolContext, args: any) {
       // Format JSON with proper indentation for readability
       const formattedJson = JSON.stringify(exportForm, null, 2);
 
+      // Always write the export to disk rather than inlining the (potentially huge)
+      // JSON in the response — a large form definition can overflow the model's
+      // context. Callers get a path + summary and read the file to import/inspect.
+      const { filename, output_path } = args;
+      const slug = String(exportForm.title || 'form')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 60) || 'form';
+      const exportFilename = filename || `form-${form_id}-${slug}.json`;
+
+      const filePath = await ctx.dataExporter.saveContentToDisk(
+        formattedJson,
+        exportFilename,
+        form_id,
+        output_path
+      );
+
       const response = {
         success: true,
-        message: 'Form exported successfully as JSON',
+        message: 'Form exported to disk as JSON',
         form_id: form_id,
         form_title: exportForm.title || 'Untitled Form',
         export_size: formattedJson.length,
         fields_count: exportForm.fields ? exportForm.fields.length : 0,
-        json_data: formattedJson
+        file_path: filePath,
+        note: 'Full JSON written to disk (not inlined) to avoid overflowing context. Read the file to import or inspect it.'
       };
 
       return {

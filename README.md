@@ -162,7 +162,7 @@ schemas in `utils/toolSchemas.ts`.
 ### Import / Export
 
 - `export_entries_formatted` — Export entries to CSV or JSON with filtering and formatting options
-- `export_form_json` — Export a form definition as JSON for backup or migration
+- `export_form_json` — Export a form definition as JSON to disk (returns a file path + summary) for backup or migration
 - `import_form_json` — Import a form from JSON, with conflict resolution
 - `clone_form_with_modifications` — Clone a form with title/field-label modifications
 
