@@ -139,6 +139,14 @@ export async function getEntries(ctx: EntriesQueryToolContext, args: any) {
     let entries = response?.entries || response || [];
     const totalCount = response?.total_count;
 
+    // The single-entry endpoint (/entries/{id}) returns one entry object rather
+    // than an array or an { entries: [...] } envelope. Wrap it in a one-element
+    // array so projection, exclude_empty, and the empty-result guard below treat
+    // it like any other result set instead of reporting "No entries found".
+    if (entry_id && entries && typeof entries === 'object' && !Array.isArray(entries)) {
+      entries = [entries];
+    }
+
     // Field projection: when field_ids is provided, keep only those field values (plus core
     // entry metadata) so wide forms don't return every field. Requested IDs also match their
     // composite sub-inputs (e.g. "1" keeps "1.3"/"1.6" name parts). This shrinks the payload
