@@ -93,6 +93,28 @@ export const TOOL_SCHEMAS: Record<string, { description: string; inputSchema: z.
     },
   },
 
+  aggregate_entries: {
+    description: "Tally field-value distributions across a form's entries — one call to summarize a survey. Returns value→count for each requested field.",
+    inputSchema: {
+      form_id: z.string().describe("Form ID whose entries to aggregate"),
+      field_ids: z
+        .array(z.string())
+        .describe("Field IDs to tally (use get_field_mappings to discover them). Checkbox/multi-select fields tally each selected option across their sub-inputs (e.g. \"12\" covers \"12.1\", \"12.2\")."),
+      search: z
+        .record(z.string(), z.unknown())
+        .describe('Optional filter, same shape as get_entries: { "status": "active", "field_filters": [{ "key": "1", "value": "X", "operator": "is" }] }.')
+        .optional(),
+      max_entries: z
+        .number()
+        .describe("Maximum number of entries to scan (default 1000). Aggregation pages through entries up to this cap; a note flags when the cap is hit.")
+        .default(1000),
+      top: z
+        .number()
+        .describe("Return only the N most frequent values per field. Omit to return all distinct values.")
+        .optional(),
+    },
+  },
+
   submit_form: {
     description: "Submit a form with field values",
     inputSchema: {

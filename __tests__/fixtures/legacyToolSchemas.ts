@@ -103,6 +103,34 @@ export const LEGACY_TOOL_SCHEMAS: Record<string, any> = {
       }
     }
   },
+  aggregate_entries: {
+    type: "object",
+    properties: {
+      form_id: {
+        type: "string",
+        description: "Form ID whose entries to aggregate"
+      },
+      field_ids: {
+        type: "array",
+        items: { type: "string" },
+        description: "Field IDs to tally (use get_field_mappings to discover them). Checkbox/multi-select fields tally each selected option across their sub-inputs (e.g. \"12\" covers \"12.1\", \"12.2\")."
+      },
+      search: {
+        type: "object",
+        description: "Optional filter, same shape as get_entries: { \"status\": \"active\", \"field_filters\": [{ \"key\": \"1\", \"value\": \"X\", \"operator\": \"is\" }] }."
+      },
+      max_entries: {
+        type: "number",
+        description: "Maximum number of entries to scan (default 1000). Aggregation pages through entries up to this cap; a note flags when the cap is hit.",
+        default: 1000
+      },
+      top: {
+        type: "number",
+        description: "Return only the N most frequent values per field. Omit to return all distinct values."
+      }
+    },
+    required: ["form_id", "field_ids"]
+  },
   submit_form: {
     type: "object",
     properties: {

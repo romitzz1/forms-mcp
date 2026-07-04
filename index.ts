@@ -47,6 +47,7 @@ import {
   searchEntriesUniversal as searchEntriesUniversalHandler,
 } from "./utils/searchTools.js";
 import { getEntries as getEntriesHandler } from "./utils/entriesQueryTools.js";
+import { aggregateEntries as aggregateEntriesHandler } from "./utils/aggregateEntriesTools.js";
 import type { ICacheConfig, ICacheStatus } from "./utils/cacheTypes.js";
 import {
   getCacheStatusTool as getCacheStatusToolHandler,
@@ -312,6 +313,9 @@ export class GravityFormsMCPServer {
       case "get_entries":
         return this.getEntries(args);
 
+      case "aggregate_entries":
+        return this.aggregateEntries(args);
+
       case "submit_form":
         return this.submitForm(args);
 
@@ -404,6 +408,12 @@ export class GravityFormsMCPServer {
       fieldTypeDetector: this.fieldTypeDetector,
       searchResultsFormatter: this.searchResultsFormatter,
       getOrCreateSearchManager: () => this.getOrCreateSearchManager(),
+    }, args);
+  }
+
+  private async aggregateEntries(args: any) {
+    return aggregateEntriesHandler({
+      makeRequest: this.makeRequest.bind(this),
     }, args);
   }
 
