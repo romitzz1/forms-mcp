@@ -13,6 +13,21 @@ export interface EntriesQueryToolContext {
   getOrCreateSearchManager(): UniversalSearchManager;
 }
 
+// A field-value key on a Gravity Forms entry is the numeric field id, optionally
+// with a composite sub-input suffix (e.g. "1", "1.3"). Metadata keys (id, status,
+// date_created, source_url, ...) are non-numeric and are ignored here, so an entry
+// counts as having values only when at least one actual field is filled in.
+function entryHasFieldValues(entry: any): boolean {
+  if (!entry || typeof entry !== 'object') return false;
+  for (const [key, value] of Object.entries(entry)) {
+    if (!/^\d+(\.\d+)?$/.test(key)) continue;
+    if (value != null && String(value).trim() !== '') {
+      return true;
+    }
+  }
+  return false;
+}
+
 export async function getEntries(ctx: EntriesQueryToolContext, args: any) {
     const {
       form_id,
@@ -23,7 +38,8 @@ export async function getEntries(ctx: EntriesQueryToolContext, args: any) {
       response_mode = 'auto',
       search_mode = 'standard',
       field_detection = false,
-      field_ids
+      field_ids,
+      exclude_empty = false
     } = args;
 
     // Handle universal search mode
@@ -143,6 +159,13 @@ export async function getEntries(ctx: EntriesQueryToolContext, args: any) {
         return projected;
       });
     }
+    // Drop abandoned submissions (entries with no field values at all) so callers
+    // aren't handed empty shells. Applied client-side after fetch, so totalCount /
+    // pagination still reflect the server's unfiltered count.
+    if (exclude_empty === true && Array.isArray(entries)) {
+      entries = entries.filter((entry: any) => entryHasFieldValues(entry));
+    }
+
     const hasMorePages = totalCount && entries.length && paging?.page_size && totalCount > (paging.page_size * (paging.current_page || 1));
 
     // Handle empty results

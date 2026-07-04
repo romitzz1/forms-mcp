@@ -399,6 +399,86 @@ describe('GravityFormsMCPServer', () => {
       });
     });
 
+    describe('include_all sorting, filtering, and date_created', () => {
+      const buildCachedForms = () => [
+        {
+          id: 10, title: 'Beta Form', entry_count: 5, is_active: true, is_trash: false,
+          form_data: JSON.stringify({ date_created: '2026-01-15 10:00:00' })
+        },
+        {
+          id: 20, title: 'Alpha Form', entry_count: 50, is_active: false, is_trash: false,
+          form_data: JSON.stringify({ date_created: '2026-03-20 12:00:00' })
+        },
+        {
+          id: 30, title: 'Gamma Form', entry_count: 1, is_active: true, is_trash: false,
+          form_data: JSON.stringify({ date_created: '2026-02-10 09:00:00' })
+        }
+      ];
+
+      const mockFreshCache = (forms: any[]) => {
+        server.formCache = {
+          isReady: jest.fn().mockReturnValue(true),
+          isStale: jest.fn().mockResolvedValue(false),
+          getAllForms: jest.fn().mockResolvedValue(forms)
+        };
+      };
+
+      const parseForms = (result: any) => {
+        const text = result.content[0].text;
+        return JSON.parse(text.slice(text.indexOf('[')));
+      };
+
+      it('should include date_created extracted from cached form_data', async () => {
+        mockFreshCache(buildCachedForms());
+        const result = await server.getForms({ include_all: true });
+        const forms = parseForms(result);
+        const beta = forms.find((f: any) => f.id === '10');
+        expect(beta.date_created).toBe('2026-01-15 10:00:00');
+      });
+
+      it('should default date_created to null when form_data lacks it', async () => {
+        mockFreshCache([
+          { id: 40, title: 'No Date Form', entry_count: 0, is_active: true, is_trash: false, form_data: JSON.stringify({}) }
+        ]);
+        const result = await server.getForms({ include_all: true });
+        const forms = parseForms(result);
+        expect(forms[0].date_created).toBeNull();
+      });
+
+      it('should sort by entry_count descending by default sort_order', async () => {
+        mockFreshCache(buildCachedForms());
+        const result = await server.getForms({ include_all: true, sort_by: 'entry_count' });
+        const forms = parseForms(result);
+        expect(forms.map((f: any) => f.entry_count)).toEqual([50, 5, 1]);
+      });
+
+      it('should sort by title ascending when sort_order=asc', async () => {
+        mockFreshCache(buildCachedForms());
+        const result = await server.getForms({ include_all: true, sort_by: 'title', sort_order: 'asc' });
+        const forms = parseForms(result);
+        expect(forms.map((f: any) => f.title)).toEqual(['Alpha Form', 'Beta Form', 'Gamma Form']);
+      });
+
+      it('should sort by id numerically, not lexically', async () => {
+        mockFreshCache([
+          { id: 9, title: 'Nine', entry_count: 0, is_active: true, is_trash: false, form_data: '{}' },
+          { id: 100, title: 'Hundred', entry_count: 0, is_active: true, is_trash: false, form_data: '{}' },
+          { id: 20, title: 'Twenty', entry_count: 0, is_active: true, is_trash: false, form_data: '{}' }
+        ]);
+        const result = await server.getForms({ include_all: true, sort_by: 'id', sort_order: 'desc' });
+        const forms = parseForms(result);
+        expect(forms.map((f: any) => f.id)).toEqual(['100', '20', '9']);
+      });
+
+      it('should filter to active forms only when active_only=true', async () => {
+        mockFreshCache(buildCachedForms());
+        const result = await server.getForms({ include_all: true, active_only: true });
+        const forms = parseForms(result);
+        expect(forms.map((f: any) => f.id)).toEqual(['10', '30']);
+        expect(forms.every((f: any) => f.is_active === '1')).toBe(true);
+      });
+    });
+
     describe('parameter validation', () => {
       it('should validate include_all parameter type', async () => {
         // Mock API response for fallback

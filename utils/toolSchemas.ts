@@ -24,6 +24,20 @@ export const TOOL_SCHEMAS: Record<string, { description: string; inputSchema: z.
           "Return only essential form info for large forms to prevent context overflow. Auto-enabled for forms >20k tokens."
         )
         .default(false),
+      sort_by: z
+        .enum(["id", "title", "entry_count", "date_created"] as [string, ...string[]])
+        .describe(
+          "When used with include_all=true, sort forms by this field. 'id' and 'date_created' both order by recency (highest/newest first when sort_order=desc)."
+        )
+        .optional(),
+      sort_order: z
+        .enum(["asc", "desc"] as [string, ...string[]])
+        .describe("Sort direction for sort_by. Defaults to 'desc' (newest/highest first).")
+        .default("desc"),
+      active_only: z
+        .boolean()
+        .describe("When used with include_all=true, return only active (non-inactive) forms.")
+        .default(false),
     },
   },
 
@@ -71,6 +85,32 @@ export const TOOL_SCHEMAS: Record<string, { description: string; inputSchema: z.
       field_ids: z
         .array(z.string())
         .describe("Return only these field IDs (plus core entry metadata) instead of every field — greatly reduces response size for wide forms. Requested IDs also include their composite sub-inputs (e.g. \"1\" keeps \"1.3\"/\"1.6\"). Omit or pass an empty array to return all fields. Use get_field_mappings to discover IDs.")
+        .optional(),
+      exclude_empty: z
+        .boolean()
+        .describe("Drop abandoned submissions — entries whose every field value is empty — from the results. Filtering happens after fetch, so pagination totals still reflect the server's unfiltered count.")
+        .default(false),
+    },
+  },
+
+  aggregate_entries: {
+    description: "Tally field-value distributions across a form's entries — one call to summarize a survey. Returns value→count for each requested field.",
+    inputSchema: {
+      form_id: z.string().describe("Form ID whose entries to aggregate"),
+      field_ids: z
+        .array(z.string())
+        .describe("Field IDs to tally (use get_field_mappings to discover them). Checkbox/multi-select fields tally each selected option across their sub-inputs (e.g. \"12\" covers \"12.1\", \"12.2\")."),
+      search: z
+        .record(z.string(), z.unknown())
+        .describe('Optional filter, same shape as get_entries: { "status": "active", "field_filters": [{ "key": "1", "value": "X", "operator": "is" }] }.')
+        .optional(),
+      max_entries: z
+        .number()
+        .describe("Maximum number of entries to scan (default 1000). Aggregation pages through entries up to this cap; a note flags when the cap is hit.")
+        .default(1000),
+      top: z
+        .number()
+        .describe("Return only the N most frequent values per field. Omit to return all distinct values.")
         .optional(),
     },
   },
@@ -258,9 +298,17 @@ export const TOOL_SCHEMAS: Record<string, { description: string; inputSchema: z.
 
   export_form_json: {
     description:
-      "Export a complete form definition as JSON for backup, migration, or import purposes. Removes sensitive data (API keys, private settings) while preserving all form structure, fields, conditional logic, and calculations. Returns formatted JSON suitable for import.",
+      "Export a complete form definition as JSON for backup, migration, or import purposes. Removes sensitive data (API keys, private settings) while preserving all form structure, fields, conditional logic, and calculations. Always writes the JSON to disk and returns the file path plus a summary (never inlines the full definition, which can overflow context).",
     inputSchema: {
       form_id: z.string().describe("ID of the form to export (required)"),
+      filename: z
+        .string()
+        .describe("Optional output filename. Defaults to form-{form_id}-{title-slug}.json.")
+        .optional(),
+      output_path: z
+        .string()
+        .describe("Optional path (absolute, or relative to the working directory) to write the export to. Defaults to the configured export directory (GRAVITY_FORMS_EXPORT_DIR), organized by form ID and date.")
+        .optional(),
     },
   },
 

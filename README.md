@@ -4,7 +4,7 @@ A Model Context Protocol (MCP) server that lets AI assistants manage WordPress
 Gravity Forms through the Gravity Forms REST API v2 — reading and writing
 forms and entries, searching, exporting data, and managing templates.
 
-20 tools are exposed, covering core CRUD, advanced multi-field search, bulk
+21 tools are exposed, covering core CRUD, advanced multi-field search, bulk
 operations, template management, and JSON import/export. See the
 [Tool Catalog](#tool-catalog) below.
 
@@ -132,13 +132,14 @@ and persists the SQLite form cache and exported files in the `gf-cache` and
 
 ## Tool Catalog
 
-All 20 tools, grouped by purpose. Exact input names are hand-authored Zod
+All 21 tools, grouped by purpose. Exact input names are hand-authored Zod
 schemas in `utils/toolSchemas.ts`.
 
 ### Core
 
 - `get_forms` — Get all forms, or a specific form's definition and fields
 - `get_entries` — Query entries with filtering, sorting, and pagination
+- `aggregate_entries` — Tally field-value distributions across a form's entries (survey summaries in one call)
 - `submit_form` — Submit a form with full processing (validation, notifications)
 - `create_entry` — Create an entry directly, bypassing form processing
 - `update_entry` — Update an existing entry
@@ -161,7 +162,7 @@ schemas in `utils/toolSchemas.ts`.
 ### Import / Export
 
 - `export_entries_formatted` — Export entries to CSV or JSON with filtering and formatting options
-- `export_form_json` — Export a form definition as JSON for backup or migration
+- `export_form_json` — Export a form definition as JSON to disk (returns a file path + summary) for backup or migration
 - `import_form_json` — Import a form from JSON, with conflict resolution
 - `clone_form_with_modifications` — Clone a form with title/field-label modifications
 

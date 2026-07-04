@@ -294,6 +294,15 @@ export class DataExporter {
     }
   }
 
+  /**
+   * Persist arbitrary text content to disk using the same path conventions as
+   * entry exports (EXPORT_DIR/[formId]/YYYY-MM-DD/filename, or an explicit
+   * outputPath). Returns the absolute path written.
+   */
+  async saveContentToDisk(content: string, filename: string, formId?: string, outputPath?: string): Promise<string> {
+    return this.saveToFile(content, filename, outputPath, formId);
+  }
+
   async export(
     entries: any[],
     format: ExportFormat,
