@@ -269,6 +269,68 @@ describe('getEntries Response Size Management', () => {
     });
   });
 
+  describe('exclude_empty filtering', () => {
+    const filledEntry = {
+      id: '1', form_id: '193', date_created: '2026-01-01 00:00:00', status: 'active',
+      '1.3': 'Jane', '1.6': 'Doe', '4': 'jane.doe@email.com'
+    };
+    const emptyEntry = {
+      id: '2', form_id: '193', date_created: '2026-01-02 00:00:00', status: 'active',
+      '1.3': '', '1.6': '', '4': ''
+    };
+    const whitespaceEntry = {
+      id: '3', form_id: '193', date_created: '2026-01-03 00:00:00', status: 'active',
+      '1.3': '   ', '4': '\t'
+    };
+
+    it('drops entries whose field values are all empty when exclude_empty=true', async () => {
+      const server = createServer();
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ entries: [filledEntry, emptyEntry] })
+      });
+
+      const result = await (server).getEntries({
+        form_id: '193',
+        exclude_empty: true,
+        response_mode: 'full'
+      });
+      const text = result.content[0].text;
+
+      expect(text).toContain('Found 1 entry');
+      expect(text).toContain('jane.doe@email.com');
+      expect(text).not.toContain('"id": "2"');
+    });
+
+    it('treats whitespace-only field values as empty', async () => {
+      const server = createServer();
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ entries: [filledEntry, whitespaceEntry] })
+      });
+
+      const result = await (server).getEntries({
+        form_id: '193',
+        exclude_empty: true,
+        response_mode: 'full'
+      });
+
+      expect(result.content[0].text).toContain('Found 1 entry');
+      expect(result.content[0].text).not.toContain('"id": "3"');
+    });
+
+    it('keeps all entries when exclude_empty is omitted', async () => {
+      const server = createServer();
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ entries: [filledEntry, emptyEntry] })
+      });
+
+      const result = await (server).getEntries({ form_id: '193', response_mode: 'full' });
+      expect(result.content[0].text).toContain('Found 2 entries');
+    });
+  });
+
   describe('Automatic Response Size Limiting', () => {
     it('should automatically summarize when response exceeds 20k tokens', async () => {
       const server = createServer();

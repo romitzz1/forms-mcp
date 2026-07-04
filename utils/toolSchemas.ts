@@ -86,6 +86,10 @@ export const TOOL_SCHEMAS: Record<string, { description: string; inputSchema: z.
         .array(z.string())
         .describe("Return only these field IDs (plus core entry metadata) instead of every field — greatly reduces response size for wide forms. Requested IDs also include their composite sub-inputs (e.g. \"1\" keeps \"1.3\"/\"1.6\"). Omit or pass an empty array to return all fields. Use get_field_mappings to discover IDs.")
         .optional(),
+      exclude_empty: z
+        .boolean()
+        .describe("Drop abandoned submissions — entries whose every field value is empty — from the results. Filtering happens after fetch, so pagination totals still reflect the server's unfiltered count.")
+        .default(false),
     },
   },
 
