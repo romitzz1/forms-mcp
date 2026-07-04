@@ -329,7 +329,9 @@ export class UniversalSearchManager {
             strategy: strategy, // Use resolved strategy for accurate reporting
             fieldsSearched: fields.map(f => f.fieldId), // Array of field IDs for SearchResultsFormatter compatibility
             executionTime: executionTimeMs, // Renamed for compatibility
-            apiCalls: 1, // Single API call per search
+            // searchEntries is always one call; the field analysis adds a getFormDefinition
+            // call unless it was served from cache (audit B4 — was hardcoded to 1).
+            apiCalls: analysisResult.cacheStatus.hit ? 1 : 2,
             cacheStatus: {
                 hit: analysisResult.cacheStatus.hit,
                 source: analysisResult.cacheStatus.source,

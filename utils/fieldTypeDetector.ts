@@ -75,7 +75,7 @@ export class FieldTypeDetector {
         },
         team: {
             exact: ['team', 'group', 'with', 'partner', 'squad'],
-            partial: ['team name', 'team members', 'group name', 'members', 'partners'],
+            partial: ['team name', 'group name', 'members', 'partners'],
             confidence: { exact: 0.85, partial: 0.75 }
         }
     };
