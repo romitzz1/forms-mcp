@@ -331,6 +331,37 @@ describe('getEntries Response Size Management', () => {
     });
   });
 
+  describe('single entry fetch by entry_id', () => {
+    it('returns the entry when fetched by entry_id (single-object API response)', async () => {
+      const server = createServer();
+      // The GF /entries/{id} endpoint returns ONE entry object — not an array
+      // and not an { entries: [...] } envelope.
+      const entry = { id: '16040', form_id: '96', '1.3': 'Jane', '4': 'jane@example.com', status: 'active' };
+      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(entry) });
+
+      const result = await (server).getEntries({ entry_id: '16040', response_mode: 'full' });
+      const text = result.content[0].text;
+
+      expect(text).not.toContain('No entries found');
+      expect(text).toContain('Found 1 entry');
+      expect(text).toContain('16040');
+      expect(text).toContain('jane@example.com');
+    });
+
+    it('applies field_ids projection to a single entry_id fetch', async () => {
+      const server = createServer();
+      const entry = { id: '16040', form_id: '96', '1.3': 'Jane', '4': 'jane@example.com', '9': 'secret', status: 'active' };
+      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(entry) });
+
+      const result = await (server).getEntries({ entry_id: '16040', field_ids: ['4'], response_mode: 'full' });
+      const text = result.content[0].text;
+
+      expect(text).toContain('jane@example.com'); // requested field kept
+      expect(text).toContain('16040');            // metadata kept
+      expect(text).not.toContain('secret');       // non-requested field dropped
+    });
+  });
+
   describe('Automatic Response Size Limiting', () => {
     it('should automatically summarize when response exceeds 20k tokens', async () => {
       const server = createServer();
