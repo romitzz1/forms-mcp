@@ -852,8 +852,9 @@ describe('GravityFormsMCPServer', () => {
       expect(responseText).toContain('Total entries: 21');
       expect(responseText).toContain('Current page: 1');
       expect(responseText).toContain('Total pages: 2');
-      expect(responseText).toContain('More entries available');
+      expect(responseText).toContain('more not shown');
       expect(responseText).toContain('current_page": 2');
+      expect(responseText).toContain('To get all 21 in one call');
     });
 
     test('should show when entries span multiple pages', async () => {
@@ -878,7 +879,7 @@ describe('GravityFormsMCPServer', () => {
       expect(responseText).toContain('Total entries: 45'); 
       expect(responseText).toContain('Found 20 entries');
       expect(responseText).toContain('Total pages: 3');
-      expect(responseText).toContain('More entries available');
+      expect(responseText).toContain('more not shown');
     });
 
     test('should not show "more entries available" when on the last page', async () => {
@@ -904,7 +905,7 @@ describe('GravityFormsMCPServer', () => {
       expect(responseText).toContain('Found 5 entries');
       expect(responseText).toContain('Current page: 2');
       expect(responseText).toContain('Showing entries: 21 to 25');
-      expect(responseText).not.toContain('More entries available');
+      expect(responseText).not.toContain('more not shown');
     });
   });
 
