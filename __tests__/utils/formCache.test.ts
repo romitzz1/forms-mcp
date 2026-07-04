@@ -2856,6 +2856,44 @@ describe('FormCache', () => {
     });
   });
 
+  describe('syncInBackground', () => {
+    beforeEach(async () => {
+      formCache = new FormCache(testDbPath);
+      await formCache.init();
+    });
+
+    it('is single-flight: a second call while one is running is a no-op', async () => {
+      let resolveSync!: () => void;
+      const gate = new Promise<any>((r) => { resolveSync = () => r({ discovered: 0, updated: 0, errors: [] }); });
+      const spy = jest.spyOn(formCache, 'performHybridSync').mockReturnValue(gate);
+
+      formCache.syncInBackground(jest.fn(), 24, 1000);
+      formCache.syncInBackground(jest.fn(), 24, 1000); // no-op — one already in flight
+
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(formCache.isSyncInBackground()).toBe(true);
+
+      resolveSync();
+      await new Promise((r) => setImmediate(r));
+      expect(formCache.isSyncInBackground()).toBe(false);
+
+      // Once the first finished, a new call starts a fresh sync.
+      formCache.syncInBackground(jest.fn(), 24, 1000);
+      expect(spy).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not throw and clears the in-flight flag when the sync fails', async () => {
+      jest.spyOn(formCache, 'performHybridSync').mockRejectedValue(new Error('boom'));
+
+      expect(() => formCache.syncInBackground(jest.fn(), 24, 1000)).not.toThrow();
+
+      // Let the rejected background sync settle.
+      await new Promise((r) => setImmediate(r));
+      await new Promise((r) => setImmediate(r));
+      expect(formCache.isSyncInBackground()).toBe(false);
+    });
+  });
+
   describe('date_created schema migration (v2 -> v3)', () => {
     it('adds the date_created column to a pre-existing v2 database', async () => {
       const Database = require('better-sqlite3');

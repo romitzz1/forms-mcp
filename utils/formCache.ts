@@ -1357,6 +1357,8 @@ export class FormCache {
 
   private lastProbeStats: ProbeStats = { attempted: 0, found: 0, failed: 0, errors: [] };
   private consecutiveFailures = 0;
+  // Single-flight guard for background refreshes (see syncInBackground).
+  private backgroundSyncInFlight = false;
   private readonly circuitBreakerThreshold = FormCache.DEFAULT_CIRCUIT_BREAKER_THRESHOLD;
   private readonly maxErrorHistorySize = FormCache.DEFAULT_MAX_ERROR_HISTORY_SIZE;
 
@@ -2042,6 +2044,38 @@ export class FormCache {
       maxProbeFailures: 5, // Less aggressive for incremental
       maxCacheAgeMs
     });
+  }
+
+  /**
+   * Whether a background refresh is currently running (single-flight guard state).
+   */
+  isSyncInBackground(): boolean {
+    return this.backgroundSyncInFlight;
+  }
+
+  /**
+   * Start a hybrid sync WITHOUT blocking the caller. A cold discovery sync can take
+   * minutes; blocking a tool call on it times out clients. This fires the sync and
+   * returns immediately so callers can serve current cached data (stale-while-
+   * revalidate). Single-flight: if a refresh is already running, this is a no-op, so
+   * concurrent stale reads don't launch duplicate syncs. Errors are swallowed and
+   * logged — a background refresh must never surface an unhandled rejection.
+   */
+  syncInBackground(apiCall: ApiCallFunction, fullSyncIntervalHours = 24, maxCacheAgeMs?: number): void {
+    if (this.backgroundSyncInFlight) {
+      return;
+    }
+    this.backgroundSyncInFlight = true;
+    void this.performHybridSync(apiCall, fullSyncIntervalHours, maxCacheAgeMs)
+      .catch((error) => {
+        this.logger.warn('Background sync failed', {
+          operation: 'syncInBackground',
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+      })
+      .finally(() => {
+        this.backgroundSyncInFlight = false;
+      });
   }
 
   /**

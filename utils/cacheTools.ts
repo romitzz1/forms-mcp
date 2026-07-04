@@ -96,9 +96,13 @@ export async function getForms(ctx: FormsCacheToolContext, args: any) {
           }
         }
 
-        // Check if cache is stale and sync if needed
-        if (await formCache.isStale(ctx.cacheConfig.maxAgeSeconds * 1000)) {
-          await formCache.performHybridSync(
+        // Refresh the cache in the BACKGROUND when stale. A cold discovery sync can
+        // take minutes; blocking the tool call on it times out clients. Callers get
+        // the current cached forms immediately (stale-while-revalidate), and the
+        // background sync freshens the cache for the next call.
+        const stale = await formCache.isStale(ctx.cacheConfig.maxAgeSeconds * 1000);
+        if (stale) {
+          formCache.syncInBackground(
             ctx.makeRequest,
             ctx.cacheConfig.fullSyncIntervalHours,
             ctx.cacheConfig.maxAgeSeconds * 1000
@@ -107,6 +111,25 @@ export async function getForms(ctx: FormsCacheToolContext, args: any) {
 
         // Get all forms from cache
         const allForms = await formCache.getAllForms(false, exclude_trash);
+
+        // Cold cache (first-ever sync still warming): don't hand back an empty list.
+        // Fall back to a direct /forms call for active forms now; a follow-up call
+        // includes inactive/hidden forms once the background discovery finishes.
+        if (allForms.length === 0 && stale) {
+          const endpoint = include_fields ? '/forms?include[]=form_fields' : '/forms';
+          const forms = await ctx.makeRequest(endpoint);
+          // Only surface the "warming up" note when the site actually has forms to
+          // discover. A genuinely empty site always reads as stale (no last_synced),
+          // so without this it would loop on the note forever; fall through to the
+          // normal empty result instead.
+          const hasForms = forms && typeof forms === 'object' && Object.keys(forms).length > 0;
+          if (hasForms) {
+            const warming = `Note: full form discovery is warming up in the background. Showing active forms for now — call get_forms with include_all again shortly for the complete list (including inactive/deleted forms).\n\n`;
+            return {
+              content: [{ type: "text", text: `${warming}${JSON.stringify(forms, null, 2)}` }]
+            };
+          }
+        }
 
         // Transform cached form data to match API format
         let formsData = allForms.map(form => {
@@ -300,9 +323,10 @@ export async function listFormTemplates(ctx: FormsCacheToolContext, args: any) {
               await formCache.init();
             }
 
-            // Check if cache needs sync
+            // Refresh in the background when stale rather than blocking on a
+            // potentially multi-minute discovery sync (stale-while-revalidate).
             if (await formCache.isStale(ctx.cacheConfig.maxAgeSeconds * 1000)) {
-              await formCache.performHybridSync(
+              formCache.syncInBackground(
                 ctx.makeRequest,
                 ctx.cacheConfig.fullSyncIntervalHours,
                 ctx.cacheConfig.maxAgeSeconds * 1000
@@ -312,6 +336,11 @@ export async function listFormTemplates(ctx: FormsCacheToolContext, args: any) {
             // Get all cached forms
             const cachedForms = await formCache.getAllForms();
 
+            // Cold cache (first sync still warming): fall back to API-only template
+            // discovery so callers get results now instead of an empty list.
+            if (cachedForms.length === 0) {
+              allTemplates = await templateManager.listTemplates();
+            } else {
             // Convert FormCacheRecord[] to form objects for TemplateManager
             const formsData = cachedForms.map(form => {
               // Parse form_data if it's a JSON string
@@ -342,6 +371,7 @@ export async function listFormTemplates(ctx: FormsCacheToolContext, args: any) {
 
             // Use TemplateManager with cached forms
             allTemplates = await templateManager.listTemplates(formsData);
+            }
           }
         } catch (error) {
           // Fall back to API-only behavior if cache fails
