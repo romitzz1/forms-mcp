@@ -117,17 +117,16 @@ describe('UniversalSearchManager', () => {
 
             expect(mockFieldDetector.analyzeFormFieldsWithStatus).toHaveBeenCalledWith(mockForm);
             expect(mockFieldDetector.getNameFields).toHaveBeenCalledWith(mockFormMapping);
-            expect(mockApiClient.searchEntries).toHaveBeenCalledWith(
-                '193',
-                expect.objectContaining({
-                    field_filters: expect.arrayContaining([
-                        { key: '52', value: 'John Smith', operator: 'contains' },
-                        { key: '1.3', value: 'John Smith', operator: 'contains' },
-                        { key: '1.6', value: 'John Smith', operator: 'contains' }
-                    ])
-                })
-            );
-            
+            const call = mockApiClient.searchEntries.mock.calls[0];
+            expect(call[0]).toBe('193');
+            expect(call[1].field_filters.mode).toBe('any');
+            const filters = Object.entries(call[1].field_filters).filter(([k]) => k !== 'mode').map(([, v]) => v);
+            expect(filters).toEqual(expect.arrayContaining([
+                { key: '52', value: 'John Smith', operator: 'contains' },
+                { key: '1.3', value: 'John Smith', operator: 'contains' },
+                { key: '1.6', value: 'John Smith', operator: 'contains' }
+            ]));
+
             expect(result.matches).toHaveLength(2);
             expect(result.totalFound).toBe(2);
         });
@@ -138,31 +137,29 @@ describe('UniversalSearchManager', () => {
             // Exact strategy must emit 'is' — the Gravity Forms operator for exact
             // equality — not '=', which is not in the API's valid operator set and is
             // either rejected or silently ignored (audit A9).
-            expect(mockApiClient.searchEntries).toHaveBeenCalledWith(
-                '193',
-                expect.objectContaining({
-                    field_filters: expect.arrayContaining([
-                        { key: '52', value: 'John Smith', operator: 'is' },
-                        { key: '1.3', value: 'John Smith', operator: 'is' },
-                        { key: '1.6', value: 'John Smith', operator: 'is' }
-                    ])
-                })
-            );
+            const call = mockApiClient.searchEntries.mock.calls[0];
+            expect(call[0]).toBe('193');
+            expect(call[1].field_filters.mode).toBe('any');
+            const filters = Object.entries(call[1].field_filters).filter(([k]) => k !== 'mode').map(([, v]) => v);
+            expect(filters).toEqual(expect.arrayContaining([
+                { key: '52', value: 'John Smith', operator: 'is' },
+                { key: '1.3', value: 'John Smith', operator: 'is' },
+                { key: '1.6', value: 'John Smith', operator: 'is' }
+            ]));
         });
 
         it('should handle contains search strategy', async () => {
             await searchManager.searchByName('193', 'John', { strategy: 'contains' });
 
-            expect(mockApiClient.searchEntries).toHaveBeenCalledWith(
-                '193',
-                expect.objectContaining({
-                    field_filters: expect.arrayContaining([
-                        { key: '52', value: 'John', operator: 'contains' },
-                        { key: '1.3', value: 'John', operator: 'contains' },
-                        { key: '1.6', value: 'John', operator: 'contains' }
-                    ])
-                })
-            );
+            const call = mockApiClient.searchEntries.mock.calls[0];
+            expect(call[0]).toBe('193');
+            expect(call[1].field_filters.mode).toBe('any');
+            const filters = Object.entries(call[1].field_filters).filter(([k]) => k !== 'mode').map(([, v]) => v);
+            expect(filters).toEqual(expect.arrayContaining([
+                { key: '52', value: 'John', operator: 'contains' },
+                { key: '1.3', value: 'John', operator: 'contains' },
+                { key: '1.6', value: 'John', operator: 'contains' }
+            ]));
         });
 
         it('should calculate match confidence correctly', async () => {
@@ -204,29 +201,25 @@ describe('UniversalSearchManager', () => {
             const result = await searchManager.searchByEmail('193', 'john.smith@email.com');
 
             expect(mockFieldDetector.getEmailFields).toHaveBeenCalledWith(mockFormMapping);
-            expect(mockApiClient.searchEntries).toHaveBeenCalledWith(
-                '193',
-                expect.objectContaining({
-                    field_filters: [
-                        { key: '54', value: 'john.smith@email.com', operator: 'contains' }
-                    ]
-                })
-            );
-            
+            const call = mockApiClient.searchEntries.mock.calls[0];
+            expect(call[0]).toBe('193');
+            expect(call[1].field_filters).toEqual({
+                mode: 'any',
+                '0': { key: '54', value: 'john.smith@email.com', operator: 'contains' }
+            });
+
             expect(result.matches).toBeDefined();
         });
 
         it('should handle partial email search', async () => {
             await searchManager.searchByEmail('193', '@email.com');
 
-            expect(mockApiClient.searchEntries).toHaveBeenCalledWith(
-                '193',
-                expect.objectContaining({
-                    field_filters: [
-                        { key: '54', value: '@email.com', operator: 'contains' }
-                    ]
-                })
-            );
+            const call = mockApiClient.searchEntries.mock.calls[0];
+            expect(call[0]).toBe('193');
+            expect(call[1].field_filters).toEqual({
+                mode: 'any',
+                '0': { key: '54', value: '@email.com', operator: 'contains' }
+            });
         });
     });
 
@@ -234,30 +227,27 @@ describe('UniversalSearchManager', () => {
         it('should search across multiple field types', async () => {
             const result = await searchManager.searchUniversal('193', 'John', ['name', 'team']);
 
-            expect(mockApiClient.searchEntries).toHaveBeenCalledWith(
-                '193',
-                expect.objectContaining({
-                    field_filters: expect.arrayContaining([
-                        { key: '52', value: 'John', operator: 'contains' },
-                        { key: '1.3', value: 'John', operator: 'contains' },
-                        { key: '1.6', value: 'John', operator: 'contains' },
-                        { key: '17', value: 'John', operator: 'contains' }
-                    ])
-                })
-            );
+            const call = mockApiClient.searchEntries.mock.calls[0];
+            expect(call[0]).toBe('193');
+            expect(call[1].field_filters.mode).toBe('any');
+            const filters = Object.entries(call[1].field_filters).filter(([k]) => k !== 'mode').map(([, v]) => v);
+            expect(filters).toEqual(expect.arrayContaining([
+                { key: '52', value: 'John', operator: 'contains' },
+                { key: '1.3', value: 'John', operator: 'contains' },
+                { key: '1.6', value: 'John', operator: 'contains' },
+                { key: '17', value: 'John', operator: 'contains' }
+            ]));
         });
 
         it('should handle single field type', async () => {
             const result = await searchManager.searchUniversal('193', 'john@email.com', ['email']);
 
-            expect(mockApiClient.searchEntries).toHaveBeenCalledWith(
-                '193',
-                expect.objectContaining({
-                    field_filters: [
-                        { key: '54', value: 'john@email.com', operator: 'contains' }
-                    ]
-                })
-            );
+            const call = mockApiClient.searchEntries.mock.calls[0];
+            expect(call[0]).toBe('193');
+            expect(call[1].field_filters).toEqual({
+                mode: 'any',
+                '0': { key: '54', value: 'john@email.com', operator: 'contains' }
+            });
         });
 
         it('should handle empty field types by searching all text fields', async () => {

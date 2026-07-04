@@ -71,11 +71,14 @@ describe('UniversalSearchManager singleton consistency (audit A2)', () => {
       expect(value).not.toContain('[object Object]');
     }
 
-    // The correct encoding puts the whole search params object as JSON under `search`.
+    // The correct encoding puts the whole search params object as JSON under `search`,
+    // with field_filters as an object keyed by index and an embedded mode, so
+    // Gravity Forms ORs the filters instead of ANDing them.
     const searchParam = requestUrl.searchParams.get('search');
     expect(searchParam).toBeTruthy();
     const parsed = JSON.parse(searchParam as string);
-    expect(Array.isArray(parsed.field_filters)).toBe(true);
+    expect(Array.isArray(parsed.field_filters)).toBe(false);
+    expect(parsed.field_filters.mode).toBe('any');
   });
 
   it('search_entries_universal must also share the correctly-encoding singleton', async () => {
@@ -93,10 +96,13 @@ describe('UniversalSearchManager singleton consistency (audit A2)', () => {
       expect(value).not.toContain('[object Object]');
     }
 
+    // The correct encoding sends field_filters as an object keyed by index with
+    // an embedded mode, so Gravity Forms ORs the filters instead of ANDing them.
     const searchParam = requestUrl.searchParams.get('search');
     expect(searchParam).toBeTruthy();
     const parsed = JSON.parse(searchParam as string);
-    expect(Array.isArray(parsed.field_filters)).toBe(true);
+    expect(Array.isArray(parsed.field_filters)).toBe(false);
+    expect(parsed.field_filters.mode).toBe('any');
   });
 
   it('memoizes a single UniversalSearchManager regardless of which entry point runs first', async () => {

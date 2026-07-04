@@ -311,11 +311,23 @@ export class UniversalSearchManager {
             return this.createEmptyResult(formId, searchText, strategy, analysisResult, startTime);
         }
 
-        // Execute API search
+        // Execute API search.
+        // Gravity Forms combines an ARRAY of field_filters with AND ("all") and IGNORES a
+        // sibling "mode" key — so a multi-field name/email search would only match when the
+        // text is present in EVERY targeted field (i.e. never). To OR across the targeted
+        // fields — the correct semantic here ("find this text in ANY of these fields") — the
+        // filters must be sent in GF's OBJECT form with an embedded mode:
+        //   { mode: "any", "0": {...}, "1": {...} }
         const searchParams = {
-            field_filters: fieldFilters
+            field_filters: fieldFilters.reduce(
+                (acc: Record<string, unknown>, filter, index) => {
+                    acc[String(index)] = filter;
+                    return acc;
+                },
+                { mode: 'any' } as Record<string, unknown>
+            )
         };
-        
+
         const entries = await this.apiClient.searchEntries(formId, searchParams);
         
         // Process results into matches with confidence scoring

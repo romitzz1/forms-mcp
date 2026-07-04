@@ -58,17 +58,22 @@ describe('Comprehensive Integration Tests - Universal Search System', () => {
             searchEntries: jest.fn().mockImplementation((_formId: string, searchParams: any) => {
                 // Simulate search logic - return entries array directly
                 if (searchParams.field_filters) {
-                    const filters = Array.isArray(searchParams.field_filters) 
-                        ? searchParams.field_filters 
-                        : [searchParams.field_filters];
-                    
+                    // field_filters is either a legacy array, or the object form keyed by
+                    // index with an embedded `mode` (e.g. 'any' for OR). Either way, pull
+                    // out the individual {key, value, operator} filters to match against.
+                    const filters = Array.isArray(searchParams.field_filters)
+                        ? searchParams.field_filters
+                        : Object.entries(searchParams.field_filters)
+                            .filter(([key]) => key !== 'mode')
+                            .map(([, value]) => value);
+
                     const matches = mockEntries.filter(entry => {
                         return filters.some((filter: any) => {
                             const fieldValue = entry[filter.key as keyof typeof entry];
                             return fieldValue && fieldValue.toLowerCase().includes(filter.value.toLowerCase());
                         });
                     });
-                    
+
                     return Promise.resolve(matches); // Return array directly
                 }
                 return Promise.resolve(mockEntries); // Return array directly
