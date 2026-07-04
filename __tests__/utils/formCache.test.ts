@@ -2690,4 +2690,94 @@ describe('FormCache', () => {
       });
     });
   });
+
+  describe('date_created column', () => {
+    beforeEach(async () => {
+      formCache = new FormCache(testDbPath);
+      await formCache.init();
+    });
+
+    it('persists date_created on insert and returns it from getForm', async () => {
+      await formCache.insertForm({ id: 1, title: 'Full Form', date_created: '2023-05-01 09:00:00' });
+      const form = await formCache.getForm(1);
+      expect(form?.date_created).toBe('2023-05-01 09:00:00');
+    });
+
+    it('defaults date_created to null when not provided', async () => {
+      await formCache.insertForm({ id: 2, title: 'Stub Form' });
+      const form = await formCache.getForm(2);
+      expect(form?.date_created).toBeNull();
+    });
+
+    it('extracts date_created from a full API form but leaves the lean list stub null', async () => {
+      // Full form definition (individual /forms/{id} payload) carries date_created.
+      await formCache.insertFormFromApi({ id: 3, title: 'Full', is_active: '1', date_created: '2022-01-02 03:04:05' });
+      // Lean /forms list payload has no date_created.
+      await formCache.insertFormFromApi({ id: 4, title: 'Stub', entries: '10' });
+
+      expect((await formCache.getForm(3))?.date_created).toBe('2022-01-02 03:04:05');
+      expect((await formCache.getForm(4))?.date_created).toBeNull();
+    });
+
+    it('updates date_created without touching it when other fields change', async () => {
+      await formCache.insertForm({ id: 5, title: 'Form', date_created: '2021-06-06 06:06:06' });
+
+      // Backfill-style update: set only date_created.
+      await formCache.updateForm(5, { date_created: '2021-07-07 07:07:07' });
+      expect((await formCache.getForm(5))?.date_created).toBe('2021-07-07 07:07:07');
+
+      // A later stub-style update (title/form_data only) must preserve date_created.
+      await formCache.updateForm(5, { title: 'Renamed', form_data: '{"id":"5"}' });
+      expect((await formCache.getForm(5))?.date_created).toBe('2021-07-07 07:07:07');
+    });
+
+    it('returns date_created from getAllForms', async () => {
+      await formCache.insertForm({ id: 6, title: 'A', date_created: '2020-01-01 00:00:00' });
+      await formCache.insertForm({ id: 7, title: 'B' });
+      const all = await formCache.getAllForms();
+      const byId = Object.fromEntries(all.map(f => [f.id, f.date_created]));
+      expect(byId[6]).toBe('2020-01-01 00:00:00');
+      expect(byId[7]).toBeNull();
+    });
+  });
+
+  describe('date_created schema migration (v2 -> v3)', () => {
+    it('adds the date_created column to a pre-existing v2 database', async () => {
+      const Database = require('better-sqlite3');
+
+      // Build a legacy v2 schema: forms table WITHOUT date_created, schema_version=2.
+      const legacy = new Database(testDbPath);
+      legacy.prepare(`
+        CREATE TABLE forms (
+          id INTEGER PRIMARY KEY,
+          title TEXT NOT NULL,
+          entry_count INTEGER DEFAULT 0,
+          is_active BOOLEAN DEFAULT true,
+          is_trash BOOLEAN DEFAULT false,
+          last_synced TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          form_data TEXT
+        )
+      `).run();
+      legacy.prepare(`CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`).run();
+      legacy.prepare(`INSERT INTO schema_version (version) VALUES (1)`).run();
+      legacy.prepare(`INSERT INTO schema_version (version) VALUES (2)`).run();
+      legacy.prepare(`INSERT INTO forms (id, title) VALUES (99, 'Legacy Form')`).run();
+      const hasColumnBefore = legacy.prepare(`PRAGMA table_info(forms)`).all().some((c: any) => c.name === 'date_created');
+      legacy.close();
+      expect(hasColumnBefore).toBe(false);
+
+      // Init FormCache against the legacy DB — migration should add the column.
+      formCache = new FormCache(testDbPath);
+      await formCache.init();
+
+      expect(await formCache.getSchemaVersion()).toBe(3);
+      const legacyForm = await formCache.getForm(99);
+      expect(legacyForm?.title).toBe('Legacy Form');
+      expect(legacyForm?.date_created).toBeNull();
+
+      // And the migrated column is writable.
+      await formCache.updateForm(99, { date_created: '2019-09-09 09:09:09' });
+      expect((await formCache.getForm(99))?.date_created).toBe('2019-09-09 09:09:09');
+    });
+  });
 });

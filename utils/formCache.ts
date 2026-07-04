@@ -4,7 +4,7 @@
 import { DatabaseManager } from './database.js';
 import type Database from 'better-sqlite3';
 
-const CURRENT_SCHEMA_VERSION = 2;
+const CURRENT_SCHEMA_VERSION = 3;
 
 // =====================================
 // Step 14: Error Classification System
@@ -287,6 +287,9 @@ export interface FormCacheRecord {
   is_trash: boolean;
   last_synced: string;
   form_data: string;
+  // Form creation timestamp ("YYYY-MM-DD HH:MM:SS"), from the full form definition.
+  // Null when only the lean /forms list payload has been cached for this form.
+  date_created: string | null;
 }
 
 export interface FormCacheInsert {
@@ -296,6 +299,7 @@ export interface FormCacheInsert {
   is_active?: boolean;
   is_trash?: boolean;
   form_data?: string;
+  date_created?: string | null;
 }
 
 export interface FormCacheUpdate {
@@ -304,6 +308,7 @@ export interface FormCacheUpdate {
   is_active?: boolean;
   is_trash?: boolean;
   form_data?: string;
+  date_created?: string | null;
 }
 
 export interface TableColumn {
@@ -547,7 +552,13 @@ export class FormCache {
    */
   private async createSchema(): Promise<void> {
     const db = this.getDatabase();
-    
+
+    // Detect whether this is a brand-new database before creating anything. For a
+    // pre-existing database we must NOT stamp the current schema version here —
+    // doing so would make getSchemaVersion() report the latest version and cause
+    // handleSchemaMigration() to skip the ALTER TABLE steps that upgrade old rows.
+    const formsTableExisted = await this.tableExists('forms');
+
     // Create forms table
     db.prepare(`
       CREATE TABLE IF NOT EXISTS forms (
@@ -557,7 +568,8 @@ export class FormCache {
         is_active BOOLEAN DEFAULT true,
         is_trash BOOLEAN DEFAULT false,
         last_synced TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        form_data TEXT
+        form_data TEXT,
+        date_created TEXT
       )
     `).run();
 
@@ -594,15 +606,19 @@ export class FormCache {
       )
     `).run();
 
-    // Record initial schema version
-    const versionExists = db.prepare(`
-      SELECT 1 FROM schema_version WHERE version = ?
-    `).get(CURRENT_SCHEMA_VERSION);
+    // Record the current schema version only for a brand-new database. For a
+    // pre-existing one, handleSchemaMigration() owns advancing the version as it
+    // applies each ALTER TABLE step.
+    if (!formsTableExisted) {
+      const versionExists = db.prepare(`
+        SELECT 1 FROM schema_version WHERE version = ?
+      `).get(CURRENT_SCHEMA_VERSION);
 
-    if (!versionExists) {
-      db.prepare(`
-        INSERT INTO schema_version (version) VALUES (?)
-      `).run(CURRENT_SCHEMA_VERSION);
+      if (!versionExists) {
+        db.prepare(`
+          INSERT INTO schema_version (version) VALUES (?)
+        `).run(CURRENT_SCHEMA_VERSION);
+      }
     }
   }
 
@@ -643,9 +659,28 @@ export class FormCache {
         INSERT INTO schema_version (version) VALUES (?)
       `).run(2);
     }
-    
+
+    // Migration from version 2 to version 3: Add date_created column
+    if (currentVersion < 3) {
+      const columnExists = db.prepare(`
+        PRAGMA table_info(forms)
+      `).all().some((col: any) => col.name === 'date_created');
+
+      if (!columnExists) {
+        // Add date_created column (nullable; backfilled from full form definitions)
+        db.prepare(`
+          ALTER TABLE forms ADD COLUMN date_created TEXT
+        `).run();
+      }
+
+      // Update schema version to 3
+      db.prepare(`
+        INSERT INTO schema_version (version) VALUES (?)
+      `).run(3);
+    }
+
     // Future migrations will be added here
-    // if (currentVersion < 3) { ... }
+    // if (currentVersion < 4) { ... }
   }
 
   /**
@@ -675,7 +710,8 @@ export class FormCache {
       is_active: Boolean(row.is_active),
       is_trash: Boolean(row.is_trash),
       last_synced: row.last_synced,
-      form_data: row.form_data
+      form_data: row.form_data,
+      date_created: row.date_created ?? null
     };
   }
 
@@ -706,10 +742,12 @@ export class FormCache {
         ? (apiForm.is_active === '1' || apiForm.is_active === 1 || apiForm.is_active === true)
         : true,
       // Handle is_trash from API response, default to false if not provided
-      is_trash: apiForm.is_trash !== undefined 
+      is_trash: apiForm.is_trash !== undefined
         ? (apiForm.is_trash === '1' || apiForm.is_trash === 1 || apiForm.is_trash === true)
         : false,
-      form_data: JSON.stringify(apiForm)
+      form_data: JSON.stringify(apiForm),
+      // Present only on the full form definition, not the lean /forms list payload.
+      date_created: apiForm.date_created ?? null
     };
   }
 
@@ -746,8 +784,8 @@ export class FormCache {
     const db = this.getDatabase();
     
     const stmt = db.prepare(`
-      INSERT INTO forms (id, title, entry_count, is_active, is_trash, form_data, last_synced)
-      VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      INSERT INTO forms (id, title, entry_count, is_active, is_trash, form_data, date_created, last_synced)
+      VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `);
 
     try {
@@ -764,7 +802,8 @@ export class FormCache {
         form.entry_count ?? 0,
         (form.is_active ?? true) ? 1 : 0,
         (form.is_trash ?? false) ? 1 : 0,
-        form.form_data ?? ''
+        form.form_data ?? '',
+        form.date_created ?? null
       );
 
       this.logger.info('Form inserted successfully', {
@@ -836,6 +875,10 @@ export class FormCache {
       updateFields.push('form_data = ?');
       values.push(updates.form_data);
     }
+    if (updates.date_created !== undefined) {
+      updateFields.push('date_created = ?');
+      values.push(updates.date_created);
+    }
 
     // Always update last_synced
     updateFields.push('last_synced = CURRENT_TIMESTAMP');
@@ -870,7 +913,7 @@ export class FormCache {
     try {
       const db = this.getDatabase();
       const stmt = db.prepare(`
-        SELECT id, title, entry_count, is_active, is_trash, last_synced, form_data
+        SELECT id, title, entry_count, is_active, is_trash, last_synced, form_data, date_created
         FROM forms WHERE id = ?
       `);
 
@@ -900,7 +943,7 @@ export class FormCache {
 
     const db = this.getDatabase();
     let query = `
-      SELECT id, title, entry_count, is_active, is_trash, last_synced, form_data
+      SELECT id, title, entry_count, is_active, is_trash, last_synced, form_data, date_created
       FROM forms
     `;
 
@@ -1087,7 +1130,8 @@ export class FormCache {
       is_active: basicInfo.is_active,
       is_trash: basicInfo.is_trash,
       last_synced: new Date().toISOString(),
-      form_data: JSON.stringify(apiForm)
+      form_data: JSON.stringify(apiForm),
+      date_created: apiForm.date_created ?? null
     };
   }
 
