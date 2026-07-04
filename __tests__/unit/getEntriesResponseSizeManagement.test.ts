@@ -195,6 +195,42 @@ describe('getEntries Response Size Management', () => {
       expect(result.content[0].text).not.toContain('Response summarized'); // Not summarized
     });
 
+    it('projects to only requested field_ids (plus metadata), dropping the rest', async () => {
+      const server = createServer();
+      // 'large' entry carries name (1.3/1.6), email (field 4) and filler fields 60-89.
+      const wideEntry = createLargeEntry('1', 'large');
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ entries: [wideEntry] })
+      });
+
+      const result = await (server).getEntries({
+        form_id: '193',
+        field_ids: ['1', '4'], // field 1 keeps composite sub-inputs 1.3/1.6; field 4 = email
+        response_mode: 'full'
+      });
+      const text = result.content[0].text;
+
+      expect(text).toContain('John');                    // 1.3 (composite sub-input kept)
+      expect(text).toContain('john.smith@email.com');    // field 4 kept
+      expect(text).toContain('"id"');                    // core metadata kept
+      expect(text).not.toContain('Large field content 60'); // non-requested field dropped
+    });
+
+    it('returns all fields when field_ids is omitted', async () => {
+      const server = createServer();
+      const wideEntry = createLargeEntry('1', 'large');
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ entries: [wideEntry] })
+      });
+
+      const result = await (server).getEntries({ form_id: '193', response_mode: 'full' });
+      expect(result.content[0].text).toContain('Large field content 60'); // nothing dropped
+    });
+
     it('should use summary mode when explicitly requested', async () => {
       const server = createServer();
       const entries = [createLargeEntry('1', 'normal')];

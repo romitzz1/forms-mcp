@@ -22,7 +22,8 @@ export async function getEntries(ctx: EntriesQueryToolContext, args: any) {
       paging,
       response_mode = 'auto',
       search_mode = 'standard',
-      field_detection = false
+      field_detection = false,
+      field_ids
     } = args;
 
     // Handle universal search mode
@@ -119,8 +120,29 @@ export async function getEntries(ctx: EntriesQueryToolContext, args: any) {
     const response = await ctx.makeRequest(fullEndpoint);
 
     // Extract entries and pagination info from API response
-    const entries = response?.entries || response || [];
+    let entries = response?.entries || response || [];
     const totalCount = response?.total_count;
+
+    // Field projection: when field_ids is provided, keep only those field values (plus core
+    // entry metadata) so wide forms don't return every field. Requested IDs also match their
+    // composite sub-inputs (e.g. "1" keeps "1.3"/"1.6" name parts). This shrinks the payload
+    // before size estimation, so a projected wide form won't trip auto-summary.
+    const projectFieldIds: string[] | undefined = Array.isArray(field_ids)
+      ? field_ids.map((id: unknown) => String(id))
+      : undefined;
+    if (projectFieldIds && projectFieldIds.length > 0 && Array.isArray(entries)) {
+      const metaKeys = new Set(['id', 'form_id', 'date_created', 'date_updated', 'created_by', 'status', 'source_url']);
+      entries = entries.map((entry: any) => {
+        if (!entry || typeof entry !== 'object') return entry;
+        const projected: any = {};
+        for (const [key, value] of Object.entries(entry)) {
+          if (metaKeys.has(key) || projectFieldIds.some(fid => key === fid || key.startsWith(`${fid}.`))) {
+            projected[key] = value;
+          }
+        }
+        return projected;
+      });
+    }
     const hasMorePages = totalCount && entries.length && paging?.page_size && totalCount > (paging.page_size * (paging.current_page || 1));
 
     // Handle empty results
