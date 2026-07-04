@@ -2,7 +2,7 @@
 // ABOUTME: Tests form caching with SQLite schema management
 
 import type { FormCacheInsert, FormCacheUpdate} from '../../utils/formCache.js';
-import { FormCache, FormCacheRecord } from '../../utils/formCache.js';
+import { FormCache, FormCacheRecord, parseDbTimestamp, formatDbTimestamp } from '../../utils/formCache.js';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -2793,6 +2793,66 @@ describe('FormCache', () => {
       await formCache.backfillActiveFormDates([record(14)], apiCall);
 
       expect((await formCache.getForm(14))?.date_created).toBeNull();
+    });
+  });
+
+  describe('SQLite UTC timestamp handling', () => {
+    it('parseDbTimestamp parses a naive SQLite timestamp as UTC', () => {
+      expect(parseDbTimestamp('2026-07-04 15:24:05')).toBe(Date.UTC(2026, 6, 4, 15, 24, 5));
+    });
+
+    it('parseDbTimestamp passes ISO-8601 values through as UTC', () => {
+      expect(parseDbTimestamp('2026-07-04T15:24:05.000Z')).toBe(Date.UTC(2026, 6, 4, 15, 24, 5));
+    });
+
+    it('formatDbTimestamp renders epoch ms as a naive-UTC string', () => {
+      expect(formatDbTimestamp(Date.UTC(2026, 6, 4, 15, 24, 5))).toBe('2026-07-04 15:24:05');
+    });
+
+    // Naive-UTC string N ms in the past, matching SQLite's stored format.
+    const naiveUtcAgo = (msAgo: number) => new Date(Date.now() - msAgo).toISOString().slice(0, 19).replace('T', ' ');
+
+    describe('isStale honors maxAge regardless of host timezone', () => {
+      beforeEach(async () => {
+        formCache = new FormCache(testDbPath);
+        await formCache.init();
+      });
+
+      const setLastSynced = (id: number, ts: string) => {
+        (formCache as any).getDatabase().prepare('UPDATE forms SET last_synced = ? WHERE id = ?').run(ts, id);
+      };
+
+      it('treats a form synced longer ago than maxAge as stale', async () => {
+        await formCache.insertForm({ id: 1, title: 'F' });
+        setLastSynced(1, naiveUtcAgo(10 * 60 * 1000)); // 10 minutes ago (UTC)
+        expect(await formCache.isStale(5 * 60 * 1000)).toBe(true);
+      });
+
+      it('treats a recently synced form as fresh', async () => {
+        await formCache.insertForm({ id: 2, title: 'F' });
+        setLastSynced(2, naiveUtcAgo(30 * 1000)); // 30 seconds ago
+        expect(await formCache.isStale(5 * 60 * 1000)).toBe(false);
+      });
+    });
+
+    describe('cleanupStaleData compares against the stored format', () => {
+      beforeEach(async () => {
+        formCache = new FormCache(testDbPath);
+        await formCache.init();
+      });
+
+      it('deletes only forms older than maxAge, keeping recent ones', async () => {
+        await formCache.insertForm({ id: 1, title: 'Old' });
+        await formCache.insertForm({ id: 2, title: 'Recent' });
+        const db = (formCache as any).getDatabase();
+        db.prepare('UPDATE forms SET last_synced = ? WHERE id = 1').run(naiveUtcAgo(60 * 60 * 1000)); // 1h ago
+        db.prepare('UPDATE forms SET last_synced = ? WHERE id = 2').run(naiveUtcAgo(10 * 1000));       // 10s ago
+
+        const deleted = await formCache.cleanupStaleData(5 * 60 * 1000); // 5 minutes
+        expect(deleted).toBe(1);
+        expect(await formCache.getForm(1)).toBeNull();
+        expect((await formCache.getForm(2))?.title).toBe('Recent');
+      });
     });
   });
 
