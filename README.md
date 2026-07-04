@@ -8,6 +8,10 @@ forms and entries, searching, exporting data, and managing templates.
 operations, template management, and JSON import/export. See the
 [Tool Catalog](#tool-catalog) below.
 
+> **Just want to get running?** See **[QUICKSTART.md](QUICKSTART.md)** for a
+> step-by-step setup — Docker (shared HTTP server) or local (stdio), wired to
+> Claude Code and Claude Desktop.
+
 ## Requirements
 
 - Node.js 24 or later (see `.nvmrc`)
