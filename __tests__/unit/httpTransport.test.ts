@@ -97,6 +97,53 @@ describe('POST /mcp session handling', () => {
     });
   }
 
+  function deleteSession(port: number, sessionId: string): Promise<number> {
+    return new Promise((resolve, reject) => {
+      const req = http.request(
+        {
+          host: '127.0.0.1',
+          port,
+          path: '/mcp',
+          method: 'DELETE',
+          headers: {
+            Accept: 'application/json, text/event-stream',
+            Authorization: `Bearer ${TOKEN}`,
+            'mcp-session-id': sessionId,
+          },
+        },
+        (res) => {
+          res.on('data', () => { /* drain */ });
+          res.on('end', () => resolve(res.statusCode ?? 0));
+        }
+      );
+      req.on('error', reject);
+      req.end();
+    });
+  }
+
+  it('cleans up a session on close without recursing into a stack overflow', async () => {
+    const createServer = () => new McpServer({ name: 'test', version: '1.0.0' }).server;
+    const httpServer = await startHttpServer(createServer, { port: 0, token: TOKEN });
+    const addr = httpServer.address();
+    const port = typeof addr === 'object' && addr ? addr.port : 0;
+    try {
+      const { sessionId } = await postInitialize(port);
+      expect(sessionId).toBeTruthy();
+
+      // Closing the transport used to recurse: onclose -> sessionServer.close() ->
+      // transport.close() -> onclose -> ... crashing the process with a stack overflow.
+      // It must now complete cleanly and remove the session.
+      const status = await deleteSession(port, sessionId!);
+      expect([200, 204]).toContain(status);
+
+      // Session is gone — a second DELETE for the same id is rejected as invalid.
+      const second = await deleteSession(port, sessionId!);
+      expect(second).toBe(400);
+    } finally {
+      await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+    }
+  });
+
   it('gives every session its own server so a second client is not rejected with 500', async () => {
     let built = 0;
     const createServer = () => {
