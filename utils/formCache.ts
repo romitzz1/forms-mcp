@@ -1352,8 +1352,13 @@ export class FormCache {
   private static readonly DEFAULT_RETRY_BASE_DELAY_MS = 100;
   private static readonly DEFAULT_RETRY_MAX_DELAY_MS = 5000;
   private static readonly DEFAULT_RETRY_JITTER_MS = 50;
-  private static readonly DEFAULT_PROBE_DELAY_MS = 100;
   private static readonly DEFAULT_LOG_TRUNCATE_LENGTH = 200;
+  // Max simultaneous per-form fetches during a background sync. Bounds load on the
+  // WordPress host while collapsing minutes of sequential fetches into seconds.
+  private static readonly SYNC_FETCH_CONCURRENCY = 8;
+  // Safety ceiling on how many gap IDs a single sync will probe, so a pathological
+  // ID range (e.g. a huge run of deleted forms) can't fan out to thousands of requests.
+  private static readonly MAX_GAP_PROBES = 1000;
 
   private lastProbeStats: ProbeStats = { attempted: 0, found: 0, failed: 0, errors: [] };
   private consecutiveFailures = 0;
@@ -1379,34 +1384,66 @@ export class FormCache {
    * Probe a single form by ID via API
    */
   /**
+   * Run `fn` over `items` with at most `concurrency` calls in flight at once,
+   * preserving input order in the returned results. Keeps per-form fetches bounded
+   * so a background sync doesn't open hundreds of simultaneous connections.
+   */
+  private async mapWithConcurrency<T, R>(
+    items: T[],
+    concurrency: number,
+    fn: (item: T, index: number) => Promise<R>
+  ): Promise<R[]> {
+    const results = new Array<R>(items.length);
+    let nextIndex = 0;
+    const worker = async (): Promise<void> => {
+      while (true) {
+        const index = nextIndex++;
+        if (index >= items.length) {
+          return;
+        }
+        results[index] = await fn(items[index], index);
+      }
+    };
+    const workerCount = Math.max(1, Math.min(concurrency, items.length));
+    await Promise.all(Array.from({ length: workerCount }, () => worker()));
+    return results;
+  }
+
+  /**
    * Backfill the date_created column for active forms that don't have it yet.
    * The /forms list endpoint returns only {id, title, entries}, so date_created
    * is fetched from each form's full /forms/{id} definition. Because date_created
    * never changes, a form is fetched at most once — already-populated forms are
    * skipped. Per-form failures are non-fatal so one bad form can't abort the sync.
+   * Fetches run with bounded concurrency to keep the sync fast without flooding WP.
    */
   async backfillActiveFormDates(activeForms: FormCacheRecord[], apiCall: ApiCallFunction): Promise<void> {
+    // Decide which forms actually need a fetch first (cheap local reads), then fetch
+    // only those in parallel.
+    const idsNeedingBackfill: number[] = [];
     for (const form of activeForms) {
       const cached = await this.getForm(form.id);
-      if (!cached || cached.date_created != null) {
-        continue; // already have it (or form vanished) — no fetch needed
+      if (cached && cached.date_created == null) {
+        idsNeedingBackfill.push(form.id);
       }
+    }
 
+    await this.mapWithConcurrency(idsNeedingBackfill, FormCache.SYNC_FETCH_CONCURRENCY, async (id) => {
       try {
-        const full = await apiCall(`/forms/${form.id}`);
+        const full = await apiCall(`/forms/${id}`);
         const dateCreated = full?.date_created ?? null;
         if (dateCreated != null) {
-          await this.updateForm(form.id, { date_created: String(dateCreated) });
+          await this.updateForm(id, { date_created: String(dateCreated) });
         }
       } catch (error) {
         // Leave date_created null and retry on a future sync rather than failing.
         this.logger.debug('date_created backfill failed', {
           operation: 'backfillActiveFormDates',
-          form_id: form.id,
+          form_id: id,
           error: error instanceof Error ? error.message : 'Unknown error'
         });
       }
-    }
+    });
   }
 
   async probeFormById(id: number, apiCall: ApiCallFunction, updateStats = true): Promise<FormProbeResult> {
@@ -1507,46 +1544,42 @@ export class FormCache {
     // Use provided threshold or fall back to instance default
     const effectiveThreshold = circuitBreakerThreshold ?? this.circuitBreakerThreshold;
 
-    for (let i = 0; i < ids.length; i++) {
-      const id = ids[i];
-      
-      // Check circuit breaker
+    // Probe in bounded-concurrency chunks: each chunk's IDs are fetched in parallel
+    // (fast — the bounded pool is the rate limiter, replacing the old per-request
+    // delay), then its results are folded in ID order so the circuit breaker still
+    // trips on consecutive failures. When it trips, the remaining unprobed IDs are
+    // marked circuit-breaker-open WITHOUT issuing any requests.
+    const concurrency = FormCache.SYNC_FETCH_CONCURRENCY;
+    for (let i = 0; i < ids.length; i += concurrency) {
+      const chunk = ids.slice(i, i + concurrency);
+      const chunkResults = await Promise.all(
+        chunk.map((id) => this.probeFormById(id, apiCall, false))
+      );
+
+      for (const result of chunkResults) {
+        results.push(result);
+        this.lastProbeStats.attempted++;
+        if (result.found) {
+          this.lastProbeStats.found++;
+          this.consecutiveFailures = 0; // Reset circuit breaker
+        } else {
+          this.lastProbeStats.failed++;
+          if (result.error) {
+            this.addErrorToStats(result.error);
+          }
+          this.consecutiveFailures++;
+        }
+      }
+
       if (this.consecutiveFailures >= effectiveThreshold) {
         const circuitBreakerError = 'Circuit breaker open - too many consecutive failures';
-        const remainingIds = ids.slice(i);
-        for (const remainingId of remainingIds) {
-          results.push({
-            id: remainingId,
-            found: false,
-            error: circuitBreakerError
-          });
+        for (let j = i + chunk.length; j < ids.length; j++) {
+          results.push({ id: ids[j], found: false, error: circuitBreakerError });
           this.lastProbeStats.attempted++;
           this.lastProbeStats.failed++;
           this.addErrorToStats(circuitBreakerError);
         }
         break;
-      }
-
-      // Probe individual form (don't update stats here, we handle them in the batch)
-      const result = await this.probeFormById(id, apiCall, false);
-      results.push(result);
-
-      // Update statistics
-      this.lastProbeStats.attempted++;
-      if (result.found) {
-        this.lastProbeStats.found++;
-        this.consecutiveFailures = 0; // Reset circuit breaker
-      } else {
-        this.lastProbeStats.failed++;
-        if (result.error) {
-          this.addErrorToStats(result.error);
-        }
-        this.consecutiveFailures++;
-      }
-
-      // Add delay between requests for rate limiting (except last request)
-      if (i < ids.length - 1) {
-        await this.sleep(FormCache.DEFAULT_PROBE_DELAY_MS);
       }
     }
 
@@ -1898,12 +1931,27 @@ export class FormCache {
       this.consecutiveFailures = 0;
 
       if (activeFormIds.length > 0) {
-        const gapIds = this.generateProbeList(activeFormIds);
-        
+        let gapIds = this.generateProbeList(activeFormIds);
+
+        // The gap list is already bounded to [minId, maxActiveId]; cap it as a guard
+        // against a pathological range before fanning out parallel requests.
+        if (gapIds.length > FormCache.MAX_GAP_PROBES) {
+          this.logger.warn('Gap probe list capped', {
+            operation: 'syncAllForms',
+            phase: 'probing-gaps',
+            total_gaps: gapIds.length,
+            cap: FormCache.MAX_GAP_PROBES
+          });
+          gapIds = gapIds.slice(0, FormCache.MAX_GAP_PROBES);
+        }
+
         if (gapIds.length > 0) {
           try {
+            // probeBatch now fetches in bounded-concurrency chunks (fast) while keeping
+            // the circuit breaker, so a large run of missing IDs still backs off instead
+            // of firing hundreds of requests. This is the dominant cost of a cold sync.
             const gapResults = await this.probeBatch(gapIds, apiCall, maxProbeFailures);
-            
+
             for (const result of gapResults) {
               if (result.found && result.form) {
                 // Form is already cached by probeFormById, just track statistics

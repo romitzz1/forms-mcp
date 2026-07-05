@@ -1365,14 +1365,22 @@ describe('FormCache', () => {
         expect(mockApiCall).not.toHaveBeenCalled();
       });
 
-      it('should include delay between requests for rate limiting', async () => {
-        const mockApiCall = jest.fn().mockResolvedValue({ id: '1', title: 'Test' });
-        const startTime = Date.now();
-        
-        await formCache.probeBatch([1, 2], mockApiCall);
-        
-        const duration = Date.now() - startTime;
-        expect(duration).toBeGreaterThanOrEqual(90); // Should have at least ~100ms delay between requests
+      it('probes with bounded concurrency rather than all at once', async () => {
+        let inFlight = 0;
+        let maxInFlight = 0;
+        const mockApiCall = jest.fn(async (endpoint: string) => {
+          inFlight++;
+          maxInFlight = Math.max(maxInFlight, inFlight);
+          await new Promise((r) => setImmediate(r));
+          inFlight--;
+          return { id: endpoint.split('/').pop(), title: 'Test' }; // unique id per probe
+        });
+
+        await formCache.probeBatch([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], mockApiCall);
+
+        expect(mockApiCall).toHaveBeenCalledTimes(12);
+        expect(maxInFlight).toBeGreaterThan(1);      // genuinely parallel (rate limiting via pool)
+        expect(maxInFlight).toBeLessThanOrEqual(8);   // bounded at SYNC_FETCH_CONCURRENCY
       });
 
       it('should validate all form IDs', async () => {
@@ -1475,13 +1483,17 @@ describe('FormCache', () => {
       it('should implement circuit breaker for repeated failures', async () => {
         const mockApiCall = jest.fn().mockRejectedValue(new Error('500 Server Error'));
 
-        // Simulate many failures to trigger circuit breaker
-        const results = await formCache.probeBatch([1, 2, 3, 4, 5, 6], mockApiCall);
-        
+        // Enough IDs to span multiple concurrency chunks so the breaker trips on an
+        // early chunk and the remaining IDs are marked circuit-breaker-open.
+        const results = await formCache.probeBatch(
+          Array.from({ length: 20 }, (_, i) => i + 1),
+          mockApiCall
+        );
+
         // Circuit breaker should kick in after several consecutive failures
         const failedResults = results.filter(r => !r.found);
         const circuitBreakerErrors = failedResults.filter(r => r.error?.includes('Circuit breaker'));
-        
+
         expect(circuitBreakerErrors.length).toBeGreaterThan(0);
       });
 
@@ -2750,6 +2762,31 @@ describe('FormCache', () => {
     const record = (id: number): FormCacheRecord => ({
       id, title: `Form ${id}`, entry_count: 0, is_active: true, is_trash: false,
       last_synced: new Date().toISOString(), form_data: '{}', date_created: null
+    });
+
+    it('fetches in parallel with bounded concurrency', async () => {
+      const forms: FormCacheRecord[] = [];
+      for (let i = 1; i <= 20; i++) {
+        await formCache.insertForm({ id: i, title: `F${i}`, date_created: null });
+        forms.push(record(i));
+      }
+
+      let inFlight = 0;
+      let maxInFlight = 0;
+      const apiCall = jest.fn(async (endpoint: string) => {
+        inFlight++;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((r) => setImmediate(r)); // yield so peers can start
+        inFlight--;
+        return { id: endpoint.split('/').pop(), date_created: '2023-01-01 00:00:00' };
+      });
+
+      await formCache.backfillActiveFormDates(forms, apiCall);
+
+      expect(apiCall).toHaveBeenCalledTimes(20);
+      expect(maxInFlight).toBeGreaterThan(1);       // genuinely parallel
+      expect(maxInFlight).toBeLessThanOrEqual(8);    // bounded at SYNC_FETCH_CONCURRENCY
+      expect((await formCache.getForm(7))?.date_created).toBe('2023-01-01 00:00:00'); // all backfilled
     });
 
     it('fetches the full form once to populate a missing date_created', async () => {

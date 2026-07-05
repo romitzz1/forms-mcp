@@ -203,8 +203,13 @@ describe('FormCache Error Handling and Logging', () => {
     it('should handle rate limiting with circuit breaker pattern', async () => {
       const rateLimitApiCall = createMockApiCall('rate_limit');
       
-      // Test that circuit breaker opens after consecutive failures
-      const batchResults = await formCache.probeBatch([1, 2, 3, 4, 5, 6, 7, 8], rateLimitApiCall);
+      // Test that circuit breaker opens after consecutive failures. Uses more IDs
+      // than the concurrency chunk size so the breaker trips on an early chunk and
+      // the remaining IDs are marked circuit-breaker-open.
+      const batchResults = await formCache.probeBatch(
+        Array.from({ length: 16 }, (_, i) => i + 1),
+        rateLimitApiCall
+      );
       
       // Should have some circuit breaker responses after threshold
       const circuitBreakerErrors = batchResults.filter(r => 
