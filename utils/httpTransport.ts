@@ -64,11 +64,15 @@ export function startHttpServer(
       // connected to a transport" and 500s every client after the first.
       const sessionServer = createServer();
       transport.onclose = () => {
+        // Only clean up our session bookkeeping here. Do NOT call sessionServer.close():
+        // connect() makes the server and transport reciprocal, so closing the server
+        // re-closes the transport, which re-fires this onclose — infinite recursion and
+        // a stack-overflow crash. A transport-initiated close already tears the server
+        // down via connect(); dropping our references lets it be garbage-collected.
         if (transport.sessionId) {
           delete transports[transport.sessionId];
           delete lastActivity[transport.sessionId];
         }
-        void sessionServer.close();
       };
       await sessionServer.connect(transport);
       await transport.handleRequest(req, res, req.body);
