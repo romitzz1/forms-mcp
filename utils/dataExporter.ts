@@ -3,6 +3,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import type { IGravityEntry } from './gravityFormsTypes.js';
 
 export type ExportFormat = 'csv' | 'json';
 
@@ -23,6 +24,16 @@ export interface ExportResult {
   format: ExportFormat;
   mimeType: string;
   filePath?: string;
+}
+
+// Falls back to `fallback` for any falsy value, matching `||` semantics
+// (including an empty string) — `??`/`??=` would only treat null/undefined as
+// "missing" and is deliberately not used here.
+function withFallback(value: string | undefined, fallback: string): string {
+  if (value) {
+    return value;
+  }
+  return fallback;
 }
 
 export class DataExporter {
@@ -49,12 +60,16 @@ export class DataExporter {
       .replace('ss', seconds);
   }
 
-  private sanitizeEntry(entry: any, dateFormat?: string, forCSV = false): any {
+  // Entries arrive as `IGravityEntry`, but this method is defensively typed to
+  // tolerate a null/non-object entry (matching the original's own runtime
+  // guard) even though both call sites below only ever pass already-validated
+  // objects.
+  private sanitizeEntry(entry: IGravityEntry | null | undefined, dateFormat?: string, forCSV = false): Record<string, unknown> | null {
     if (!entry || typeof entry !== 'object') {
       return null;
     }
 
-    const sanitized: any = {};
+    const sanitized: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(entry)) {
       if (value === null || value === undefined) {
         sanitized[key] = value;
@@ -85,15 +100,20 @@ export class DataExporter {
     return /^\d{4}-\d{2}-\d{2}(\s\d{2}:\d{2}:\d{2})?$/.test(value);
   }
 
-  private escapeCSVValue(value: any): string {
+  private escapeCSVValue(value: unknown): string {
     if (value === null || value === undefined) {
       return '';
     }
 
-    let stringValue = String(value);
-    
+    let stringValue: string;
+
     if (typeof value === 'object' && !Array.isArray(value)) {
       stringValue = JSON.stringify(value);
+    } else {
+      // This branch only ever sees primitives or arrays (plain objects were routed
+      // to JSON.stringify above), both of which have a meaningful (non-"[object
+      // Object]") toString, so the cast documents that rather than changing behavior.
+      stringValue = String(value as string | number | boolean | unknown[]);
     }
 
     // Escape CSV special characters
@@ -104,10 +124,10 @@ export class DataExporter {
     return stringValue;
   }
 
-  private getAllFields(entries: any[]): string[] {
+  private getAllFields(entries: Array<Record<string, unknown> | null>): string[] {
     const fieldMap = new Map<string, number>();
     let order = 0;
-    
+
     for (const entry of entries) {
       if (entry && typeof entry === 'object') {
         Object.keys(entry).forEach(key => {
@@ -122,12 +142,15 @@ export class DataExporter {
     return Array.from(fieldMap.keys()).sort((a, b) => {
       if (a === 'id' && b !== 'id') return -1;
       if (b === 'id' && a !== 'id') return 1;
-      return fieldMap.get(a)! - fieldMap.get(b)!;
+      // Both keys always come from fieldMap's own key set, so `.get()` never
+      // actually returns undefined here — the `?? 0` fallback documents that
+      // instead of relying on a non-null assertion.
+      return (fieldMap.get(a) ?? 0) - (fieldMap.get(b) ?? 0);
     });
   }
 
-  private filterEntryFields(entry: any, fieldIds: string[]): any {
-    const filtered: any = {};
+  private filterEntryFields(entry: IGravityEntry, fieldIds: string[]): IGravityEntry {
+    const filtered: Record<string, unknown> = {};
 
     // Define metadata fields that should always be included
     const metadataFields = ['id', 'form_id', 'date_created', 'date_updated', 'status', 'is_starred', 'is_read',
@@ -163,10 +186,10 @@ export class DataExporter {
       }
     });
 
-    return filtered;
+    return filtered as IGravityEntry;
   }
 
-  private exportToCSV(entries: any[], options: ExportOptions = {}): string {
+  private exportToCSV(entries: IGravityEntry[], options: ExportOptions = {}): string {
     const validEntries = entries.filter(entry => entry && typeof entry === 'object');
 
     if (validEntries.length === 0) {
@@ -176,14 +199,18 @@ export class DataExporter {
     // Apply field filtering if fieldIds is provided
     let entriesToProcess = validEntries;
     if (options.fieldIds && options.fieldIds.length > 0) {
+      const fieldIds = options.fieldIds;
       entriesToProcess = validEntries.map(entry =>
-        this.filterEntryFields(entry, options.fieldIds!)
+        this.filterEntryFields(entry, fieldIds)
       );
     }
 
+    // Every element of entriesToProcess passed the `entry && typeof entry === 'object'`
+    // check above, so sanitizeEntry's own (defensive-only) null branch never
+    // triggers here — the cast documents that known invariant.
     const sanitizedEntries = entriesToProcess.map(entry =>
       this.sanitizeEntry(entry, options.dateFormat, true)
-    );
+    ) as Array<Record<string, unknown>>;
 
     const allFields = this.getAllFields(sanitizedEntries);
     const rows: string[] = [];
@@ -202,7 +229,7 @@ export class DataExporter {
     return rows.join('\n');
   }
 
-  private exportToJSON(entries: any[], options: ExportOptions = {}): string {
+  private exportToJSON(entries: IGravityEntry[], options: ExportOptions = {}): string {
     const validEntries = entries.filter(entry => entry && typeof entry === 'object');
 
     if (validEntries.length === 0) {
@@ -212,8 +239,9 @@ export class DataExporter {
     // Apply field filtering if fieldIds is provided
     let entriesToProcess = validEntries;
     if (options.fieldIds && options.fieldIds.length > 0) {
+      const fieldIds = options.fieldIds;
       entriesToProcess = validEntries.map(entry =>
-        this.filterEntryFields(entry, options.fieldIds!)
+        this.filterEntryFields(entry, fieldIds)
       );
     }
 
@@ -232,7 +260,7 @@ export class DataExporter {
     const now = new Date();
     const dateStr = now.toISOString().slice(0, 10); // YYYY-MM-DD
     const timeStr = now.toTimeString().slice(0, 8).replace(/:/g, ''); // HHMMSS
-    
+
     return `export_${dateStr}_${timeStr}.${format}`;
   }
 
@@ -248,7 +276,7 @@ export class DataExporter {
   }
 
   private getDefaultExportPath(formId?: string): string {
-    const exportDir = process.env.GRAVITY_FORMS_EXPORT_DIR || './exports';
+    const exportDir = withFallback(process.env.GRAVITY_FORMS_EXPORT_DIR, './exports');
     const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
 
     if (formId) {
@@ -304,7 +332,7 @@ export class DataExporter {
   }
 
   async export(
-    entries: any[],
+    entries: IGravityEntry[],
     format: ExportFormat,
     options: ExportOptions = {},
     formId?: string
@@ -319,7 +347,10 @@ export class DataExporter {
         data = this.exportToJSON(entries, options);
         break;
       default:
-        throw new Error(`Unsupported export format: ${format}`);
+        // `format` is exhaustively 'csv' | 'json' per ExportFormat, so this branch is
+        // statically unreachable — String() covers a caller bypassing the type (e.g.
+        // via `as ExportFormat`) with something else at runtime.
+        throw new Error(`Unsupported export format: ${String(format)}`);
     }
 
     const filename = this.generateFilename(format, options.filename);
