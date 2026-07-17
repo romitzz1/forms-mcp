@@ -2,11 +2,43 @@
 // ABOUTME: Extracted from GravityFormsMCPServer to isolate handler logic from server infrastructure
 
 export interface EntryToolContext {
-  makeRequest(endpoint: string, method?: string, body?: unknown): Promise<any>;
+  makeRequest<T = unknown>(endpoint: string, method?: string, body?: unknown): Promise<T>;
 }
 
-export async function submitForm(ctx: EntryToolContext, args: any) {
-  const { form_id, field_values, source_page = 1, target_page = 0 } = args;
+export interface EntryToolResult {
+  content: Array<{ type: "text"; text: string }>;
+}
+
+// Falls back to `fallback` for any falsy value, matching the original `||`
+// semantics (including an empty string) — `??` would only treat null/undefined
+// as "missing" and is deliberately not used here.
+function withFallback(value: string | undefined, fallback: string): string {
+  if (value) {
+    return value;
+  }
+  return fallback;
+}
+
+export interface SubmitFormArgs {
+  form_id: string;
+  field_values: Record<string, unknown>;
+  source_page?: number;
+  target_page?: number;
+}
+
+// The Gravity Forms submission response. `is_valid` arrives as either a real
+// boolean or a stringified "true"/"false"/"1"/"0" depending on API path, so it's
+// left as `unknown` and checked against every observed form below (unchanged
+// from the original untyped comparisons).
+interface ISubmissionResponse {
+  is_valid?: unknown;
+  entry_id?: string;
+  validation_messages?: Record<string, string>;
+  [key: string]: unknown;
+}
+
+export async function submitForm(ctx: EntryToolContext, args: unknown): Promise<EntryToolResult> {
+  const { form_id, field_values, source_page = 1, target_page = 0 } = args as SubmitFormArgs;
 
   const submission = {
     ...field_values,
@@ -14,13 +46,13 @@ export async function submitForm(ctx: EntryToolContext, args: any) {
     target_page
   };
 
-  const response = await ctx.makeRequest(`/forms/${form_id}/submissions`, 'POST', submission);
+  const response = await ctx.makeRequest<ISubmissionResponse>(`/forms/${form_id}/submissions`, 'POST', submission);
 
   // Parse success/failure for clear AI-readable status
   const isValid = response?.is_valid;
   let statusLine: string;
   if (isValid === true || isValid === 'true' || isValid === '1') {
-    statusLine = `Submission successful! Entry ID: ${response.entry_id || 'unknown'}`;
+    statusLine = `Submission successful! Entry ID: ${withFallback(response.entry_id, 'unknown')}`;
   } else if (isValid === false || isValid === 'false' || isValid === '0') {
     const validationMessages = response?.validation_messages;
     const errorDetails = validationMessages
@@ -41,8 +73,14 @@ export async function submitForm(ctx: EntryToolContext, args: any) {
   };
 }
 
-export async function createEntry(ctx: EntryToolContext, args: any) {
-  const { form_id, field_values, entry_meta = {} } = args;
+export interface CreateEntryArgs {
+  form_id: string;
+  field_values: Record<string, unknown>;
+  entry_meta?: Record<string, unknown>;
+}
+
+export async function createEntry(ctx: EntryToolContext, args: unknown): Promise<EntryToolResult> {
+  const { form_id, field_values, entry_meta = {} } = args as CreateEntryArgs;
 
   const entry = {
     form_id: form_id,
@@ -50,7 +88,7 @@ export async function createEntry(ctx: EntryToolContext, args: any) {
     ...entry_meta
   };
 
-  const response = await ctx.makeRequest('/entries', 'POST', entry);
+  const response = await ctx.makeRequest<unknown>('/entries', 'POST', entry);
 
   return {
     content: [
@@ -62,10 +100,15 @@ export async function createEntry(ctx: EntryToolContext, args: any) {
   };
 }
 
-export async function updateEntry(ctx: EntryToolContext, args: any) {
-  const { entry_id, field_values } = args;
+export interface UpdateEntryArgs {
+  entry_id: string;
+  field_values: Record<string, unknown>;
+}
 
-  const response = await ctx.makeRequest(`/entries/${entry_id}`, 'PUT', field_values);
+export async function updateEntry(ctx: EntryToolContext, args: unknown): Promise<EntryToolResult> {
+  const { entry_id, field_values } = args as UpdateEntryArgs;
+
+  const response = await ctx.makeRequest<unknown>(`/entries/${entry_id}`, 'PUT', field_values);
 
   return {
     content: [
@@ -77,11 +120,16 @@ export async function updateEntry(ctx: EntryToolContext, args: any) {
   };
 }
 
-export async function deleteEntry(ctx: EntryToolContext, args: any) {
-  const { entry_id, force = false } = args;
+export interface DeleteEntryArgs {
+  entry_id: string;
+  force?: boolean;
+}
+
+export async function deleteEntry(ctx: EntryToolContext, args: unknown): Promise<EntryToolResult> {
+  const { entry_id, force = false } = args as DeleteEntryArgs;
 
   const endpoint = force ? `/entries/${entry_id}?force=true` : `/entries/${entry_id}`;
-  const response = await ctx.makeRequest(endpoint, 'DELETE');
+  const response = await ctx.makeRequest<unknown>(endpoint, 'DELETE');
 
   return {
     content: [
