@@ -65,12 +65,17 @@ interface IConditionalLogicRule {
 }
 
 interface IConditionalLogicWithRules {
-  rules: IConditionalLogicRule[];
+  rules: unknown;
   [key: string]: unknown;
 }
 
+// Mirrors the original truthy `conditionalLogic?.rules` guard: true when the
+// field carries a conditionalLogic object with a truthy `rules` value. Whether
+// that value is actually an array is validated by the caller, so a truthy
+// non-array `rules` throws (as the original `.map(...)` did) rather than being
+// silently skipped.
 function hasConditionalLogicRules(value: unknown): value is IConditionalLogicWithRules {
-  return typeof value === 'object' && value !== null && Array.isArray((value as { rules?: unknown }).rules);
+  return typeof value === 'object' && value !== null && Boolean((value as { rules?: unknown }).rules);
 }
 
 export class FormImporter {
@@ -279,7 +284,15 @@ export class FormImporter {
     const updatedFields = form.fields.map((field) => {
       const conditionalLogic = field.conditionalLogic;
       if (hasConditionalLogicRules(conditionalLogic)) {
-        const updatedRules = conditionalLogic.rules.map((rule) => {
+        const { rules } = conditionalLogic;
+        // Preserve the original's crash-on-invalid behavior: the original
+        // called `rules.map(...)` unconditionally after a truthy check, so a
+        // truthy non-array `rules` threw. Throw here too (rather than silently
+        // returning the field unchanged) before narrowing `rules` to an array.
+        if (!Array.isArray(rules)) {
+          throw new TypeError('conditionalLogic.rules must be an array');
+        }
+        const updatedRules = (rules as IConditionalLogicRule[]).map((rule) => {
           if (rule.fieldId && idMapping[rule.fieldId]) {
             return { ...rule, fieldId: idMapping[rule.fieldId] };
           }
@@ -305,8 +318,16 @@ export class FormImporter {
    */
   updateCalculationReferences(form: IImportableForm, idMapping: IdMapping): IImportableForm {
     const updatedFields = form.fields.map((field) => {
-      if (field.isCalculation && typeof field.calculationFormula === 'string') {
-        let updatedFormula = field.calculationFormula;
+      if (field.isCalculation && field.calculationFormula) {
+        const formula = field.calculationFormula;
+        // Preserve the original's crash-on-invalid behavior: the original
+        // called `.replace()` unconditionally after a truthy check, so a
+        // truthy non-string formula threw. Throw here too (rather than silently
+        // returning the field unchanged) before narrowing to a string.
+        if (typeof formula !== 'string') {
+          throw new TypeError('calculationFormula must be a string');
+        }
+        let updatedFormula = formula;
 
         // Update field references in calculation formula
         for (const [oldId, newId] of Object.entries(idMapping)) {
