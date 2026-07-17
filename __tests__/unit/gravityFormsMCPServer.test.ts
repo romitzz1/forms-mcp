@@ -53,7 +53,7 @@ describe('GravityFormsMCPServer', () => {
       delete process.env.GRAVITY_FORMS_AUTH_METHOD;
 
       // Clear module cache to force reload
-      delete require.cache[require.resolve('../../dist/index.js')];
+      delete require.cache[require.resolve('../../index')];
       const { GravityFormsMCPServer } = require('../../index');
       const server = new GravityFormsMCPServer();
       
