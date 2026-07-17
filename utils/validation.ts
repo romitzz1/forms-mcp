@@ -4,7 +4,7 @@
 export interface ValidationResult {
   isValid: boolean;
   errors: string[];
-  sanitizedValue?: any;
+  sanitizedValue?: unknown;
 }
 
 export interface ExportEntriesParams {
@@ -33,7 +33,7 @@ export interface BulkProcessParams {
   confirm: boolean;
   data?: {
     status?: string;
-    [field: string]: any;
+    [field: string]: unknown;
   };
 }
 
@@ -53,6 +53,17 @@ export interface ImportExportParams {
   target_form_id?: string;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+// Routes String() through a plain-`unknown` parameter so a truthy-narrowed
+// (non-nullish) call site doesn't resolve to a type whose only toString is
+// Object's default ('[object Object]'), while producing an identical result.
+function stringifyForCheck(value: unknown): string {
+  return String(value);
+}
+
 export class ValidationHelper {
   private readonly MAX_ENTRY_IDS = 1000;
   private readonly MAX_BULK_ENTRIES = 100;
@@ -66,7 +77,7 @@ export class ValidationHelper {
     'DD/MM/YYYY HH:mm'
   ];
 
-  validateFormId(formId: any): ValidationResult {
+  validateFormId(formId: unknown): ValidationResult {
     const result: ValidationResult = { isValid: true, errors: [] };
 
     if (formId === null || formId === undefined) {
@@ -92,7 +103,7 @@ export class ValidationHelper {
     return result;
   }
 
-  validateEntryIds(entryIds: any): ValidationResult {
+  validateEntryIds(entryIds: unknown): ValidationResult {
     const result: ValidationResult = { isValid: true, errors: [] };
 
     if (entryIds === null || entryIds === undefined) {
@@ -136,7 +147,10 @@ export class ValidationHelper {
       if (!idResult.isValid) {
         result.isValid = false;
         result.errors.push(...idResult.errors);
-      } else {
+      } else if (typeof id === 'string') {
+        // idResult.isValid is only ever true when id is a string (per
+        // validateSingleEntryId's own typeof check), so this narrow never
+        // changes which ids get sanitized — it only satisfies the type checker.
         sanitizedIds.push(id.trim());
       }
     }
@@ -148,7 +162,7 @@ export class ValidationHelper {
     return result;
   }
 
-  private validateSingleEntryId(entryId: any): ValidationResult {
+  private validateSingleEntryId(entryId: unknown): ValidationResult {
     const result: ValidationResult = { isValid: true, errors: [] };
 
     if (typeof entryId !== 'string' || entryId.trim() === '') {
@@ -166,7 +180,7 @@ export class ValidationHelper {
     return result;
   }
 
-  validateExportFormat(format: any): ValidationResult {
+  validateExportFormat(format: unknown): ValidationResult {
     const result: ValidationResult = { isValid: true, errors: [] };
 
     if (format === null || format === undefined) {
@@ -185,10 +199,133 @@ export class ValidationHelper {
     return result;
   }
 
-  validateExportEntriesParams(params: any): ValidationResult {
+  // Extracted from validateExportEntriesParams to keep that method's complexity
+  // and length under the repo's lint thresholds. Mirrors the original's inline
+  // date_range/start_date/end_date extraction and validation exactly; `unknown`
+  // dates are cast to `string` only at the `new Date(...)` call, matching the
+  // original's untyped behavior for non-string values (the Date constructor's
+  // own coercion decides what happens, same as before).
+  private validateExportSearchParams(search: unknown, result: ValidationResult): void {
+    if (!isRecord(search)) return;
+
+    let startDateStr: unknown;
+    let endDateStr: unknown;
+
+    const dateRange = isRecord(search.date_range) ? search.date_range : undefined;
+    if (dateRange) {
+      startDateStr = dateRange.start;
+      endDateStr = dateRange.end;
+    }
+
+    // LLM-friendly format takes precedence if both are provided
+    if (search.start_date) {
+      startDateStr = search.start_date;
+    }
+    if (search.end_date) {
+      endDateStr = search.end_date;
+    }
+
+    // Validate individual dates if provided
+    if (startDateStr) {
+      const startDate = new Date(startDateStr as string);
+      if (isNaN(startDate.getTime())) {
+        result.isValid = false;
+        result.errors.push('Invalid start date format');
+      }
+    }
+
+    if (endDateStr) {
+      const endDate = new Date(endDateStr as string);
+      if (isNaN(endDate.getTime())) {
+        result.isValid = false;
+        result.errors.push('Invalid end date format');
+      }
+    }
+
+    // Validate date range if both are provided
+    if (startDateStr && endDateStr) {
+      const startDate = new Date(startDateStr as string);
+      const endDate = new Date(endDateStr as string);
+
+      // Only check range if both dates are valid
+      if (!isNaN(startDate.getTime()) && !isNaN(endDate.getTime())) {
+        if (startDate > endDate) {
+          result.isValid = false;
+          result.errors.push('Date range start must be before or equal to end date');
+        }
+      }
+    }
+  }
+
+  // Extracted from validateExportEntriesParams to keep that method's complexity
+  // under the repo's lint threshold. Mirrors the original's inline output_path
+  // validation exactly.
+  private validateExportOutputPath(outputPath: unknown, result: ValidationResult): void {
+    if (!outputPath) return;
+
+    if (typeof outputPath !== 'string') {
+      result.isValid = false;
+      result.errors.push('output_path must be a string');
+    } else if (outputPath.trim().length === 0) {
+      result.isValid = false;
+      result.errors.push('output_path cannot be empty');
+    } else if (this.containsInvalidPathChars(outputPath)) {
+      result.isValid = false;
+      result.errors.push('output_path contains invalid characters');
+    }
+  }
+
+  // Extracted from validateExportEntriesParams (see note above). Mirrors the
+  // original's inline field_ids handling exactly, including the JSON-string
+  // parsing path and the "only set sanitizedValue once" behavior.
+  private validateExportFieldIds(params: Record<string, unknown>, result: ValidationResult): void {
+    if (params.field_ids === undefined) return;
+
+    let fieldIds: unknown = params.field_ids;
+
+    // Handle case where field_ids might be passed as a JSON string from MCP interface
+    if (typeof fieldIds === 'string') {
+      try {
+        fieldIds = JSON.parse(fieldIds);
+        // Store the parsed value for later use without mutating original params
+        result.sanitizedValue = { ...params, field_ids: fieldIds };
+      } catch {
+        result.isValid = false;
+        result.errors.push('field_ids must be a valid JSON array of strings');
+        return;
+      }
+    }
+
+    if (!Array.isArray(fieldIds)) {
+      result.isValid = false;
+      result.errors.push('field_ids must be an array');
+      return;
+    }
+
+    // Check that all elements are strings and not empty
+    for (const fieldId of fieldIds) {
+      if (typeof fieldId !== 'string') {
+        result.isValid = false;
+        result.errors.push('field_ids array must contain only string values');
+        break;
+      }
+      if (fieldId.trim() === '') {
+        result.isValid = false;
+        result.errors.push('field_ids cannot contain empty strings');
+        break;
+      }
+    }
+
+    // Store sanitized value if we haven't already
+    if (!result.sanitizedValue && result.isValid) {
+      result.sanitizedValue = { ...params, field_ids: fieldIds };
+    }
+  }
+
+  validateExportEntriesParams(params: unknown): ValidationResult {
     const result: ValidationResult = { isValid: true, errors: [] };
 
-    if (!params || typeof params !== 'object') {
+    if (!isRecord(params)) {
       result.isValid = false;
       result.errors.push('Parameters object is required');
       return result;
@@ -207,13 +344,18 @@ export class ValidationHelper {
       result.errors.push(...formatResult.errors);
     }
 
-    // Validate optional fields
-    if (params.date_format && !this.VALID_DATE_FORMATS.includes(params.date_format)) {
+    // Validate optional fields. A non-string date_format can never appear in
+    // VALID_DATE_FORMATS (string equality never matches across types), so the
+    // typeof check here preserves the original's `!includes(x)` outcome exactly.
+    if (params.date_format && (typeof params.date_format !== 'string' || !this.VALID_DATE_FORMATS.includes(params.date_format))) {
       result.isValid = false;
       result.errors.push('Invalid date format');
     }
 
-    if (params.filename && this.containsInvalidFilenameChars(params.filename)) {
+    // containsInvalidFilenameChars stringifies its argument internally via
+    // RegExp#test's implicit ToString; String(...) here reproduces that same
+    // coercion for a non-string filename instead of relying on an `any` passthrough.
+    if (params.filename && this.containsInvalidFilenameChars(stringifyForCheck(params.filename))) {
       result.isValid = false;
       result.errors.push('Filename contains invalid characters');
     }
@@ -231,120 +373,21 @@ export class ValidationHelper {
     }
 
     // Validate output_path parameter
-    if (params.output_path) {
-      if (typeof params.output_path !== 'string') {
-        result.isValid = false;
-        result.errors.push('output_path must be a string');
-      } else if (params.output_path.trim().length === 0) {
-        result.isValid = false;
-        result.errors.push('output_path cannot be empty');
-      } else if (this.containsInvalidPathChars(params.output_path)) {
-        result.isValid = false;
-        result.errors.push('output_path contains invalid characters');
-      }
-    }
+    this.validateExportOutputPath(params.output_path, result);
 
     // Validate search parameters - support multiple date formats
-    if (params.search) {
-      let startDateStr: string | undefined;
-      let endDateStr: string | undefined;
-
-      // Extract dates from either format
-      if (params.search.date_range) {
-        startDateStr = params.search.date_range.start;
-        endDateStr = params.search.date_range.end;
-      }
-
-      // LLM-friendly format takes precedence if both are provided
-      if (params.search.start_date) {
-        startDateStr = params.search.start_date;
-      }
-      if (params.search.end_date) {
-        endDateStr = params.search.end_date;
-      }
-
-      // Validate individual dates if provided
-      if (startDateStr) {
-        const startDate = new Date(startDateStr);
-        if (isNaN(startDate.getTime())) {
-          result.isValid = false;
-          result.errors.push('Invalid start date format');
-        }
-      }
-
-      if (endDateStr) {
-        const endDate = new Date(endDateStr);
-        if (isNaN(endDate.getTime())) {
-          result.isValid = false;
-          result.errors.push('Invalid end date format');
-        }
-      }
-
-      // Validate date range if both are provided
-      if (startDateStr && endDateStr) {
-        const startDate = new Date(startDateStr);
-        const endDate = new Date(endDateStr);
-
-        // Only check range if both dates are valid
-        if (!isNaN(startDate.getTime()) && !isNaN(endDate.getTime())) {
-          if (startDate > endDate) {
-            result.isValid = false;
-            result.errors.push('Date range start must be before or equal to end date');
-          }
-        }
-      }
-    }
+    this.validateExportSearchParams(params.search, result);
 
     // Validate field_ids parameter
-    if (params.field_ids !== undefined) {
-      let fieldIds = params.field_ids;
-
-      // Handle case where field_ids might be passed as a JSON string from MCP interface
-      if (typeof fieldIds === 'string') {
-        try {
-          fieldIds = JSON.parse(fieldIds);
-          // Store the parsed value for later use without mutating original params
-          result.sanitizedValue = { ...params, field_ids: fieldIds };
-        } catch {
-          result.isValid = false;
-          result.errors.push('field_ids must be a valid JSON array of strings');
-          return result;
-        }
-      }
-
-      if (!Array.isArray(fieldIds)) {
-        result.isValid = false;
-        result.errors.push('field_ids must be an array');
-      } else {
-        // Check that all elements are strings and not empty
-        for (let i = 0; i < fieldIds.length; i++) {
-          const fieldId = fieldIds[i];
-          if (typeof fieldId !== 'string') {
-            result.isValid = false;
-            result.errors.push('field_ids array must contain only string values');
-            break;
-          }
-          if (fieldId.trim() === '') {
-            result.isValid = false;
-            result.errors.push('field_ids cannot contain empty strings');
-            break;
-          }
-        }
-
-        // Store sanitized value if we haven't already
-        if (!result.sanitizedValue && result.isValid) {
-          result.sanitizedValue = { ...params, field_ids: fieldIds };
-        }
-      }
-    }
+    this.validateExportFieldIds(params, result);
 
     return result;
   }
 
-  validateBulkProcessParams(params: any): ValidationResult {
+  validateBulkProcessParams(params: unknown): ValidationResult {
     const result: ValidationResult = { isValid: true, errors: [] };
 
-    if (!params || typeof params !== 'object') {
+    if (!isRecord(params)) {
       result.isValid = false;
       result.errors.push('Parameters object is required');
       return result;
@@ -356,16 +399,18 @@ export class ValidationHelper {
       result.isValid = false;
       result.errors.push(...entryIdsResult.errors);
     }
-    
+
     // Check bulk limit separately (even if entry IDs are invalid)
     if (Array.isArray(params.entry_ids) && params.entry_ids.length > this.MAX_BULK_ENTRIES) {
       result.isValid = false;
       result.errors.push(`Bulk operations limited to ${this.MAX_BULK_ENTRIES} entries maximum`);
     }
 
-    // Validate operation type
+    // Validate operation type. A non-string operation_type can never appear in
+    // validOperations (string equality never matches across types), so the
+    // typeof check here preserves the original's `!includes(x)` outcome exactly.
     const validOperations = ['delete', 'update_status', 'update_fields'];
-    if (!validOperations.includes(params.operation_type)) {
+    if (typeof params.operation_type !== 'string' || !validOperations.includes(params.operation_type)) {
       result.isValid = false;
       result.errors.push('Invalid operation type');
     }
@@ -376,8 +421,11 @@ export class ValidationHelper {
       result.errors.push('Bulk operations require explicit confirmation (confirm: true)');
     }
 
-    // Validate data for update operations
-    if (params.operation_type?.startsWith('update_') && !params.data) {
+    // Validate data for update operations. Cast (not a typeof narrow) preserves
+    // the original's behavior of calling .startsWith directly on operation_type:
+    // a non-string, non-nullish operation_type still throws here exactly as it
+    // did when this parameter was `any`.
+    if ((params.operation_type as string | undefined)?.startsWith('update_') && !params.data) {
       result.isValid = false;
       result.errors.push('Data is required for update operations');
     }
@@ -385,10 +433,10 @@ export class ValidationHelper {
     return result;
   }
 
-  validateTemplateParams(params: any): ValidationResult {
+  validateTemplateParams(params: unknown): ValidationResult {
     const result: ValidationResult = { isValid: true, errors: [] };
 
-    if (!params || typeof params !== 'object') {
+    if (!isRecord(params)) {
       result.isValid = false;
       result.errors.push('Parameters object is required');
       return result;
@@ -413,16 +461,19 @@ export class ValidationHelper {
       result.errors.push('Template name contains invalid characters');
     }
 
-    // Validate field renames
+    // Validate field renames. The cast (not an isRecord guard) preserves the
+    // original's behavior of accessing .original_label/.new_label directly on
+    // each array element: a non-object entry (e.g. null) still throws here
+    // exactly as it did when field_renames was `any`.
     if (params.field_renames && Array.isArray(params.field_renames)) {
-      for (const rename of params.field_renames) {
+      for (const rename of params.field_renames as Array<{ original_label?: unknown; new_label?: unknown }>) {
         if (!rename.original_label || !rename.new_label) {
           result.isValid = false;
           result.errors.push('Field rename must include both original_label and new_label');
           continue;
         }
 
-        if (this.containsInvalidChars(rename.new_label)) {
+        if (this.containsInvalidChars(stringifyForCheck(rename.new_label))) {
           result.isValid = false;
           result.errors.push('Field label contains invalid characters');
         }
@@ -432,10 +483,10 @@ export class ValidationHelper {
     return result;
   }
 
-  validateImportExportParams(params: any): ValidationResult {
+  validateImportExportParams(params: unknown): ValidationResult {
     const result: ValidationResult = { isValid: true, errors: [] };
 
-    if (!params || typeof params !== 'object') {
+    if (!isRecord(params)) {
       result.isValid = false;
       result.errors.push('Parameters object is required');
       return result;
@@ -448,16 +499,19 @@ export class ValidationHelper {
       return result;
     }
 
-    // Validate JSON format
+    // Validate JSON format. The cast (not an isRecord guard) preserves the
+    // original's behavior of accessing .title/.fields directly on the parsed
+    // result: JSON.parse('null') still throws here (caught below as "Invalid
+    // JSON format"), exactly as it did when parsedJson was implicitly `any`.
     try {
-      const parsedJson = JSON.parse(params.form_json);
-      
+      const parsedJson = JSON.parse(params.form_json) as { title?: unknown; fields?: unknown };
+
       // Basic structure validation
       if (!parsedJson.title || !parsedJson.fields) {
         result.isValid = false;
         result.errors.push('Form JSON must contain title and fields');
       }
-    } catch (e) {
+    } catch {
       result.isValid = false;
       result.errors.push('Invalid JSON format');
     }
@@ -509,7 +563,7 @@ export class ValidationHelper {
       /[<>:"|?*]/,   // Invalid path characters (but allow slashes)
       /\.\./,        // Directory traversal
       /\/\//,        // Double slashes (except for UNC paths starting with //)
-      /^(con|prn|aux|nul|com[1-9]|lpt[1-9])[\/\\]/i, // Reserved Windows names as directory components
+      /^(con|prn|aux|nul|com[1-9]|lpt[1-9])[/\\]/i, // Reserved Windows names as directory components
     ];
 
     return invalidPatterns.some(pattern => pattern.test(filePath));
@@ -530,7 +584,7 @@ export class ValidationHelper {
   }
 
   // Utility method for comprehensive parameter validation
-  validateAndSanitize(params: any, schema: 'export' | 'bulk' | 'template' | 'import'): ValidationResult {
+  validateAndSanitize(params: unknown, schema: 'export' | 'bulk' | 'template' | 'import'): ValidationResult {
     switch (schema) {
       case 'export':
         return this.validateExportEntriesParams(params);

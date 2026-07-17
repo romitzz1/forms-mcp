@@ -1,8 +1,22 @@
 // ABOUTME: Aggregate-entries MCP tool handler (aggregate_entries): tallies field-value
 // ABOUTME: distributions across a form's entries so a survey can be summarized in one call.
 
+import type { IGfEntriesResponse, IGravityEntry, IGravityForm } from "./gravityFormsTypes.js";
+
 export interface AggregateEntriesToolContext {
-  makeRequest(endpoint: string, method?: string, body?: unknown): Promise<any>;
+  makeRequest<T = unknown>(endpoint: string, method?: string, body?: unknown): Promise<T>;
+}
+
+export interface AggregateEntriesArgs {
+  form_id?: string;
+  field_ids?: unknown;
+  search?: unknown;
+  max_entries?: unknown;
+  top?: unknown;
+}
+
+export interface AggregateEntriesResult {
+  content: Array<{ type: "text"; text: string }>;
 }
 
 interface FieldTally {
@@ -16,6 +30,31 @@ interface FieldTally {
 const DEFAULT_MAX_ENTRIES = 1000;
 const PAGE_SIZE = 100;
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+// Routes String() through a plain-`unknown` parameter so a truthy-narrowed call
+// site doesn't resolve to a type whose only toString is Object's default
+// ('[object Object]'), while producing an identical result to a direct String() call.
+function stringifyValue(value: unknown): string {
+  return String(value).trim();
+}
+
+// A single field_filters entry. The Zod schema types `search` as an opaque
+// record (arbitrary client input), so only the fields actually read here are
+// named; everything else is opaque and preserved via the index signature.
+interface IRawFieldFilter {
+  key?: unknown;
+  value?: unknown;
+  operator?: unknown;
+  [key: string]: unknown;
+}
+
+function isFieldFilterCandidate(filter: unknown): filter is IRawFieldFilter {
+  return isRecord(filter);
+}
+
 // Field-value keys are the numeric field id, optionally with a composite sub-input
 // suffix (e.g. "12", "12.1"). Escaping keeps the id safe inside the RegExp even
 // though ids are numeric today.
@@ -26,24 +65,24 @@ function fieldKeyMatcher(fieldId: string): RegExp {
 
 // Build the GF `search` object from the optional filter. Aggregation supports the
 // two filters that matter for a distribution: entry status and field_filters.
-function buildSearchObject(search: any): Record<string, unknown> {
+function buildSearchObject(search: unknown): Record<string, unknown> {
   const searchObject: Record<string, unknown> = {};
-  if (!search || typeof search !== 'object') return searchObject;
+  if (!isRecord(search)) return searchObject;
 
   if (search.status) {
-    searchObject.status = String(search.status);
+    searchObject.status = stringifyValue(search.status);
   }
 
   if (Array.isArray(search.field_filters)) {
     const validFilters = search.field_filters
-      .filter((filter: any) => filter?.key != null && filter.value != null)
-      .map((filter: any) => {
-        const key = String(filter.key).trim();
-        const value = String(filter.value).trim();
-        const operator = filter.operator ? String(filter.operator).trim() : '=';
+      .filter((filter): filter is IRawFieldFilter => isFieldFilterCandidate(filter) && filter.key != null && filter.value != null)
+      .map((filter) => {
+        const key = stringifyValue(filter.key);
+        const value = stringifyValue(filter.value);
+        const operator = filter.operator ? stringifyValue(filter.operator) : '=';
         return key !== '' ? { key, value, operator } : null;
       })
-      .filter(Boolean);
+      .filter((filter): filter is { key: string; value: string; operator: string } => filter !== null);
     if (validFilters.length > 0) {
       searchObject.field_filters = validFilters;
     }
@@ -56,10 +95,10 @@ function buildSearchObject(search: any): Record<string, unknown> {
 async function fetchEntries(
   ctx: AggregateEntriesToolContext,
   formId: string,
-  search: any,
+  search: unknown,
   maxEntries: number
-): Promise<{ entries: any[]; capped: boolean }> {
-  const collected: any[] = [];
+): Promise<{ entries: IGravityEntry[]; capped: boolean }> {
+  const collected: IGravityEntry[] = [];
   const searchObject = buildSearchObject(search);
   let page = 1;
   let totalCount: number | undefined;
@@ -72,12 +111,18 @@ async function fetchEntries(
     params.append('paging[page_size]', String(PAGE_SIZE));
     params.append('paging[current_page]', String(page));
 
-    const response = await ctx.makeRequest(`/forms/${formId}/entries?${params.toString()}`);
-    if (totalCount === undefined && response?.total_count !== undefined) {
-      const parsed = Number(response.total_count);
+    const response = await ctx.makeRequest<IGfEntriesResponse | IGravityEntry[] | undefined>(`/forms/${formId}/entries?${params.toString()}`);
+    // response may be an enveloped { entries, total_count } object OR a bare array
+    // (backward compatibility). isRecord() treats both objects and arrays as records
+    // so a bare-array response's `.entries` access below behaves exactly as it did
+    // when this code was untyped (arrays don't have a meaningful `.entries` data
+    // property, so the `??` fallback below still applies).
+    const responseRecord = isRecord(response) ? response : undefined;
+    if (totalCount === undefined && responseRecord?.total_count !== undefined) {
+      const parsed = Number(responseRecord.total_count);
       if (Number.isFinite(parsed)) totalCount = parsed;
     }
-    const batch = response?.entries ?? (Array.isArray(response) ? response : []);
+    const batch = responseRecord?.entries ?? (Array.isArray(response) ? response : []);
     if (!Array.isArray(batch) || batch.length === 0) break;
 
     collected.push(...batch);
@@ -97,18 +142,18 @@ async function fetchEntries(
 
 // Map field id -> label from a form definition, so tallies read as questions
 // rather than bare ids.
-function buildLabelMap(form: any): Record<string, string> {
+function buildLabelMap(form: IGravityForm): Record<string, string> {
   const labels: Record<string, string> = {};
-  const fields = Array.isArray(form?.fields) ? form.fields : [];
+  const fields = Array.isArray(form.fields) ? form.fields : [];
   for (const field of fields) {
-    if (field?.id != null && field.label) {
+    if (field.id != null && field.label) {
       labels[String(field.id)] = String(field.label);
     }
   }
   return labels;
 }
 
-function tallyField(fieldId: string, entries: any[], label: string | undefined, top?: number): FieldTally {
+function tallyField(fieldId: string, entries: IGravityEntry[], label: string | undefined, top?: unknown): FieldTally {
   const counts = new Map<string, number>();
   const matcher = fieldKeyMatcher(fieldId);
   let totalResponses = 0;
@@ -119,7 +164,7 @@ function tallyField(fieldId: string, entries: any[], label: string | undefined, 
     for (const [key, value] of Object.entries(entry)) {
       if (!matcher.test(key)) continue;
       if (value == null) continue;
-      const trimmed = String(value).trim();
+      const trimmed = stringifyValue(value);
       if (trimmed === '') continue;
       counts.set(trimmed, (counts.get(trimmed) ?? 0) + 1);
       entryHasValue = true;
@@ -145,7 +190,7 @@ function tallyField(fieldId: string, entries: any[], label: string | undefined, 
   };
 }
 
-export async function aggregateEntries(ctx: AggregateEntriesToolContext, args: any) {
+export async function aggregateEntries(ctx: AggregateEntriesToolContext, args: AggregateEntriesArgs): Promise<AggregateEntriesResult> {
   const { form_id, field_ids, search, max_entries = DEFAULT_MAX_ENTRIES, top } = args;
 
   if (!form_id) {
@@ -176,7 +221,7 @@ export async function aggregateEntries(ctx: AggregateEntriesToolContext, args: a
   // Field labels are a best-effort enhancement; a failed lookup just falls back to ids.
   let labels: Record<string, string> = {};
   try {
-    const form = await ctx.makeRequest(`/forms/${form_id}`);
+    const form = await ctx.makeRequest<IGravityForm>(`/forms/${form_id}`);
     labels = buildLabelMap(form);
   } catch {
     labels = {};
