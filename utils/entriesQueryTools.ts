@@ -108,20 +108,27 @@ function buildValidFieldFilters(fieldFilters: unknown): Array<{ key: string; val
 // Builds the JSON-encoded `search` query parameter per Gravity Forms API
 // documentation, or returns undefined when there's nothing to search for.
 function buildGetEntriesSearchParam(search: unknown): string | undefined {
-  if (!isRecord(search)) return undefined;
+  // Preserve the original bare-truthy guard (`if (search)`): a truthy non-object
+  // search (string/boolean/number) still falls through and runs Object.entries()
+  // below exactly as before (a string yields char-index pairs; a boolean/number
+  // yields []). Non-object search is unreachable via the Zod schema (typed as
+  // z.record) but preserved here for byte-for-byte fidelity; the cast to a record
+  // has no runtime effect, so string/boolean/number inputs behave identically.
+  if (!search) return undefined;
 
+  const searchRecord = search as Record<string, unknown>;
   const searchObject: Record<string, unknown> = {};
 
-  if (search.status) {
-    searchObject.status = search.status;
+  if (searchRecord.status) {
+    searchObject.status = searchRecord.status;
   }
 
-  const validFilters = buildValidFieldFilters(search.field_filters);
+  const validFilters = buildValidFieldFilters(searchRecord.field_filters);
   if (validFilters.length > 0) {
     searchObject.field_filters = validFilters;
   }
 
-  const dateRangeSource = isRecord(search.date_range) ? search.date_range : undefined;
+  const dateRangeSource = isRecord(searchRecord.date_range) ? searchRecord.date_range : undefined;
   if (dateRangeSource) {
     const dateRange: Record<string, unknown> = {};
     if (dateRangeSource.start) {
@@ -136,7 +143,7 @@ function buildGetEntriesSearchParam(search: unknown): string | undefined {
   }
 
   // Handle other search parameters (backward compatibility)
-  Object.entries(search).forEach(([key, value]) => {
+  Object.entries(searchRecord).forEach(([key, value]) => {
     if (key !== 'status' && key !== 'field_filters' && key !== 'date_range') {
       searchObject[key] = String(value);
     }
