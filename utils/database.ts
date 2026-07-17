@@ -14,7 +14,7 @@ export class DatabaseManager {
     if (dbPath === '') {
       this.dbPath = '';
     } else {
-      this.dbPath = dbPath || path.join(process.cwd(), 'data', 'forms-cache.db');
+      this.dbPath = dbPath ?? path.join(process.cwd(), 'data', 'forms-cache.db');
     }
   }
 
@@ -53,7 +53,7 @@ export class DatabaseManager {
     if (this.db) {
       try {
         this.db.close();
-      } catch (error) {
+      } catch {
         // Ignore close errors for cleanup scenarios
       } finally {
         this.db = null;
@@ -73,7 +73,7 @@ export class DatabaseManager {
       // Test if connection is still valid
       this.db.prepare('SELECT 1').get();
       return true;
-    } catch (error) {
+    } catch {
       this.db = null;
       return false;
     }
@@ -91,9 +91,9 @@ export class DatabaseManager {
    * Only available when connection is ready
    */
   getDatabase(): Database.Database {
-    if (!this.isReady()) {
+    if (!this.isReady() || !this.db) {
       throw new Error('Database not initialized or connection not ready');
     }
-    return this.db!;
+    return this.db;
   }
 }
