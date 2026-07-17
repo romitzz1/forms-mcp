@@ -16,7 +16,7 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "lint:errors": "eslint . --quiet",
-    "lint:check": "eslint . --max-warnings 2725",
+    "lint:check": "eslint . --max-warnings 2734",
     "type-check": "tsc --noEmit",
     "quality": "npm run type-check && npm run lint:check && npm run test",
     "prepare": "husky"

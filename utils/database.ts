@@ -4,6 +4,7 @@
 import Database from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
+import { getErrorInfo } from './errorInfo.js';
 
 export class DatabaseManager {
   private db: Database.Database | null = null;
@@ -42,7 +43,9 @@ export class DatabaseManager {
       
     } catch (error) {
       this.db = null;
-      throw new Error(`Failed to initialize database: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      // Use getErrorInfo (not `instanceof Error`) so the real SQLite message
+      // survives on platforms where the native error fails `instanceof Error`.
+      throw new Error(`Failed to initialize database: ${getErrorInfo(error).message}`);
     }
   }
 

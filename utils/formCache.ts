@@ -2,6 +2,7 @@
 // ABOUTME: Manages SQLite schema, form storage, and database operations
 
 import { DatabaseManager } from './database.js';
+import { getErrorInfo } from './errorInfo.js';
 import type Database from 'better-sqlite3';
 
 const CURRENT_SCHEMA_VERSION = 3;
@@ -442,7 +443,7 @@ export class FormCache {
    * init()'s catch block verbatim to keep init() under the complexity threshold.
    */
   private classifyInitError(error: unknown, duration: number): never {
-    const message = error instanceof Error ? error.message : 'Unknown error';
+    const { message } = getErrorInfo(error);
 
     this.logger.error('Failed to initialize FormCache', {
       operation: 'init',
@@ -483,7 +484,11 @@ export class FormCache {
       });
     }
 
-    throw new CacheError(`Failed to initialize FormCache: ${message}`, 'INIT_FAILED', {
+    // A failure during database initialization is a database error regardless of
+    // whether the platform's error message matched a known substring above — default
+    // to DatabaseError rather than a generic CacheError so callers can rely on the
+    // classification cross-platform.
+    throw new DatabaseError(`Failed to initialize FormCache: ${message}`, {
       operation: 'init',
       original_error: message
     });
@@ -918,13 +923,11 @@ export class FormCache {
    * threshold.
    */
   private classifyInsertError(error: unknown, form: FormCacheInsert): never {
-    // better-sqlite3 throws Database.SqliteError (an Error subclass with a `code`
-    // string, e.g. 'SQLITE_CONSTRAINT_PRIMARYKEY') for constraint violations.
-    const errorObj = error instanceof Error ? error : undefined;
-    const errorCode = errorObj && typeof (errorObj as Error & { code?: unknown }).code === 'string'
-      ? (errorObj as Error & { code: string }).code
-      : undefined;
-    const errorMessage = errorObj?.message;
+    // better-sqlite3 throws Database.SqliteError (with a `code` string, e.g.
+    // 'SQLITE_CONSTRAINT_PRIMARYKEY') for constraint violations. getErrorInfo reads
+    // message/code without gating on `instanceof Error`, so classification still works
+    // on platforms where the native error fails that check.
+    const { message: errorMessage, code: errorCode } = getErrorInfo(error);
     const context = {
       operation: 'insertForm',
       form_id: form.id,
