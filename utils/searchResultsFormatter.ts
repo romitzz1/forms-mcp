@@ -2,6 +2,8 @@
 // ABOUTME: Handles multiple output modes, token management, and match highlighting for universal search
 
 import type { FieldTypeInfo } from './fieldTypeDetector.js';
+import type { IGravityEntry } from './gravityFormsTypes.js';
+import type { SearchMetadata as UsmSearchMetadata } from './universalSearchManager.js';
 
 export type OutputMode = 'detailed' | 'summary' | 'minimal' | 'auto';
 
@@ -9,19 +11,24 @@ export interface SearchMatch {
   entryId: string;
   matchedFields: Record<string, string>;
   confidence: number;
-  entryData: Record<string, any>;
+  entryData: IGravityEntry;
 }
+
+// searchMetadata accepts either a minimal hand-built metadata object (as
+// constructed by the search tool handlers) or UniversalSearchManager's fuller
+// SearchMetadata (passed straight through by some callers) - both share the
+// four fields this formatter actually reads.
+export type FormattedSearchMetadata = UsmSearchMetadata | {
+  searchText: string;
+  executionTime: number;
+  apiCalls: number;
+  fieldsSearched: string[];
+};
 
 export interface SearchResult {
   matches: SearchMatch[];
   totalFound: number;
-  searchMetadata: {
-    searchText: string;
-    executionTime: number;
-    apiCalls: number;
-    fieldsSearched: string[];
-    [key: string]: any;
-  };
+  searchMetadata: FormattedSearchMetadata;
 }
 
 export interface FormattedResult {
@@ -34,7 +41,7 @@ export interface FormattedResult {
     apiCalls: number;
     fieldsSearched: string[];
     outputMode: OutputMode;
-    [key: string]: any;
+    [key: string]: unknown;
   };
 }
 
@@ -49,7 +56,7 @@ export interface MatchHighlight {
 export interface FormInfo {
   id: string;
   title: string;
-  fields: Array<{ id: string; label: string; [key: string]: any }>;
+  fields: Array<{ id: string | number; label?: string; [key: string]: unknown }>;
   fieldCount?: number;
   // Field type mapping (field id -> detected type/label), used to render
   // matched fields by their actual type instead of guessing from hardcoded ids.
@@ -67,17 +74,10 @@ export class SearchResultsFormatter {
   private readonly COMMON_FIRST_NAME_FIELDS = ['1.3', '2.3'];
   private readonly COMMON_LAST_NAME_FIELDS = ['1.6', '2.6'];
 
-  constructor() {}
-
   /**
-   * Format search results in the specified output mode
+   * Validate the inputs formatSearchResults requires before it does any work.
    */
-  formatSearchResults(
-    searchResult: SearchResult,
-    outputMode: OutputMode,
-    formInfo: FormInfo
-  ): FormattedResult {
-    // Input validation
+  private validateFormatInputs(searchResult: SearchResult, formInfo: FormInfo): void {
     if (!searchResult || !formInfo) {
       throw new Error('SearchResultsFormatter: searchResult and formInfo are required');
     }
@@ -87,30 +87,43 @@ export class SearchResultsFormatter {
     if (!searchResult.searchMetadata) {
       throw new Error('SearchResultsFormatter: searchResult.searchMetadata is required');
     }
+  }
 
-    const actualMode = outputMode === 'auto' 
-      ? this.selectAutoMode(searchResult.matches.length) 
+  /**
+   * Render the content string for the resolved output mode.
+   */
+  private renderContentForMode(searchResult: SearchResult, actualMode: 'detailed' | 'summary' | 'minimal', formInfo: FormInfo): string {
+    if (searchResult.matches.length === 0) {
+      return this.formatNoResults(searchResult, formInfo);
+    }
+
+    switch (actualMode) {
+      case 'detailed':
+        return this.formatDetailedResults(searchResult, formInfo);
+      case 'summary':
+        return this.formatSummaryResults(searchResult, formInfo);
+      case 'minimal':
+        return this.formatMinimalResults(searchResult, formInfo);
+      default:
+        return this.formatDetailedResults(searchResult, formInfo);
+    }
+  }
+
+  /**
+   * Format search results in the specified output mode
+   */
+  formatSearchResults(
+    searchResult: SearchResult,
+    outputMode: OutputMode,
+    formInfo: FormInfo
+  ): FormattedResult {
+    this.validateFormatInputs(searchResult, formInfo);
+
+    const actualMode = outputMode === 'auto'
+      ? this.selectAutoMode(searchResult.matches.length)
       : outputMode;
 
-    let content: string;
-    
-    if (searchResult.matches.length === 0) {
-      content = this.formatNoResults(searchResult, formInfo);
-    } else {
-      switch (actualMode) {
-        case 'detailed':
-          content = this.formatDetailedResults(searchResult, formInfo);
-          break;
-        case 'summary':
-          content = this.formatSummaryResults(searchResult, formInfo);
-          break;
-        case 'minimal':
-          content = this.formatMinimalResults(searchResult, formInfo);
-          break;
-        default:
-          content = this.formatDetailedResults(searchResult, formInfo);
-      }
-    }
+    let content: string = this.renderContentForMode(searchResult, actualMode, formInfo);
 
     const tokenCount = this.estimateResponseSize(content);
     
@@ -149,7 +162,7 @@ export class SearchResultsFormatter {
    * Highlight matched fields in entry data
    */
   highlightMatches(
-    entry: Record<string, any>,
+    entry: IGravityEntry,
     searchText: string,
     matchedFields: Record<string, string>,
     fieldMapping: Record<string, FieldTypeInfo>
@@ -166,11 +179,16 @@ export class SearchResultsFormatter {
 
     Object.entries(matchedFields).forEach(([fieldId, matchedValue]) => {
       const fieldInfo = fieldMapping[fieldId];
-      const fieldLabel = fieldInfo?.label || `Field ${fieldId}`;
-      
+      // fieldInfo.label may legitimately be an empty string (unlabeled field) -
+      // fall back to the placeholder for any falsy value, not just absence.
+      let fieldLabel = `Field ${fieldId}`;
+      if (fieldInfo?.label) {
+        fieldLabel = fieldInfo.label;
+      }
+
       // Calculate match confidence based on how well the search text matches
       const confidence = this.calculateMatchConfidence(searchText, matchedValue);
-      
+
       highlights.push({
         fieldLabel,
         matchedValue,
@@ -180,9 +198,9 @@ export class SearchResultsFormatter {
 
     // Sort by field type priority first, then by confidence (now O(n log n))
     return highlights.sort((a, b) => {
-      const aFieldId = labelToFieldId.get(a.fieldLabel) || 
+      const aFieldId = labelToFieldId.get(a.fieldLabel) ??
                       Object.keys(matchedFields).find(id => fieldMapping[id]?.label === a.fieldLabel);
-      const bFieldId = labelToFieldId.get(b.fieldLabel) || 
+      const bFieldId = labelToFieldId.get(b.fieldLabel) ??
                       Object.keys(matchedFields).find(id => fieldMapping[id]?.label === b.fieldLabel);
       
       const aFieldType = aFieldId ? fieldMapping[aFieldId]?.fieldType : 'unknown';
@@ -213,7 +231,7 @@ export class SearchResultsFormatter {
    * Create detailed view with full entry information
    */
   createDetailedView(matches: SearchMatch[], fieldMapping: Record<string, FieldTypeInfo> = {}): string {
-    return matches.map((match, index) => {
+    return matches.map((match) => {
       const confidenceLabel = this.getConfidenceLabel(match.confidence);
 
       let result = `Entry #${match.entryId} (${confidenceLabel} Confidence: ${match.confidence.toFixed(2)})\n`;
@@ -241,10 +259,15 @@ export class SearchResultsFormatter {
       if (email) {
         line += ` (${email})`;
       }
-      
-      const paymentStatus = entry.payment_status || entry.payment_amount;
+
+      // entry.payment_status may legitimately be an empty string - fall back
+      // to payment_amount for any falsy value, not just absence.
+      let paymentStatus: unknown = entry.payment_amount;
+      if (entry.payment_status) {
+        paymentStatus = entry.payment_status;
+      }
       if (paymentStatus) {
-        line += ` - ${paymentStatus}`;
+        line += ` - ${this.fieldValueToString(paymentStatus)}`;
       }
       
       return line;
@@ -290,7 +313,7 @@ export class SearchResultsFormatter {
     
     let result = `Found ${totalFound} match${totalFound !== 1 ? 'es' : ''} for "${searchMetadata.searchText}" in form ${formInfo.id} (${formInfo.title}):\n\n`;
 
-    result += this.createDetailedView(matches, formInfo.fieldMapping || {});
+    result += this.createDetailedView(matches, formInfo.fieldMapping ?? {});
     
     result += `\n\nSearch completed in ${executionTime}s using auto-detected name fields.`;
     
@@ -303,14 +326,14 @@ export class SearchResultsFormatter {
     
     let result = `${totalFound} match${totalFound !== 1 ? 'es' : ''} found for "${searchMetadata.searchText}" in form ${formInfo.id}:\n\n`;
 
-    result += this.createSummaryView(matches, formInfo.fieldMapping || {});
+    result += this.createSummaryView(matches, formInfo.fieldMapping ?? {});
     
     result += `\n\nCompleted in ${executionTime}s (${searchMetadata.apiCalls} API call${searchMetadata.apiCalls !== 1 ? 's' : ''}).`;
     
     return result;
   }
 
-  private formatMinimalResults(searchResult: SearchResult, formInfo: FormInfo): string {
+  private formatMinimalResults(searchResult: SearchResult, _formInfo: FormInfo): string {
     const { matches, totalFound, searchMetadata } = searchResult;
     
     let result = `${totalFound} matches found:\n`;
@@ -362,6 +385,22 @@ export class SearchResultsFormatter {
   }
 
   /**
+   * Renders a raw entry field value (string, string[], or the rare nested
+   * object per IGravityEntry's index signature) as a display string. GF entry
+   * field values are documented to be strings or string arrays in practice;
+   * the object case can't occur for real API data, so it renders as ''.
+   */
+  private fieldValueToString(value: unknown): string {
+    if (typeof value === 'string') {
+      return value;
+    }
+    if (Array.isArray(value)) {
+      return value.join(',');
+    }
+    return '';
+  }
+
+  /**
    * Scan the full entry data (not just the matched fields) for fields whose
    * detected type matches the requested type. Search operations only match
    * against the fields they searched (e.g. name search never touches email
@@ -370,7 +409,7 @@ export class SearchResultsFormatter {
    * entry, keyed by the form's actual field mapping, instead of dropping it.
    */
   private findEntryFieldsByType(
-    entry: Record<string, any>,
+    entry: IGravityEntry,
     fieldMapping: Record<string, FieldTypeInfo>,
     type: FieldTypeInfo['fieldType']
   ): Array<[string, string]> {
@@ -407,7 +446,7 @@ export class SearchResultsFormatter {
         if (entry[fieldId]) {
           const label = fieldId.includes('.') ?
             (fieldId.endsWith('.3') ? 'First Name' : 'Last Name') : 'Name';
-          keyFields.push({ label: `${label}`, value: `${entry[fieldId]} (field ${fieldId})` });
+          keyFields.push({ label: `${label}`, value: `${this.fieldValueToString(entry[fieldId])} (field ${fieldId})` });
         }
       });
     }
@@ -421,8 +460,8 @@ export class SearchResultsFormatter {
       });
     } else {
       this.COMMON_EMAIL_FIELDS.forEach(fieldId => {
-        if (entry[fieldId]?.includes('@')) {
-          keyFields.push({ label: 'Email', value: `${entry[fieldId]} (field ${fieldId})` });
+        if (this.fieldValueToString(entry[fieldId]).includes('@')) {
+          keyFields.push({ label: 'Email', value: `${this.fieldValueToString(entry[fieldId])} (field ${fieldId})` });
         }
       });
     }
@@ -431,7 +470,7 @@ export class SearchResultsFormatter {
     if (entry.payment_amount && entry.payment_status) {
       keyFields.push({
         label: 'Payment',
-        value: `${entry.payment_amount} ${entry.payment_status}`
+        value: `${this.fieldValueToString(entry.payment_amount)} ${entry.payment_status}`
       });
     } else if (entry.payment_status) {
       keyFields.push({ label: 'Payment', value: entry.payment_status });
@@ -462,15 +501,15 @@ export class SearchResultsFormatter {
     // Fall back to the legacy hardcoded Gravity Forms sub-field ID conventions.
     for (const fieldId of this.COMMON_NAME_FIELDS) {
       if (entry[fieldId] && !fieldId.includes('.')) { // Skip composite fields in first pass
-        return entry[fieldId];
+        return this.fieldValueToString(entry[fieldId]);
       }
     }
 
     // Try composite name from first/last name fields using configurable patterns
-    const firstName = this.COMMON_FIRST_NAME_FIELDS.find(id => entry[id]) ?
-                      entry[this.COMMON_FIRST_NAME_FIELDS.find(id => entry[id]) as string] : null;
-    const lastName = this.COMMON_LAST_NAME_FIELDS.find(id => entry[id]) ?
-                     entry[this.COMMON_LAST_NAME_FIELDS.find(id => entry[id]) as string] : null;
+    const firstNameFieldId = this.COMMON_FIRST_NAME_FIELDS.find(id => entry[id]);
+    const firstName = firstNameFieldId ? this.fieldValueToString(entry[firstNameFieldId]) : null;
+    const lastNameFieldId = this.COMMON_LAST_NAME_FIELDS.find(id => entry[id]);
+    const lastName = lastNameFieldId ? this.fieldValueToString(entry[lastNameFieldId]) : null;
 
     if (firstName || lastName) {
       return [firstName, lastName].filter(Boolean).join(' ');
@@ -495,8 +534,8 @@ export class SearchResultsFormatter {
 
     // Fall back to the legacy hardcoded email field IDs.
     for (const fieldId of this.COMMON_EMAIL_FIELDS) {
-      if (entry[fieldId]?.includes('@')) {
-        return entry[fieldId];
+      if (this.fieldValueToString(entry[fieldId]).includes('@')) {
+        return this.fieldValueToString(entry[fieldId]);
       }
     }
     return null;

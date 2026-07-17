@@ -2,8 +2,9 @@
 // ABOUTME: Coordinates field detection, search strategies, confidence scoring, and result optimization
 
 import type { AnalysisResult, DetectedFieldType, FieldTypeDetector, FieldTypeInfo, FormFieldMapping } from './fieldTypeDetector.js';
-import { SearchResultsCache } from './searchResultsCache.js';
+import { type ICacheStats, SearchResultsCache } from './searchResultsCache.js';
 import { PerformanceMonitor } from './performanceMonitor.js';
+import type { IGravityEntry, IGravityForm } from './gravityFormsTypes.js';
 
 export type SearchStrategy = 'exact' | 'contains' | 'fuzzy' | 'auto';
 
@@ -17,7 +18,7 @@ export interface SearchMatch {
     entryId: string;
     matchedFields: Record<string, string>;
     confidence: number;
-    entryData: Record<string, any>;  // Full entry data for formatting
+    entryData: IGravityEntry;  // Full entry data for formatting
 }
 
 export interface SearchResult {
@@ -47,8 +48,8 @@ export interface FieldFilter {
 }
 
 export interface ApiClient {
-    getFormDefinition(formId: string): Promise<any>;
-    searchEntries(formId: string, searchParams: any): Promise<any[]>;
+    getFormDefinition(formId: string): Promise<IGravityForm>;
+    searchEntries(formId: string, searchParams: unknown): Promise<IGravityEntry[]>;
 }
 
 export class UniversalSearchManager {
@@ -77,8 +78,8 @@ export class UniversalSearchManager {
         
         // Initialize performance optimization components
         this.searchCache = new SearchResultsCache({
-            maxAge: Math.max(1000, parseInt(process.env['SEARCH_CACHE_MAX_AGE_MS'] || '900000') || 900000), // 15 minutes default, min 1 second
-            maxSize: Math.max(1, parseInt(process.env['SEARCH_CACHE_MAX_SIZE'] || '100') || 100), // default 100, min 1
+            maxAge: Math.max(1000, parseInt(process.env['SEARCH_CACHE_MAX_AGE_MS'] ?? '900000') || 900000), // 15 minutes default, min 1 second
+            maxSize: Math.max(1, parseInt(process.env['SEARCH_CACHE_MAX_SIZE'] ?? '100') || 100), // default 100, min 1
             enableLogging: process.env['NODE_ENV'] === 'development'
         });
         this.performanceMonitor = new PerformanceMonitor();
@@ -231,7 +232,7 @@ export class UniversalSearchManager {
     /**
      * Calculate match confidence based on matched fields and search context
      */
-    public calculateMatchConfidence(entry: any, searchText: string, matchedFields: Record<string, string>, fieldMapping?: FormFieldMapping): number {
+    public calculateMatchConfidence(entry: IGravityEntry, searchText: string, matchedFields: Record<string, string>, fieldMapping?: FormFieldMapping): number {
         if (!matchedFields || Object.keys(matchedFields).length === 0) {
             return 0;
         }
@@ -359,9 +360,23 @@ export class UniversalSearchManager {
     }
 
     /**
+     * Resolves an entry's id for a SearchMatch. entry_id is a legacy fallback
+     * key (not a real GF REST API field) kept for defense-in-depth.
+     */
+    private resolveEntryId(entry: IGravityEntry): string {
+        if (entry.id) {
+            return entry.id;
+        }
+        if (typeof entry.entry_id === 'string' && entry.entry_id) {
+            return entry.entry_id;
+        }
+        return 'unknown';
+    }
+
+    /**
      * Process API search results into SearchMatch objects with confidence scoring
      */
-    private processSearchResults(entries: any[], searchText: string, fields: FieldTypeInfo[], maxResults: number, fieldMapping: FormFieldMapping): SearchMatch[] {
+    private processSearchResults(entries: IGravityEntry[], searchText: string, fields: FieldTypeInfo[], maxResults: number, fieldMapping: FormFieldMapping): SearchMatch[] {
         if (!entries || entries.length === 0) {
             return [];
         }
@@ -389,7 +404,7 @@ export class UniversalSearchManager {
                 const confidence = this.calculateMatchConfidence(entry, searchText, matchedFields, fieldMapping);
                 
                 matches.push({
-                    entryId: entry.id || entry.entry_id || 'unknown',
+                    entryId: this.resolveEntryId(entry),
                     matchedFields,
                     confidence,
                     entryData: entry  // Add full entry data for SearchResultsFormatter compatibility
@@ -524,12 +539,18 @@ export class UniversalSearchManager {
                     return existingField;
                 } else {
                     // Create basic field info for unknown fields
-                    const fieldData = formDefinition.fields?.find((f: any) => f.id === fieldId);
+                    const fieldData = formDefinition.fields?.find(f => f.id === fieldId);
+                    // fieldData?.label may legitimately be an empty string; fall back
+                    // to the placeholder label for any falsy value, not just absence.
+                    let label = `Field ${fieldId}`;
+                    if (fieldData?.label) {
+                        label = fieldData.label;
+                    }
                     return {
                         fieldId,
                         fieldType: 'text' as DetectedFieldType,
                         confidence: 0.5,
-                        label: fieldData?.label || `Field ${fieldId}`
+                        label
                     };
                 }
             });
@@ -543,7 +564,11 @@ export class UniversalSearchManager {
     /**
      * Get performance statistics
      */
-    public getPerformanceStats() {
+    public getPerformanceStats(): {
+        search: ReturnType<PerformanceMonitor['getStats']>;
+        cache: ICacheStats;
+        summary: ReturnType<PerformanceMonitor['getSummary']>;
+    } {
         return {
             search: this.performanceMonitor.getStats(),
             cache: this.searchCache.getCacheStats(),

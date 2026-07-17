@@ -47,7 +47,7 @@ export class FieldMappingCache {
         this.options = { ...FieldMappingCache.DEFAULT_OPTIONS, ...options };
         this.cache = new Map();
         this.accessOrder = [];
-        this.enableLogging = this.options.enableLogging || false;
+        this.enableLogging = this.options.enableLogging ?? false;
     }
 
     /**
@@ -157,7 +157,6 @@ export class FieldMappingCache {
      */
     public cleanup(): void {
         // Remove expired entries
-        const now = Date.now();
         const expiredKeys: string[] = [];
 
         for (const [formId, entry] of this.cache.entries()) {

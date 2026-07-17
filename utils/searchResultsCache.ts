@@ -45,7 +45,7 @@ export class SearchResultsCache {
         };
         
         // Check if caching is disabled via environment (don't mutate options)
-        this.effectiveMaxSize = process.env['SEARCH_CACHE_ENABLED'] === 'false' ? 0 : (this.options.maxSize || 100);
+        this.effectiveMaxSize = process.env['SEARCH_CACHE_ENABLED'] === 'false' ? 0 : (this.options.maxSize ?? 100);
         
         this.cache = new Map();
         this.accessOrder = [];
