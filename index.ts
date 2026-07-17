@@ -5,11 +5,13 @@ import {
   ErrorCode,
   McpError,
 } from "@modelcontextprotocol/sdk/types.js";
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { TOOL_SCHEMAS } from "./utils/toolSchemas.js";
 import { DataExporter } from "./utils/dataExporter.js";
 import { ValidationHelper } from "./utils/validation.js";
 import { BulkOperationsManager } from "./utils/bulkOperations.js";
 import { TemplateManager } from "./utils/templateManager.js";
+import type { IFormLike } from "./utils/templateManager.js";
 import { FormImporter } from "./utils/formImporter.js";
 import { FormCache } from "./utils/formCache.js";
 import { FieldTypeDetector } from "./utils/fieldTypeDetector.js";
@@ -34,6 +36,7 @@ import {
   exportEntriesFormatted as exportEntriesFormattedHandler,
   exportFormJson as exportFormJsonHandler,
 } from "./utils/exportTools.js";
+import type { ExportEntriesFormattedArgs, ExportFormJsonArgs, ExportToolResult } from "./utils/exportTools.js";
 import { processEntriesBulk as processEntriesBulkHandler } from "./utils/bulkTools.js";
 import {
   cloneFormWithModifications as cloneFormWithModificationsHandler,
@@ -41,19 +44,32 @@ import {
   importFormJson as importFormJsonHandler,
   saveFormAsTemplate as saveFormAsTemplateHandler,
 } from "./utils/templateTools.js";
+import type {
+  CloneFormWithModificationsArgs,
+  CreateFormFromTemplateArgs,
+  ImportFormJsonArgs,
+  SaveFormAsTemplateArgs,
+  TemplateToolResult,
+} from "./utils/templateTools.js";
 import { getFieldMappings as getFieldMappingsHandler } from "./utils/fieldMappingTools.js";
 import {
   searchEntriesByName as searchEntriesByNameHandler,
   searchEntriesUniversal as searchEntriesUniversalHandler,
 } from "./utils/searchTools.js";
 import { getEntries as getEntriesHandler } from "./utils/entriesQueryTools.js";
+import type { GetEntriesArgs, GetEntriesResult } from "./utils/entriesQueryTools.js";
 import { aggregateEntries as aggregateEntriesHandler } from "./utils/aggregateEntriesTools.js";
+import type { AggregateEntriesArgs, AggregateEntriesResult } from "./utils/aggregateEntriesTools.js";
 import type { ICacheConfig, ICacheStatus } from "./utils/cacheTypes.js";
 import {
   getCacheStatusTool as getCacheStatusToolHandler,
   getForms as getFormsHandler,
   listFormTemplates as listFormTemplatesHandler,
 } from "./utils/cacheTools.js";
+import type { ICacheToolResult, IGetFormsArgs, IListFormTemplatesArgs } from "./utils/cacheTools.js";
+import type { IGravityEntry, IGravityForm } from "./utils/gravityFormsTypes.js";
+import type { IEntrySummary } from "./utils/responseSizeManager.js";
+import type { ApiClient as SearchApiClient } from "./utils/universalSearchManager.js";
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -63,6 +79,22 @@ interface IGravityFormsConfig {
   consumerKey: string;
   consumerSecret: string;
   authMethod: 'basic' | 'oauth';
+}
+
+// Shape of the JSON-RPC-style request callTool() accepts (mirrors the MCP SDK's
+// CallToolRequest params, narrowed to what this method reads).
+interface IToolCallRequest {
+  params: {
+    name: string;
+    arguments?: unknown;
+  };
+}
+
+// callTool()'s test-facing response envelope: either the dispatched tool's own
+// result spread onto isError:false, or an isError:true/content error shape.
+interface IToolCallResponse {
+  isError: boolean;
+  [key: string]: unknown;
 }
 
 export class GravityFormsMCPServer {
@@ -295,7 +327,7 @@ export class GravityFormsMCPServer {
     return this.gfClient.makeRequest<T>(endpoint, method, body);
   }
 
-  private setupToolHandlers() {
+  private setupToolHandlers(): void {
     this.registerTools(this.mcpServer);
   }
 
@@ -303,12 +335,19 @@ export class GravityFormsMCPServer {
    * Register all tools on the given McpServer. Handlers dispatch back into this
    * instance, so every server built this way shares the same caches and API client.
    */
-  private registerTools(target: McpServer) {
+  private registerTools(target: McpServer): void {
     for (const [name, def] of Object.entries(TOOL_SCHEMAS)) {
+      // McpServer.registerTool is generic over the per-tool Zod input shape.
+      // TOOL_SCHEMAS holds heterogeneous shapes looped over dynamically here, which
+      // the SDK's generic inference cannot resolve for a non-literal `z.ZodRawShape`
+      // (verified: without this cast, `tsc` itself fails with TS2589 "Type
+      // instantiation is excessively deep and possibly infinite" — not just a lint
+      // warning). This is the one unavoidable `any` in this file; dispatchTool below
+      // does the real argument validation via each tool's own typed Args interface.
       target.registerTool(
         name,
         { description: def.description, inputSchema: def.inputSchema as any },
-        async (args: any): Promise<any> => this.dispatchTool(name, args)
+        async (args: unknown): Promise<CallToolResult> => this.dispatchTool(name, args) as Promise<CallToolResult>
       );
     }
   }
@@ -324,77 +363,47 @@ export class GravityFormsMCPServer {
     return mcpServer.server;
   }
 
-  private async dispatchTool(name: string, args: any) {
-    switch (name) {
-      case "get_forms":
-        return this.getForms(args);
+  /**
+   * Maps each registered tool name to its handler wrapper. Built fresh per
+   * dispatch (cheap relative to the network I/O each handler performs) so the
+   * routing table can simply live next to dispatchTool rather than needing
+   * constructor wiring.
+   */
+  private buildToolHandlerMap(): Record<string, (args: unknown) => Promise<unknown>> {
+    return {
+      get_forms: (args) => this.getForms(args),
+      get_entries: (args) => this.getEntries(args),
+      aggregate_entries: (args) => this.aggregateEntries(args),
+      submit_form: (args) => this.submitForm(args),
+      create_entry: (args) => this.createEntry(args),
+      update_entry: (args) => this.updateEntry(args),
+      delete_entry: (args) => this.deleteEntry(args),
+      create_form: (args) => this.createForm(args),
+      update_form: (args) => this.updateForm(args),
+      export_entries_formatted: (args) => this.exportEntriesFormatted(args),
+      process_entries_bulk: (args) => this.processEntriesBulk(args),
+      list_form_templates: (args) => this.listFormTemplates(args),
+      save_form_as_template: (args) => this.saveFormAsTemplate(args),
+      create_form_from_template: (args) => this.createFormFromTemplate(args),
+      export_form_json: (args) => this.exportFormJson(args),
+      import_form_json: (args) => this.importFormJson(args),
+      clone_form_with_modifications: (args) => this.cloneFormWithModifications(args),
+      get_cache_status: () => this.getCacheStatusTool(),
+      search_entries_by_name: (args) => this.searchEntriesByName(args),
+      search_entries_universal: (args) => this.searchEntriesUniversal(args),
+      get_field_mappings: (args) => this.getFieldMappings(args),
+    };
+  }
 
-      case "get_entries":
-        return this.getEntries(args);
-
-      case "aggregate_entries":
-        return this.aggregateEntries(args);
-
-      case "submit_form":
-        return this.submitForm(args);
-
-      case "create_entry":
-        return this.createEntry(args);
-
-      case "update_entry":
-        return this.updateEntry(args);
-
-      case "delete_entry":
-        return this.deleteEntry(args);
-
-      case "create_form":
-        return this.createForm(args);
-
-      case "update_form":
-        return this.updateForm(args);
-
-      case "export_entries_formatted":
-        return this.exportEntriesFormatted(args);
-
-      case "process_entries_bulk":
-        return this.processEntriesBulk(args);
-
-      case "list_form_templates":
-        return this.listFormTemplates(args);
-
-      case "save_form_as_template":
-        return this.saveFormAsTemplate(args);
-
-      case "create_form_from_template":
-        return this.createFormFromTemplate(args);
-
-      case "export_form_json":
-        return this.exportFormJson(args);
-
-      case "import_form_json":
-        return this.importFormJson(args);
-
-      case "clone_form_with_modifications":
-        return this.cloneFormWithModifications(args);
-
-      case "get_cache_status":
-        return this.getCacheStatusTool();
-
-      case "search_entries_by_name":
-        return this.searchEntriesByName(args);
-
-      case "search_entries_universal":
-        return this.searchEntriesUniversal(args);
-
-      case "get_field_mappings":
-        return this.getFieldMappings(args);
-
-      default:
-        throw new McpError(
-          ErrorCode.MethodNotFound,
-          `Unknown tool: ${name}`
-        );
+  private async dispatchTool(name: string, args: unknown): Promise<unknown> {
+    const handler = this.buildToolHandlerMap()[name];
+    if (!handler) {
+      throw new McpError(
+        ErrorCode.MethodNotFound,
+        `Unknown tool: ${name}`
+      );
     }
+    return handler(args);
   }
 
   /**
@@ -407,33 +416,33 @@ export class GravityFormsMCPServer {
   /**
    * Create a summary of a large entry object to prevent context overflow
    */
-  private createEntrySummary(entry: any): any {
+  private createEntrySummary(entry: IGravityEntry): IEntrySummary {
     return createEntrySummary(entry);
   }
 
   // Tool implementation methods
-  private async getForms(args: any) {
+  private async getForms(args: unknown): Promise<ICacheToolResult> {
     return getFormsHandler({
       makeRequest: this.makeRequest.bind(this),
       getFormCache: () => this.formCache,
       cacheConfig: this.cacheConfig,
       getTemplateManager: () => this.getTemplateManager(),
-    }, args);
+    }, args as IGetFormsArgs);
   }
 
-  private async getEntries(args: any) {
+  private async getEntries(args: unknown): Promise<GetEntriesResult> {
     return getEntriesHandler({
       makeRequest: this.makeRequest.bind(this),
       fieldTypeDetector: this.fieldTypeDetector,
       searchResultsFormatter: this.searchResultsFormatter,
       getOrCreateSearchManager: () => this.getOrCreateSearchManager(),
-    }, args);
+    }, args as GetEntriesArgs);
   }
 
-  private async aggregateEntries(args: any) {
+  private async aggregateEntries(args: unknown): Promise<AggregateEntriesResult> {
     return aggregateEntriesHandler({
       makeRequest: this.makeRequest.bind(this),
-    }, args);
+    }, args as AggregateEntriesArgs);
   }
 
   /**
@@ -441,15 +450,15 @@ export class GravityFormsMCPServer {
    */
   private getOrCreateSearchManager(): UniversalSearchManager {
     if (!this.universalSearchManager) {
-      const apiClient = {
-        getFormDefinition: async (formId: string) => {
+      const apiClient: SearchApiClient = {
+        getFormDefinition: async (formId: string): Promise<IGravityForm> => {
           try {
-            return await this.makeRequest(`/forms/${formId}`);
+            return await this.makeRequest<IGravityForm>(`/forms/${formId}`);
           } catch (error) {
-            throw new Error(`Failed to fetch form definition for form ${formId}: ${error}`);
+            throw new Error(`Failed to fetch form definition for form ${formId}: ${String(error)}`);
           }
         },
-        searchEntries: async (formId: string, searchParams: any) => {
+        searchEntries: async (formId: string, searchParams: unknown): Promise<IGravityEntry[]> => {
           try {
             const params = new URLSearchParams();
             params.append('paging[page_size]', '100');
@@ -457,10 +466,21 @@ export class GravityFormsMCPServer {
               params.append('search', JSON.stringify(searchParams));
             }
             const endpoint = `/forms/${formId}/entries?${params.toString()}`;
-            const response = await this.makeRequest(endpoint);
-            return response?.entries || response || [];
+            const response = await this.makeRequest<unknown>(endpoint);
+            // The GF API's shape here is inconsistent (sometimes {entries: [...]},
+            // sometimes a bare array). Mirrors the original untyped
+            // `response?.entries || response || []` with explicit `if`s — a falsy
+            // (not just nullish) `entries` should still fall through to `response`.
+            const responseObj = response as { entries?: unknown } | null | undefined;
+            if (responseObj?.entries) {
+              return responseObj.entries as IGravityEntry[];
+            }
+            if (response) {
+              return response as IGravityEntry[];
+            }
+            return [];
           } catch (error) {
-            throw new Error(`Failed to search entries in form ${formId}: ${error}`);
+            throw new Error(`Failed to search entries in form ${formId}: ${String(error)}`);
           }
         }
       };
@@ -478,90 +498,86 @@ export class GravityFormsMCPServer {
     return this.getOrCreateSearchManager();
   }
 
-  private async submitForm(args: any) {
+  private async submitForm(args: unknown): ReturnType<typeof submitFormHandler> {
     return submitFormHandler({ makeRequest: (endpoint, method, body) => this.makeRequest(endpoint, method, body) }, args);
   }
 
-  private async createEntry(args: any) {
+  private async createEntry(args: unknown): ReturnType<typeof createEntryHandler> {
     return createEntryHandler({ makeRequest: (endpoint, method, body) => this.makeRequest(endpoint, method, body) }, args);
   }
 
-  private async updateEntry(args: any) {
+  private async updateEntry(args: unknown): ReturnType<typeof updateEntryHandler> {
     return updateEntryHandler({ makeRequest: (endpoint, method, body) => this.makeRequest(endpoint, method, body) }, args);
   }
 
-  private async deleteEntry(args: any) {
+  private async deleteEntry(args: unknown): ReturnType<typeof deleteEntryHandler> {
     return deleteEntryHandler({ makeRequest: (endpoint, method, body) => this.makeRequest(endpoint, method, body) }, args);
   }
 
-  private async createForm(args: any) {
+  private async createForm(args: unknown): ReturnType<typeof createFormHandler> {
     return createFormHandler({ makeRequest: (endpoint, method, body) => this.makeRequest(endpoint, method, body) }, args);
   }
 
-  private async updateForm(args: any) {
+  private async updateForm(args: unknown): ReturnType<typeof updateFormHandler> {
     return updateFormHandler({ makeRequest: (endpoint, method, body) => this.makeRequest(endpoint, method, body) }, args);
   }
 
-  private async exportEntriesFormatted(args: any) {
+  private async exportEntriesFormatted(args: unknown): Promise<ExportToolResult> {
     return exportEntriesFormattedHandler({
       makeRequest: (endpoint, method, body) => this.makeRequest(endpoint, method, body),
       validator: this.validator,
       dataExporter: this.dataExporter,
-    }, args);
+    }, args as ExportEntriesFormattedArgs);
   }
 
   private getBulkOperationsManager(): BulkOperationsManager {
-    if (!this.bulkOperationsManager) {
-      this.bulkOperationsManager = new BulkOperationsManager(
-        `${this.config.baseUrl}/wp-json/gf/v2`,
-        this.getAuthHeaders()
-      );
-    }
+    this.bulkOperationsManager ??= new BulkOperationsManager(
+      `${this.config.baseUrl}/wp-json/gf/v2`,
+      this.getAuthHeaders()
+    );
     return this.bulkOperationsManager;
   }
 
-  private async processEntriesBulk(args: any) {
+  private async processEntriesBulk(args: unknown): ReturnType<typeof processEntriesBulkHandler> {
     return processEntriesBulkHandler({ getBulkOperationsManager: () => this.getBulkOperationsManager() }, args);
   }
 
-  private async listFormTemplates(args: any) {
+  private async listFormTemplates(args: unknown): Promise<ICacheToolResult> {
     return listFormTemplatesHandler({
       makeRequest: this.makeRequest.bind(this),
       getFormCache: () => this.formCache,
       cacheConfig: this.cacheConfig,
       getTemplateManager: () => this.getTemplateManager(),
-    }, args);
+    }, args as IListFormTemplatesArgs);
   }
 
-  private async saveFormAsTemplate(args: any) {
+  private async saveFormAsTemplate(args: unknown): Promise<TemplateToolResult> {
     return saveFormAsTemplateHandler({
       makeRequest: (endpoint, method, body) => this.makeRequest(endpoint, method, body),
       getTemplateManager: () => this.getTemplateManager(),
       getFormImporter: () => this.getFormImporter(),
-    }, args);
+    }, args as SaveFormAsTemplateArgs);
   }
 
-  private async createFormFromTemplate(args: any) {
+  private async createFormFromTemplate(args: unknown): Promise<TemplateToolResult> {
     return createFormFromTemplateHandler({
       makeRequest: (endpoint, method, body) => this.makeRequest(endpoint, method, body),
       getTemplateManager: () => this.getTemplateManager(),
       getFormImporter: () => this.getFormImporter(),
-    }, args);
+    }, args as CreateFormFromTemplateArgs);
   }
 
-  private async exportFormJson(args: any) {
+  private async exportFormJson(args: unknown): Promise<ExportToolResult> {
     return exportFormJsonHandler({
       makeRequest: (endpoint, method, body) => this.makeRequest(endpoint, method, body),
       validator: this.validator,
       dataExporter: this.dataExporter,
-    }, args);
+    }, args as ExportFormJsonArgs);
   }
 
   private getTemplateManager(): TemplateManager {
-    if (!this.templateManager) {
-      // Create TemplateManager with API call function
-      this.templateManager = new TemplateManager((endpoint: string) => this.makeRequest(endpoint));
-    }
+    // Create TemplateManager with API call function
+    this.templateManager ??= new TemplateManager((endpoint: string) => this.makeRequest<IFormLike[]>(endpoint));
     return this.templateManager;
   }
 
@@ -570,64 +586,64 @@ export class GravityFormsMCPServer {
       // Create FormImporter with API call function and FormCache (if available)
       const cacheInstance = (this.formCache && this.formCache !== null) ? this.formCache : undefined;
       this.formImporter = new FormImporter(
-        (endpoint: string, method?: string, body?: any) => this.makeRequest(endpoint, method, body),
+        (endpoint: string, method?: string, body?: unknown) => this.makeRequest(endpoint, method, body),
         cacheInstance
       );
     }
     return this.formImporter;
   }
 
-  private async importFormJson(args: any) {
+  private async importFormJson(args: unknown): Promise<TemplateToolResult> {
     return importFormJsonHandler({
       makeRequest: (endpoint, method, body) => this.makeRequest(endpoint, method, body),
       getTemplateManager: () => this.getTemplateManager(),
       getFormImporter: () => this.getFormImporter(),
-    }, args);
+    }, args as ImportFormJsonArgs);
   }
 
-  private async cloneFormWithModifications(args: any) {
+  private async cloneFormWithModifications(args: unknown): Promise<TemplateToolResult> {
     return cloneFormWithModificationsHandler({
       makeRequest: (endpoint, method, body) => this.makeRequest(endpoint, method, body),
       getTemplateManager: () => this.getTemplateManager(),
       getFormImporter: () => this.getFormImporter(),
-    }, args);
+    }, args as CloneFormWithModificationsArgs);
   }
 
   /**
    * Get cache status tool implementation
    */
-  private async getCacheStatusTool() {
+  private async getCacheStatusTool(): Promise<ICacheToolResult> {
     return getCacheStatusToolHandler({ getCacheStatus: () => this.getCacheStatus() });
   }
 
   /**
    * Search entries by name using universal search capabilities
    */
-  private async searchEntriesByName(args: any) {
+  private async searchEntriesByName(args: unknown): ReturnType<typeof searchEntriesByNameHandler> {
     return searchEntriesByNameHandler({
       makeRequest: (endpoint, method, body) => this.makeRequest(endpoint, method, body),
       fieldTypeDetector: this.fieldTypeDetector,
       searchResultsFormatter: this.searchResultsFormatter,
       getUniversalSearchManager: () => this.getUniversalSearchManager(),
-    }, args);
+    }, args as Parameters<typeof searchEntriesByNameHandler>[1]);
   }
 
   /**
    * Advanced multi-field search with custom targeting and strategies
    */
-  private async searchEntriesUniversal(args: any) {
+  private async searchEntriesUniversal(args: unknown): ReturnType<typeof searchEntriesUniversalHandler> {
     return searchEntriesUniversalHandler({
       makeRequest: (endpoint, method, body) => this.makeRequest(endpoint, method, body),
       fieldTypeDetector: this.fieldTypeDetector,
       searchResultsFormatter: this.searchResultsFormatter,
       getUniversalSearchManager: () => this.getUniversalSearchManager(),
-    }, args);
+    }, args as Parameters<typeof searchEntriesUniversalHandler>[1]);
   }
 
   /**
    * Get field mappings and analysis for form structure debugging
    */
-  private async getFieldMappings(args: any) {
+  private async getFieldMappings(args: unknown): ReturnType<typeof getFieldMappingsHandler> {
     return getFieldMappingsHandler({
       makeRequest: (endpoint, method, body) => this.makeRequest(endpoint, method, body),
       fieldTypeDetector: this.fieldTypeDetector,
@@ -637,13 +653,13 @@ export class GravityFormsMCPServer {
   /**
    * Public method to call tools (for testing)
    */
-  async callTool(request: any) {
+  async callTool(request: IToolCallRequest): Promise<IToolCallResponse> {
     const { name, arguments: args } = request.params;
     try {
       const result = await this.dispatchTool(name, args);
       return {
         isError: false,
-        ...result
+        ...(result as Record<string, unknown>)
       };
     } catch (error) {
       return {
@@ -651,14 +667,14 @@ export class GravityFormsMCPServer {
         content: [
           {
             type: "text",
-            text: error instanceof McpError ? error.message : `Error: ${error}`
+            text: error instanceof McpError ? error.message : `Error: ${String(error)}`
           }
         ]
       };
     }
   }
 
-  async run() {
+  async run(): Promise<void> {
     await this.startup();
     const transportMode = process.env.MCP_TRANSPORT ?? "stdio";
     if (transportMode === "http") {
