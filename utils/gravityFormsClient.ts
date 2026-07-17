@@ -38,9 +38,7 @@ export class GravityFormsClient {
     );
   }
 
-  // NOTE: `T = any` is a temporary migration default so un-migrated call sites keep
-  // compiling; tightened to `unknown` in Plan E Task 8 once all callers pass explicit <T>.
-  async makeRequest<T = any>(endpoint: string, method = 'GET', body?: unknown): Promise<T> {
+  async makeRequest<T = unknown>(endpoint: string, method = 'GET', body?: unknown): Promise<T> {
     const url = `${this.baseUrl}/wp-json/gf/v2${endpoint}`;
     const headers = this.getAuthHeaders();
 

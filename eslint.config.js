@@ -223,6 +223,9 @@ export default tseslint.config(
     files: ['**/*.test.{ts,js}', '**/*.spec.{ts,js}', '**/__tests__/**/*.{ts,js}'],
     plugins: {
       jest: jestPlugin,
+      // The TypeScript block ignores test files, so this block must declare the
+      // @typescript-eslint plugin itself to resolve the @typescript-eslint/* rules below.
+      '@typescript-eslint': tseslint.plugin,
     },
     languageOptions: {
       parser: tseslint.parser,
@@ -315,39 +318,25 @@ export default tseslint.config(
     },
   },
 
-  // === TEMPORARY LINT-DEBT TOLERANCE ===
-  // The codebase carries a large body of pre-existing eslint errors, dominated by
-  // the no-unsafe-* / no-explicit-any type-safety family. Until the dedicated
-  // lint-cleanup plan burns them down, these rules are downgraded to warnings so
-  // the pre-commit gate can accept commits while still surfacing the debt. Remove
-  // this block as part of the lint-cleanup plan.
+  // Naming-convention violations (missing `I` interface prefix, snake_case vars that
+  // mirror the Gravity Forms API — e.g. form_id, is_active) predate Plan E and are out of
+  // its type-safety scope. Kept as tracked `warn` debt for a dedicated future cleanup;
+  // was previously `off`, so this is strictly more visibility, not less.
   {
     files: ['**/*.{ts,tsx}'],
-    plugins: {
-      '@typescript-eslint': tseslint.plugin,
-    },
+    ignores: ['**/*.test.{ts,tsx}', '**/*.spec.{ts,tsx}', '**/__tests__/**'],
     rules: {
-      '@typescript-eslint/no-unsafe-member-access': 'warn',
-      '@typescript-eslint/no-unsafe-assignment': 'warn',
-      '@typescript-eslint/no-unsafe-argument': 'warn',
-      '@typescript-eslint/no-unsafe-call': 'warn',
-      '@typescript-eslint/no-unsafe-return': 'warn',
-      '@typescript-eslint/no-explicit-any': 'warn',
-      '@typescript-eslint/naming-convention': 'off',
-      '@typescript-eslint/prefer-nullish-coalescing': 'warn',
-      '@typescript-eslint/require-await': 'warn',
-      '@typescript-eslint/no-unused-vars': 'warn',
-      '@typescript-eslint/restrict-template-expressions': 'warn',
-      '@typescript-eslint/no-non-null-assertion': 'warn',
-      '@typescript-eslint/array-type': 'warn',
-      '@typescript-eslint/no-base-to-string': 'warn',
-      '@typescript-eslint/no-unnecessary-type-assertion': 'warn',
-      '@typescript-eslint/no-inferrable-types': 'warn',
-      '@typescript-eslint/no-empty-object-type': 'warn',
-      '@typescript-eslint/no-empty-function': 'warn',
-      // Core no-unused-vars is superseded by the TS-aware version above; the base
-      // typescript-eslint config disables it, but test files are scoped out of that
-      // block (for tsconfig resolution), so disable it here too to avoid duplicates.
+      '@typescript-eslint/naming-convention': 'warn',
+    },
+  },
+
+  // Test-file lint debt. The removed prod tolerance block matched all `ts/tsx`, so it also
+  // suppressed these core-JS/style rules in test files. Prod is now restored to `error`;
+  // test files keep the same relaxations as tracked debt for a dedicated future test cleanup.
+  {
+    files: ['**/*.test.{ts,js}', '**/*.spec.{ts,js}', '**/__tests__/**/*.{ts,js}'],
+    rules: {
+      // Core no-unused-vars is superseded by the TS-aware version in the test block above.
       'no-unused-vars': 'off',
       'no-undef': 'off',
       'no-case-declarations': 'warn',
@@ -355,6 +344,8 @@ export default tseslint.config(
       'no-useless-catch': 'warn',
       'no-useless-escape': 'warn',
       'prefer-const': 'warn',
+      '@typescript-eslint/naming-convention': 'off',
+      '@typescript-eslint/require-await': 'warn',
     },
   }
 );

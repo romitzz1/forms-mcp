@@ -323,7 +323,7 @@ export class GravityFormsMCPServer {
     return this.gfClient.getAuthHeaders();
   }
 
-  private async makeRequest<T = any>(endpoint: string, method = 'GET', body?: unknown): Promise<T> {
+  private async makeRequest<T = unknown>(endpoint: string, method = 'GET', body?: unknown): Promise<T> {
     return this.gfClient.makeRequest<T>(endpoint, method, body);
   }
 
@@ -346,6 +346,11 @@ export class GravityFormsMCPServer {
       // does the real argument validation via each tool's own typed Args interface.
       target.registerTool(
         name,
+        // The MCP SDK's registerTool generic resolves inputSchema through z3.infer over the
+        // tool's ZodRawShape; passing our dynamically-typed TOOL_SCHEMAS value trips TS2589
+        // (type instantiation excessively deep). Casting to `any` at this single boundary is
+        // the only workaround; the runtime value is a valid Zod raw shape.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment
         { description: def.description, inputSchema: def.inputSchema as any },
         async (args: unknown): Promise<CallToolResult> => this.dispatchTool(name, args) as Promise<CallToolResult>
       );
