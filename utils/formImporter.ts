@@ -2,6 +2,7 @@
 // ABOUTME: Handles JSON validation, ID mapping, conflict detection, and reference updates
 
 import type { FormCache } from './formCache.js';
+import type { IGravityFormField } from './gravityFormsTypes.js';
 
 export interface ImportOptions {
   force_import?: boolean;
@@ -35,36 +36,75 @@ export interface ImportResult {
   errors?: string[];
 }
 
+// A form as parsed from imported JSON and carried through the import pipeline.
+// `id` is optional (imports are typically ID-less; conflict resolution may
+// carry an existing id through), `fields` is the one structurally-validated
+// property (validateFormJson enforces it's an array of id/type/label-bearing
+// objects), and every other imported key (settings, notifications, etc.) is
+// preserved verbatim via the index signature.
+export interface IImportableForm {
+  id?: string;
+  title: string;
+  fields: IGravityFormField[];
+  [key: string]: unknown;
+}
+
+// A minimal existing-form summary used only for title/id conflict lookups —
+// shared shape for both FormCache-derived summaries (is_active: boolean) and
+// raw API /forms responses (is_active: string per the REST API contract).
+interface IExistingFormSummary {
+  id: string;
+  title: string;
+  is_active?: boolean | string;
+  [key: string]: unknown;
+}
+
+interface IConditionalLogicRule {
+  fieldId?: string | number;
+  [key: string]: unknown;
+}
+
+interface IConditionalLogicWithRules {
+  rules: IConditionalLogicRule[];
+  [key: string]: unknown;
+}
+
+function hasConditionalLogicRules(value: unknown): value is IConditionalLogicWithRules {
+  return typeof value === 'object' && value !== null && Array.isArray((value as { rules?: unknown }).rules);
+}
+
 export class FormImporter {
   constructor(
-    private readonly apiCall: (endpoint: string, method?: string, body?: any) => Promise<any>,
+    private readonly apiCall: <T = unknown>(endpoint: string, method?: string, body?: unknown) => Promise<T>,
     private readonly formCache?: FormCache
   ) {}
 
   /**
    * Validates form JSON structure and content
    */
-  validateFormJson(jsonString: string): any {
+  validateFormJson(jsonString: string): IImportableForm {
     try {
-      const parsed = JSON.parse(jsonString);
-      
+      const parsed = JSON.parse(jsonString) as Record<string, unknown>;
+
       // Validate required properties
-      if (!parsed.title || typeof parsed.title !== 'string') {
+      if (typeof parsed.title !== 'string' || parsed.title === '') {
         throw new Error('Invalid form JSON: title is required and must be a string');
       }
-      
-      if (!parsed.fields || !Array.isArray(parsed.fields)) {
+
+      if (!Array.isArray(parsed.fields)) {
         throw new Error('Invalid form JSON: fields must be an array');
       }
-      
+
       // Validate each field has required properties
-      for (const field of parsed.fields) {
-        if (!field.id || !field.type || !field.label) {
+      const fields = parsed.fields as unknown[];
+      for (const field of fields) {
+        const fieldRecord = (typeof field === 'object' && field !== null) ? field as Record<string, unknown> : null;
+        if (!fieldRecord?.id || !fieldRecord.type || !fieldRecord.label) {
           throw new Error('Invalid form JSON: each field must have id, type, and label');
         }
       }
-      
-      return parsed;
+
+      return parsed as unknown as IImportableForm;
     } catch (error) {
       if (error instanceof SyntaxError) {
         throw new Error('Invalid JSON format: ' + error.message);
@@ -74,51 +114,63 @@ export class FormImporter {
   }
 
   /**
+   * Resolves the existing-forms list used for conflict detection: cache (with
+   * auto-sync-if-stale) when complete discovery is requested and the cache is
+   * ready, otherwise a fresh API fetch — extracted verbatim from detectConflicts
+   * to keep it under the complexity threshold.
+   */
+  private async resolveExistingFormsForConflictDetection(useCompleteDiscovery: boolean): Promise<IExistingFormSummary[]> {
+    let existingForms: IExistingFormSummary[];
+
+    // Use cache if available and complete discovery requested
+    if (useCompleteDiscovery && this.formCache?.isReady()) {
+      try {
+        // Check if cache is stale and auto-sync if needed
+        const isStale = await this.formCache.isStale();
+        if (isStale) {
+          await this.formCache.refreshCache((endpoint: string) => this.apiCall(endpoint));
+        }
+
+        // Get all forms from cache (including inactive)
+        const cachedForms = await this.formCache.getAllForms();
+        existingForms = cachedForms.map((cached) => ({
+          id: cached.id.toString(),
+          title: cached.title,
+          is_active: cached.is_active
+        }));
+      } catch {
+        // For consistency with resolveConflicts, fall back to API when cache fails
+        // This provides more robust behavior than throwing errors
+        const apiResponse = await this.apiCall<Record<string, IExistingFormSummary>>('/forms');
+        existingForms = Object.values(apiResponse);
+      }
+    } else if (useCompleteDiscovery && (!this.formCache?.isReady())) {
+      // Fall back to API if complete discovery requested but cache unavailable
+      const apiResponse = await this.apiCall<Record<string, IExistingFormSummary>>('/forms');
+      existingForms = Object.values(apiResponse);
+    } else {
+      // Use existing API-only behavior (backward compatibility)
+      const apiResponse = await this.apiCall<Record<string, IExistingFormSummary>>('/forms');
+      existingForms = Object.values(apiResponse);
+    }
+
+    // Ensure existingForms is always an array
+    if (!Array.isArray(existingForms)) {
+      existingForms = [];
+    }
+
+    return existingForms;
+  }
+
+  /**
    * Detects conflicts with existing forms
    */
-  async detectConflicts(importedForm: any, useCompleteDiscovery = false): Promise<ConflictInfo> {
+  async detectConflicts(importedForm: IImportableForm, useCompleteDiscovery = false): Promise<ConflictInfo> {
     try {
-      let existingForms: any[];
+      const existingForms = await this.resolveExistingFormsForConflictDetection(useCompleteDiscovery);
 
-      // Use cache if available and complete discovery requested
-      if (useCompleteDiscovery && this.formCache?.isReady()) {
-        try {
-          // Check if cache is stale and auto-sync if needed
-          const isStale = await this.formCache.isStale();
-          if (isStale) {
-            await this.formCache.refreshCache((endpoint: string) => this.apiCall(endpoint));
-          }
-          
-          // Get all forms from cache (including inactive)
-          const cachedForms = await this.formCache.getAllForms();
-          existingForms = cachedForms.map(cached => ({
-            id: (cached.id ?? 0).toString(),
-            title: cached.title || '',
-            is_active: cached.is_active
-          }));
-        } catch (error) {
-          // For consistency with resolveConflicts, fall back to API when cache fails
-          // This provides more robust behavior than throwing errors
-          const apiResponse = await this.apiCall('/forms');
-          existingForms = Object.values(apiResponse);
-        }
-      } else if (useCompleteDiscovery && (!this.formCache?.isReady())) {
-        // Fall back to API if complete discovery requested but cache unavailable
-        const apiResponse = await this.apiCall('/forms');
-        existingForms = Object.values(apiResponse);
-      } else {
-        // Use existing API-only behavior (backward compatibility)
-        const apiResponse = await this.apiCall('/forms');
-        existingForms = Object.values(apiResponse);
-      }
-      
-      // Ensure existingForms is always an array
-      if (!Array.isArray(existingForms)) {
-        existingForms = [];
-      }
-      
       // Check for title conflicts
-      const titleConflict = existingForms.find((form: any) => form.title === importedForm.title);
+      const titleConflict = existingForms.find((form) => form.title === importedForm.title);
       if (titleConflict) {
         return {
           hasConflict: true,
@@ -126,10 +178,10 @@ export class FormImporter {
           conflictDetails: { existingId: titleConflict.id, title: importedForm.title }
         };
       }
-      
+
       // Check for explicit ID conflicts if form has an id
       if (importedForm.id) {
-        const idConflict = existingForms.find((form: any) => form.id === importedForm.id);
+        const idConflict = existingForms.find((form) => form.id === importedForm.id);
         if (idConflict) {
           return {
             hasConflict: true,
@@ -138,7 +190,7 @@ export class FormImporter {
           };
         }
       }
-      
+
       return { hasConflict: false, conflictType: 'none' };
     } catch (error) {
       throw new Error(`Failed to check for conflicts: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -148,16 +200,16 @@ export class FormImporter {
   /**
    * Resolves conflicts by modifying the imported form
    */
-  async resolveConflicts(importedForm: any, conflictInfo: ConflictInfo, useCompleteDiscovery = false, existingForms?: any[]): Promise<any> {
+  async resolveConflicts(importedForm: IImportableForm, conflictInfo: ConflictInfo, useCompleteDiscovery = false, existingForms?: IExistingFormSummary[]): Promise<IImportableForm> {
     if (!conflictInfo.hasConflict) {
       return importedForm;
     }
 
-    const resolvedForm = { ...importedForm };
+    const resolvedForm: IImportableForm = { ...importedForm };
 
     if (conflictInfo.conflictType === 'title') {
-      let forms: any[];
-      
+      let forms: IExistingFormSummary[];
+
       // Use provided forms list to avoid duplicate API call
       if (existingForms) {
         forms = existingForms;
@@ -165,31 +217,31 @@ export class FormImporter {
         try {
           // Get all forms from cache for complete conflict resolution
           const cachedForms = await this.formCache.getAllForms();
-          forms = cachedForms.map(cached => ({
-            id: (cached.id ?? 0).toString(),
-            title: cached.title || '',
+          forms = cachedForms.map((cached) => ({
+            id: cached.id.toString(),
+            title: cached.title,
             is_active: cached.is_active
           }));
-        } catch (error) {
+        } catch {
           // Fall back to API if cache fails
-          const apiResponse = await this.apiCall('/forms');
+          const apiResponse = await this.apiCall<Record<string, IExistingFormSummary>>('/forms');
           forms = Object.values(apiResponse);
         }
       } else {
         // Use API-only behavior
-        const apiResponse = await this.apiCall('/forms');
+        const apiResponse = await this.apiCall<Record<string, IExistingFormSummary>>('/forms');
         forms = Object.values(apiResponse);
       }
-      
+
       const baseTitle = importedForm.title;
       let counter = 1;
       let newTitle = `${baseTitle} (Import ${counter})`;
-      
-      while (forms.some((form: any) => form.title === newTitle)) {
+
+      while (forms.some((form) => form.title === newTitle)) {
         counter++;
         newTitle = `${baseTitle} (Import ${counter})`;
       }
-      
+
       resolvedForm.title = newTitle;
     }
 
@@ -202,18 +254,18 @@ export class FormImporter {
   /**
    * Updates field IDs to avoid conflicts and returns mapping
    */
-  updateFieldIds(form: any, startingId = 1): { updatedForm: any; idMapping: IdMapping } {
+  updateFieldIds(form: IImportableForm, startingId = 1): { updatedForm: IImportableForm; idMapping: IdMapping } {
     const idMapping: IdMapping = {};
     let currentId = startingId;
-    
-    const updatedFields = form.fields.map((field: any) => {
+
+    const updatedFields = form.fields.map((field) => {
       const newId = currentId.toString();
       idMapping[field.id] = newId;
       currentId++;
-      
+
       return { ...field, id: newId };
     });
-    
+
     return {
       updatedForm: { ...form, fields: updatedFields },
       idMapping
@@ -223,58 +275,59 @@ export class FormImporter {
   /**
    * Updates conditional logic references when field IDs change
    */
-  updateConditionalLogicReferences(form: any, idMapping: IdMapping): any {
-    const updatedFields = form.fields.map((field: any) => {
-      if (field.conditionalLogic?.rules) {
-        const updatedRules = field.conditionalLogic.rules.map((rule: any) => {
+  updateConditionalLogicReferences(form: IImportableForm, idMapping: IdMapping): IImportableForm {
+    const updatedFields = form.fields.map((field) => {
+      const conditionalLogic = field.conditionalLogic;
+      if (hasConditionalLogicRules(conditionalLogic)) {
+        const updatedRules = conditionalLogic.rules.map((rule) => {
           if (rule.fieldId && idMapping[rule.fieldId]) {
             return { ...rule, fieldId: idMapping[rule.fieldId] };
           }
           return rule;
         });
-        
+
         return {
           ...field,
           conditionalLogic: {
-            ...field.conditionalLogic,
+            ...conditionalLogic,
             rules: updatedRules
           }
         };
       }
       return field;
     });
-    
+
     return { ...form, fields: updatedFields };
   }
 
   /**
    * Updates calculation formulas when field IDs change
    */
-  updateCalculationReferences(form: any, idMapping: IdMapping): any {
-    const updatedFields = form.fields.map((field: any) => {
-      if (field.isCalculation && field.calculationFormula) {
+  updateCalculationReferences(form: IImportableForm, idMapping: IdMapping): IImportableForm {
+    const updatedFields = form.fields.map((field) => {
+      if (field.isCalculation && typeof field.calculationFormula === 'string') {
         let updatedFormula = field.calculationFormula;
-        
+
         // Update field references in calculation formula
         for (const [oldId, newId] of Object.entries(idMapping)) {
           const regex = new RegExp(`{([^:]+):${oldId}}`, 'g');
           updatedFormula = updatedFormula.replace(regex, `{$1:${newId}}`);
         }
-        
+
         return { ...field, calculationFormula: updatedFormula };
       }
       return field;
     });
-    
+
     return { ...form, fields: updatedFields };
   }
 
   /**
    * Prepares form for import by cleaning metadata and updating references
    */
-  prepareFormForImport(form: any, idMapping?: IdMapping): any {
-    let preparedForm = { ...form };
-    
+  prepareFormForImport(form: IImportableForm, idMapping?: IdMapping): IImportableForm {
+    let preparedForm: IImportableForm = { ...form };
+
     // Remove export metadata and runtime properties
     delete preparedForm.export_metadata;
     delete preparedForm.id;
@@ -283,13 +336,13 @@ export class FormImporter {
     delete preparedForm.entries_count;
     delete preparedForm.is_active;
     delete preparedForm.is_trash;
-    
+
     // Update references if ID mapping provided
     if (idMapping) {
       preparedForm = this.updateConditionalLogicReferences(preparedForm, idMapping);
       preparedForm = this.updateCalculationReferences(preparedForm, idMapping);
     }
-    
+
     return preparedForm;
   }
 
@@ -302,16 +355,16 @@ export class FormImporter {
       const importedForm = this.validateFormJson(formJson);
       const originalTitle = importedForm.title;
       const useCompleteDiscovery = options.useCompleteDiscovery ?? false;
-      
+
       // Check for conflicts
       const conflictInfo = await this.detectConflicts(importedForm, useCompleteDiscovery);
-      
+
       let resolvedForm = importedForm;
       let conflictsResolved = 0;
       let action: ImportResult['action'] = 'created';
       let idMapping: IdMapping | undefined;
-      let existingForms: any[] | undefined;
-      
+      let existingForms: IExistingFormSummary[] | undefined;
+
       // Handle conflicts
       if (conflictInfo.hasConflict) {
         if (options.force_import) {
@@ -319,12 +372,12 @@ export class FormImporter {
           if (!conflictInfo.conflictDetails) {
             throw new Error('Conflict details missing for force import');
           }
-          
+
           const existingId = conflictInfo.conflictDetails.existingId;
           resolvedForm = this.prepareFormForImport(importedForm);
-          
+
           await this.apiCall(`/forms/${existingId}`, 'PUT', resolvedForm);
-          
+
           return {
             success: true,
             action: 'overwritten',
@@ -337,29 +390,29 @@ export class FormImporter {
           // Auto-resolve conflicts by modifying the form
           // Only get existing forms for traditional resolution if not using complete discovery
           if (!useCompleteDiscovery) {
-            const apiResponse = await this.apiCall('/forms');
-          existingForms = Object.values(apiResponse);
+            const apiResponse = await this.apiCall<Record<string, IExistingFormSummary>>('/forms');
+            existingForms = Object.values(apiResponse);
           }
-          
+
           resolvedForm = await this.resolveConflicts(importedForm, conflictInfo, useCompleteDiscovery, existingForms);
           conflictsResolved = 1;
           action = 'created_with_modified_title';
         }
       }
-      
+
       // Update field IDs if needed
       if (!options.preserve_ids) {
         const { updatedForm, idMapping: mapping } = this.updateFieldIds(resolvedForm);
         resolvedForm = updatedForm;
         idMapping = mapping;
       }
-      
+
       // Prepare form for import
       resolvedForm = this.prepareFormForImport(resolvedForm, idMapping);
-      
+
       // Create the new form
-      const createdForm = await this.apiCall('/forms', 'POST', resolvedForm);
-      
+      const createdForm = await this.apiCall<{ id?: string }>('/forms', 'POST', resolvedForm);
+
       const result: ImportResult = {
         success: true,
         action,
@@ -368,15 +421,15 @@ export class FormImporter {
         fields_imported: resolvedForm.fields.length,
         conflicts_resolved: conflictsResolved
       };
-      
+
       if (originalTitle !== resolvedForm.title) {
         result.original_title = originalTitle;
       }
-      
+
       if (idMapping) {
         result.id_mapping = idMapping;
       }
-      
+
       return result;
     } catch (error) {
       return {
