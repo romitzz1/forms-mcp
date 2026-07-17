@@ -345,8 +345,29 @@ describe('Performance Optimization', () => {
         it('should respect custom cache expiry times', () => {
             const customMaxAge = 500; // 500ms
             const cache = new SearchResultsCache({ maxAge: customMaxAge });
-            
+
             expect(cache.options.maxAge).toBe(customMaxAge);
+        });
+
+        // Regression: an explicit maxSize:0 must be coerced up to the default (100),
+        // NOT honored as "disable the cache". The only supported disable switch is
+        // SEARCH_CACHE_ENABLED=false. A `?? 100` (nullish-only) default would wrongly
+        // honor 0 and silently disable the cache; the fallback must treat 0 as falsy.
+        it('should coerce an explicit maxSize:0 up to the default (cache stays enabled)', () => {
+            const cache = new SearchResultsCache({ maxSize: 0 });
+            const mockResults = { matches: [], totalFound: 0, searchMetadata: {} } as any;
+
+            cache.set('form1', 'query1', mockResults);
+
+            // If maxSize:0 disabled the cache, get() would return null. It must not.
+            expect(cache.get('form1', 'query1')).toStrictEqual(mockResults);
+
+            // And the effective size must be the default 100, not 0: storing many
+            // entries stays under 100 without eviction (proving effectiveMaxSize === 100).
+            for (let i = 0; i < 50; i++) {
+                cache.set(`f${i}`, `q${i}`, mockResults);
+            }
+            expect(cache.size()).toBe(51); // original + 50, none evicted
         });
     });
 });

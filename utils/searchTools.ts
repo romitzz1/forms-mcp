@@ -338,8 +338,13 @@ function parseOutputOptions(rawOutputOptions: unknown): ParsedOutputOptions {
     ? (rawMode as OutputMode)
     : 'auto';
 
+  // Preserve the original `output_options?.max_results || 50` semantics: an
+  // explicit falsy max_results (notably 0, which the Zod `.default(50)` does NOT
+  // fill because a value was supplied) falls back to 50 and does NOT throw. The
+  // trailing `|| 50` is intentional here - 0 is a legitimate falsy trigger, not
+  // a nullish-only case, so this must stay `||` rather than `??`.
   const rawMaxResults = outputOptions?.['max_results'];
-  const maxResults = typeof rawMaxResults === 'number' ? rawMaxResults : 50;
+  const maxResults = (typeof rawMaxResults === 'number' ? rawMaxResults : 50) || 50;
 
   const includeFieldMappings = outputOptions?.['include_field_mappings'] === true;
 
