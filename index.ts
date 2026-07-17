@@ -291,8 +291,8 @@ export class GravityFormsMCPServer {
     return this.gfClient.getAuthHeaders();
   }
 
-  private async makeRequest(endpoint: string, method = 'GET', body?: any): Promise<any> {
-    return this.gfClient.makeRequest(endpoint, method, body);
+  private async makeRequest<T = any>(endpoint: string, method = 'GET', body?: unknown): Promise<T> {
+    return this.gfClient.makeRequest<T>(endpoint, method, body);
   }
 
   private setupToolHandlers() {
