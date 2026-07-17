@@ -69,7 +69,7 @@ export const TOOL_SCHEMAS: Record<string, { description: string; inputSchema: z.
       response_mode: z
         .enum(["full", "summary", "auto"] as [string, ...string[]])
         .describe(
-          "Response format mode: 'full' for complete entries, 'summary' for essential fields only, 'auto' for intelligent size management (default: auto)"
+          "Response format mode: 'full' for complete entries, 'summary' to keep every populated field but truncate individually oversized values (truncated keys are listed under each entry's _summary), 'auto' for intelligent size management (default: auto)"
         )
         .optional(),
       search_mode: z

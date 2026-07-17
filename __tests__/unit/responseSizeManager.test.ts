@@ -40,7 +40,7 @@ describe('responseSizeManager', () => {
   });
 
   describe('createEntrySummary', () => {
-    it('keeps id/form_id and a detected email field but drops huge fields', () => {
+    it('keeps id/form_id and a detected email field, truncating (not dropping) huge fields', () => {
       const entry: any = {
         id: '12345',
         form_id: '193',
@@ -60,8 +60,67 @@ describe('responseSizeManager', () => {
       expect(summary.form_id).toBe('193');
       expect(summary['4']).toBe('john.smith@email.com');
 
-      expect(summary['60']).toBeUndefined();
-      expect(summary['100']).toBeUndefined();
+      // Huge fields are truncated with a marker rather than silently dropped, and each
+      // truncated key is listed so a consumer knows to re-fetch it in full mode.
+      expect(summary['60']).toBeDefined();
+      expect(String(summary['60']).length).toBeLessThan(entry['60'].length);
+      expect(String(summary['60'])).toContain('truncated');
+      expect(summary._summary.truncated_fields).toContain('60');
+      expect(summary._summary.truncated_fields).toContain('100');
+    });
+
+    it('preserves every populated short field for a wide entry (bug report: form 309 / entry 16059)', () => {
+      // Reproduces the reported failure: a wide survey entry whose short answer values
+      // were dropped by summary mode. Top-level numeric name fields (1/2) and other short
+      // answers must survive — the whole point of the fix.
+      const entry: any = {
+        id: '16059',
+        form_id: '309',
+        status: 'active',
+        '1': 'Jim',
+        '2': 'Yanacek',
+        '3': 'jimyanacek@gmail.com',
+        '8': 'Considering it',
+        '17': 'Probably signing up',
+        '69.3': 'Wednesday',
+        '71': 'Yes',
+        '73.2': 'Tuesday Early Social Fun',
+      };
+      // Pad with more short answer fields so the entry as a whole is well over the old
+      // 2000-byte gate that used to trigger wholesale dropping.
+      for (let i = 20; i < 70; i++) {
+        entry[String(i)] = `Answer value for field ${i} that is a normal short response`;
+      }
+
+      const summary = createEntrySummary(entry);
+
+      expect(summary['1']).toBe('Jim');
+      expect(summary['2']).toBe('Yanacek');
+      expect(summary['3']).toBe('jimyanacek@gmail.com');
+      expect(summary['8']).toBe('Considering it');
+      expect(summary['17']).toBe('Probably signing up');
+      expect(summary['71']).toBe('Yes');
+      expect(summary['73.2']).toBe('Tuesday Early Social Fun');
+      // Nothing was truncated, so no manifest is attached.
+      expect(summary._summary).toBeUndefined();
+    });
+
+    it('omits empty and whitespace-only field values but keeps populated ones', () => {
+      const entry: any = {
+        id: '1',
+        form_id: '2',
+        '1': 'kept',
+        '2': '',
+        '3': '   ',
+        '4': null,
+      };
+
+      const summary = createEntrySummary(entry);
+
+      expect(summary['1']).toBe('kept');
+      expect(summary['2']).toBeUndefined();
+      expect(summary['3']).toBeUndefined();
+      expect(summary['4']).toBeUndefined();
     });
   });
 

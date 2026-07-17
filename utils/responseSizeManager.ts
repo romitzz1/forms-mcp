@@ -43,69 +43,67 @@ export function estimateEntriesResponseSize(entries: any[]): number {
   return Math.ceil((estimatedTotalSize + overhead) / 4); // Convert to tokens
 }
 
+// Per-field character cap for summary mode. Real Gravity Forms answers (choices,
+// short text, name parts, dates) sit well under this, so they are kept verbatim.
+// Only genuinely long free-text values exceed it and are truncated — never dropped.
+const MAX_SUMMARY_FIELD_VALUE_LENGTH = 200;
+
+// A field-value key on a Gravity Forms entry is the numeric field id, optionally with
+// a composite sub-input suffix (e.g. "1", "1.3", "73.2"). Everything else (id, status,
+// date_created, source_url, ...) is entry metadata.
+function isFieldValueKey(key: string): boolean {
+  return /^\d+(\.\d+)?$/.test(key);
+}
+
 /**
- * Create a summary of a large entry object to prevent context overflow
+ * Create a compact-but-complete summary of an entry for context-limited responses.
+ *
+ * Summary mode keeps EVERY populated field value, just in a smaller shape:
+ * short values are copied verbatim, and only individually oversized free-text
+ * values are truncated (with a marker) rather than dropped. Any truncated field
+ * is recorded under `_summary.truncated_fields` so a consumer can re-fetch it in
+ * full mode. Empty/whitespace-only field values are omitted (no data lost — there
+ * was no answer). This prevents the silent data loss that the old size-gated
+ * filter caused for wide entries.
  */
 export function createEntrySummary(entry: any): any {
   const summary: any = {};
 
-  // Essential fields (always included)
+  if (!entry || typeof entry !== 'object') return summary;
+
+  // Essential metadata (always included when present).
   if (entry.id !== undefined) summary.id = entry.id;
   if (entry.form_id !== undefined) summary.form_id = entry.form_id;
   if (entry.date_created !== undefined) summary.date_created = entry.date_created;
+  if (entry.status !== undefined) summary.status = entry.status;
   if (entry.payment_status !== undefined) summary.payment_status = entry.payment_status;
 
-  // Name fields - detect dynamically using Gravity Forms sub-field conventions
-  // X.3 = first name, X.6 = last name (universal pattern for all GF name fields)
-  const nameFields: string[] = [];
+  // Every populated field value is preserved. Oversized values are truncated and
+  // recorded, never silently discarded.
+  const truncatedFields: string[] = [];
   Object.keys(entry).forEach(key => {
-    if (key.includes('.') && (key.endsWith('.3') || key.endsWith('.6'))) {
-      nameFields.push(key);
-    }
-  });
-  nameFields.forEach(fieldId => {
-    if (entry[fieldId] !== undefined) {
-      summary[fieldId] = entry[fieldId];
-    }
-  });
+    if (!isFieldValueKey(key)) return;
 
-  // Email fields - detect dynamically using Gravity Forms email field patterns.
-  // Constrain to short, single-token values so free-text prose that merely
-  // contains an "@" (e.g. "email me @ the rink.") is not copied wholesale into
-  // the summary, which would defeat this function's response-size reduction.
-  Object.keys(entry).forEach(key => {
     const value = entry[key];
-    if (
-      typeof value === 'string' &&
-      value.length < 100 &&
-      !value.includes(' ') &&
-      value.includes('@') &&
-      value.includes('.')
-    ) {
+    if (value == null) return;
+
+    const stringValue = String(value);
+    if (stringValue.trim() === '') return; // Unanswered — omit, not lost.
+
+    if (stringValue.length <= MAX_SUMMARY_FIELD_VALUE_LENGTH) {
       summary[key] = value;
+    } else {
+      const omitted = stringValue.length - MAX_SUMMARY_FIELD_VALUE_LENGTH;
+      summary[key] = `${stringValue.slice(0, MAX_SUMMARY_FIELD_VALUE_LENGTH)}…[truncated ${omitted} chars]`;
+      truncatedFields.push(key);
     }
   });
 
-  // Include other small text fields if entry is small overall
-  let entrySize = 0;
-  try {
-    const entryJson = JSON.stringify(entry);
-    entrySize = entryJson.length;
-  } catch {
-    // If JSON.stringify fails (circular references, etc.), estimate size by field count
-    entrySize = Object.keys(entry).length * 100; // Conservative estimate
-  }
-
-  if (entrySize < 2000) {
-    // Entry is small, include more fields
-    Object.keys(entry).forEach(key => {
-      if (summary[key] === undefined && entry[key] != null) {
-        const fieldValue = String(entry[key]);
-        if (fieldValue.length < 200 && fieldValue !== 'undefined') { // Only include short, valid field values
-          summary[key] = entry[key];
-        }
-      }
-    });
+  if (truncatedFields.length > 0) {
+    summary._summary = {
+      truncated_fields: truncatedFields,
+      note: 'Long field values were truncated in summary mode. Re-fetch with response_mode:"full" for their complete values.'
+    };
   }
 
   return summary;
