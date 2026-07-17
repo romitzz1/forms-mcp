@@ -90,28 +90,30 @@ describe('getEntries Response Size Management', () => {
   });
 
   describe('Entry Summarization', () => {
-    it('should create summary with essential fields only', async () => {
+    it('keeps all populated short fields and truncates (not drops) huge ones', async () => {
       const server = createServer();
       const entry = createLargeEntry('12345', 'huge');
-      
+
       const summary = (server).createEntrySummary(entry);
-      
+
       // Should contain essential fields
       expect(summary.id).toBe('12345');
       expect(summary.form_id).toBe('193');
       expect(summary.date_created).toBe(entry.date_created);
       expect(summary.payment_status).toBe('Paid');
-      
-      // Should contain dynamically detected name/email fields
+
+      // Short answer fields are preserved verbatim
       expect(summary['1.3']).toBe('John'); // First name sub-field
       expect(summary['1.6']).toBe('Smith'); // Last name sub-field
-      expect(summary['4']).toBe('john.smith@email.com'); // Email field (detected by @ pattern)
-      
-      // Should NOT contain the huge extra fields
-      expect(summary['60']).toBeUndefined();
-      expect(summary['100']).toBeUndefined();
-      
-      // Summary should be much smaller than original
+      expect(summary['4']).toBe('john.smith@email.com'); // Email field
+
+      // Huge fields are truncated with a marker and flagged, not silently dropped
+      expect(summary['60']).toBeDefined();
+      expect(String(summary['60']).length).toBeLessThan(entry['60'].length);
+      expect(summary._summary.truncated_fields).toContain('60');
+      expect(summary._summary.truncated_fields).toContain('100');
+
+      // Summary should still be much smaller than the original
       const originalSize = JSON.stringify(entry).length;
       const summarySize = JSON.stringify(summary).length;
       expect(summarySize).toBeLessThan(originalSize * 0.2); // Less than 20% of original
@@ -150,29 +152,31 @@ describe('getEntries Response Size Management', () => {
       expect(summary['99']).toBe('Some other field'); // Other fields preserved if small
     });
 
-    it('should not copy long free-text fields that merely contain "@" into the summary', async () => {
+    it('includes long free-text fields as truncated values rather than dropping them', async () => {
       const server = createServer();
-      // Prose that happens to contain "@" and "." with spaces — must NOT be captured
-      // as an email, or it would defeat the response-size reduction on large entries.
+      // Long free-text answers must survive summary mode — just truncated, and flagged,
+      // never silently discarded (that was the reported data-loss bug).
       const prose = 'Please contact me @ the rink. ' + 'x'.repeat(500);
       const entry: any = {
         id: '777',
         form_id: '193',
         date_created: '2024-01-01 12:00:00',
         payment_status: 'Paid',
-        '4': 'jane.doe@email.com', // real email field
-        '60': prose,               // free-text prose containing "@" and "."
-        '61': 'y'.repeat(2500),    // filler to push the entry over the summary threshold
+        '4': 'jane.doe@email.com', // short answer — kept verbatim
+        '60': prose,               // long free-text — kept but truncated
+        '61': 'y'.repeat(2500),    // long filler — kept but truncated
       };
 
       const summary = (server).createEntrySummary(entry);
 
-      // Real email field is still captured by the heuristic
+      // Short field kept verbatim
       expect(summary['4']).toBe('jane.doe@email.com');
-      // The long prose field is NOT copied wholesale (regression guard)
-      expect(summary['60']).toBeUndefined();
-      // Non-matching filler is excluded too
-      expect(summary['61']).toBeUndefined();
+      // Long fields are kept (truncated) and flagged, not dropped
+      expect(summary['60']).toBeDefined();
+      expect(String(summary['60'])).toContain('truncated');
+      expect(summary['61']).toBeDefined();
+      expect(String(summary['61'])).toContain('truncated');
+      expect(summary._summary.truncated_fields).toEqual(expect.arrayContaining(['60', '61']));
     });
   });
 
@@ -406,10 +410,12 @@ describe('getEntries Response Size Management', () => {
 
       expect(result.content[0].text).toContain('Response summarized'); // Should indicate auto-summarization
       expect(result.content[0].text).toContain('10 entries'); // Should mention entry count
-      
-      // Response should be much smaller than full version
-      const responseTokens = Math.ceil(result.content[0].text.length / 4);
-      expect(responseTokens).toBeLessThan(20000); // Should be under 20k tokens
+
+      // Summary preserves every field (truncating huge ones), so it is not silently
+      // tiny — but it must still be dramatically smaller than the full payload would be.
+      const summaryChars = result.content[0].text.length;
+      const fullChars = JSON.stringify(hugeEntries, null, 2).length;
+      expect(summaryChars).toBeLessThan(fullChars * 0.2); // < 20% of the full response
     });
 
     it('should handle very large individual entries with reasonable response size', async () => {
