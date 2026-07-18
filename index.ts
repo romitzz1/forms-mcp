@@ -67,6 +67,8 @@ import {
   listFormTemplates as listFormTemplatesHandler,
 } from "./utils/cacheTools.js";
 import type { ICacheToolResult, IGetFormsArgs, IListFormTemplatesArgs } from "./utils/cacheTools.js";
+import { getServerInfoTool as getServerInfoToolHandler } from "./utils/serverInfoTools.js";
+import { SERVER_NAME, SERVER_VERSION } from "./utils/version.js";
 import type { IGravityEntry, IGravityForm } from "./utils/gravityFormsTypes.js";
 import type { IEntrySummary } from "./utils/responseSizeManager.js";
 import type { ApiClient as SearchApiClient } from "./utils/universalSearchManager.js";
@@ -115,8 +117,8 @@ export class GravityFormsMCPServer {
 
   constructor() {
     this.mcpServer = new McpServer({
-      name: "gravity-forms-mcp",
-      version: "1.0.0",
+      name: SERVER_NAME,
+      version: SERVER_VERSION,
     });
     this.server = this.mcpServer.server;
 
@@ -363,7 +365,7 @@ export class GravityFormsMCPServer {
    * only connect to a single transport; the shared handlers keep caches unified.
    */
   private createSessionServer(): Server {
-    const mcpServer = new McpServer({ name: "gravity-forms-mcp", version: "1.0.0" });
+    const mcpServer = new McpServer({ name: SERVER_NAME, version: SERVER_VERSION });
     this.registerTools(mcpServer);
     return mcpServer.server;
   }
@@ -394,6 +396,7 @@ export class GravityFormsMCPServer {
       import_form_json: (args) => this.importFormJson(args),
       clone_form_with_modifications: (args) => this.cloneFormWithModifications(args),
       get_cache_status: () => this.getCacheStatusTool(),
+      get_server_info: () => Promise.resolve(this.getServerInfoTool()),
       search_entries_by_name: (args) => this.searchEntriesByName(args),
       search_entries_universal: (args) => this.searchEntriesUniversal(args),
       get_field_mappings: (args) => this.getFieldMappings(args),
@@ -619,6 +622,13 @@ export class GravityFormsMCPServer {
    */
   private async getCacheStatusTool(): Promise<ICacheToolResult> {
     return getCacheStatusToolHandler({ getCacheStatus: () => this.getCacheStatus() });
+  }
+
+  /**
+   * Get server info tool implementation
+   */
+  private getServerInfoTool(): ReturnType<typeof getServerInfoToolHandler> {
+    return getServerInfoToolHandler();
   }
 
   /**

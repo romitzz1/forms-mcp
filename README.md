@@ -4,7 +4,7 @@ A Model Context Protocol (MCP) server that lets AI assistants manage WordPress
 Gravity Forms through the Gravity Forms REST API v2 — reading and writing
 forms and entries, searching, exporting data, and managing templates.
 
-21 tools are exposed, covering core CRUD, advanced multi-field search, bulk
+22 tools are exposed, covering core CRUD, advanced multi-field search, bulk
 operations, template management, and JSON import/export. See the
 [Tool Catalog](#tool-catalog) below.
 
@@ -136,7 +136,7 @@ and persists the SQLite form cache and exported files in the `gf-cache` and
 
 ## Tool Catalog
 
-All 21 tools, grouped by purpose. Exact input names are hand-authored Zod
+All 22 tools, grouped by purpose. Exact input names are hand-authored Zod
 schemas in `utils/toolSchemas.ts`.
 
 ### Core
@@ -177,6 +177,10 @@ schemas in `utils/toolSchemas.ts`.
 ### Cache
 
 - `get_cache_status` — Inspect the SQLite form cache's health, config, and sync status
+
+### Server
+
+- `get_server_info` — Report this MCP server's name and version (handy for support and bug reports)
 
 ## Field Input Names
 

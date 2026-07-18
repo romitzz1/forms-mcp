@@ -8,7 +8,7 @@ import { LEGACY_TOOL_SCHEMAS } from "../fixtures/legacyToolSchemas";
 const toolNames = Object.keys(LEGACY_TOOL_SCHEMAS);
 
 describe("TOOL_SCHEMAS faithfulness vs legacy JSON schemas", () => {
-  it("covers exactly the 21 legacy tools", () => {
+  it("covers exactly the 22 legacy tools", () => {
     expect(Object.keys(TOOL_SCHEMAS).sort()).toEqual(toolNames.sort());
   });
 

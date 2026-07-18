@@ -544,6 +544,11 @@ export const LEGACY_TOOL_SCHEMAS: Record<string, any> = {
     properties: {},
     required: []
   },
+  get_server_info: {
+    type: "object",
+    properties: {},
+    required: []
+  },
   search_entries_by_name: {
     type: "object",
     properties: {

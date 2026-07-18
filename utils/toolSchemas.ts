@@ -1,4 +1,4 @@
-// ABOUTME: Zod input schemas + descriptions for all 20 MCP tools (McpServer registerTool)
+// ABOUTME: Zod input schemas + descriptions for all 22 MCP tools (McpServer registerTool)
 // ABOUTME: Faithful conversion of the original JSON inputSchemas; verified by toolSchemas.test.ts
 import { z } from "zod";
 
@@ -354,6 +354,12 @@ export const TOOL_SCHEMAS: Record<string, { description: string; inputSchema: z.
   get_cache_status: {
     description:
       "Get comprehensive FormCache status and statistics for monitoring and debugging. Shows cache health, configuration, form counts, and last sync information.",
+    inputSchema: {},
+  },
+
+  get_server_info: {
+    description:
+      "Return this MCP server's name and version. Useful for support and bug reports.",
     inputSchema: {},
   },
 
