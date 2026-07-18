@@ -4,6 +4,7 @@
 import { UniversalSearchManager } from '../../utils/universalSearchManager';
 import { FieldTypeDetector } from '../../utils/fieldTypeDetector';
 import { SearchResultsFormatter } from '../../utils/searchResultsFormatter';
+import { searchEntriesUniversal } from '../../utils/searchTools';
 
 describe('search_entries_universal Tool Components', () => {
   let fieldDetector: FieldTypeDetector;
@@ -617,6 +618,85 @@ describe('search_entries_universal Tool Components', () => {
       expect(result.searchMetadata).toHaveProperty('strategy');
       // The searchMetadata doesn't include totalFound - that's in the main result object
       expect(result).toHaveProperty('totalFound');
+    });
+  });
+
+  // Regression: the handler's output_options.max_results parsing must preserve the
+  // original `output_options?.max_results || 50` semantics. An explicit max_results:0
+  // (which Zod's `.default(50)` does NOT fill, since a value was supplied) must fall
+  // back to 50 and NOT throw. These tests run the REAL handler's validate/parse path
+  // (only the search-manager network layer is stubbed), not a mock of it.
+  describe('max_results:0 fallback (regression)', () => {
+    function buildHandlerContext() {
+      const detector = new FieldTypeDetector();
+      const formatter = new SearchResultsFormatter();
+      const manager = {
+        searchUniversal: jest.fn().mockResolvedValue({
+          matches: [
+            {
+              entryId: '10795',
+              matchedFields: { '52': 'John Smith' },
+              confidence: 0.95,
+              entryData: { id: '10795', '52': 'John Smith' }
+            }
+          ],
+          totalFound: 1,
+          searchMetadata: {
+            formId: '193',
+            searchText: 'John',
+            strategy: 'contains',
+            fieldsSearched: ['52'],
+            executionTime: 5,
+            apiCalls: 2,
+            cacheStatus: { hit: false, source: 'analysis', timestamp: new Date() }
+          }
+        }),
+        searchByFieldIds: jest.fn()
+      };
+      const makeRequest = jest.fn().mockResolvedValue({
+        id: '193',
+        title: 'Test Form',
+        fields: [{ id: '52', label: 'Name', type: 'text' }]
+      });
+      const ctx = {
+        makeRequest,
+        fieldTypeDetector: detector,
+        searchResultsFormatter: formatter,
+        getUniversalSearchManager: () => manager
+      };
+      return { ctx, manager, makeRequest };
+    }
+
+    it('treats an explicit max_results:0 as the 50 fallback and does not throw', async () => {
+      const { ctx, manager } = buildHandlerContext();
+
+      const result = await searchEntriesUniversal(ctx as any, {
+        form_id: '193',
+        search_queries: [{ text: 'John', field_types: ['name'] }],
+        output_options: { max_results: 0 }
+      });
+
+      // Did not throw, produced a formatted response.
+      expect(result.content[0].text).toBeTruthy();
+      // max_results:0 fell back to 50, so 50 (not 0) was passed down to the search.
+      expect(manager.searchUniversal).toHaveBeenCalledWith(
+        '193',
+        'John',
+        ['name'],
+        expect.objectContaining({ maxResults: 50 })
+      );
+    });
+
+    it('still rejects an out-of-range max_results (e.g. 1500) so the guard is intact', async () => {
+      const { ctx } = buildHandlerContext();
+
+      await expect(
+        searchEntriesUniversal(ctx as any, {
+          form_id: '193',
+          search_queries: [{ text: 'John', field_types: ['name'] }],
+          output_options: { max_results: 1500 }
+        })
+      ).rejects.toThrow('max_results must be between 1 and 1000');
     });
   });
 });

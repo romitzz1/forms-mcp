@@ -1,6 +1,8 @@
 // ABOUTME: Token/size estimation and summarization helpers for large entries/forms
 // ABOUTME: Extracted from GravityFormsMCPServer to prevent context overflow in responses
 
+import type { GfFieldValue, IGravityEntry, IGravityForm } from "./gravityFormsTypes.js";
+
 /**
  * Estimate token count for a string (rough approximation: 1 token ≈ 4 characters)
  */
@@ -12,7 +14,7 @@ export function estimateTokenCount(text: string | null | undefined): number {
 /**
  * Efficiently estimate response size without full JSON generation
  */
-export function estimateEntriesResponseSize(entries: any[]): number {
+export function estimateEntriesResponseSize(entries: IGravityEntry[]): number {
   if (!entries || entries.length === 0) return 0;
 
   // Sample first few entries to estimate average size
@@ -55,6 +57,28 @@ function isFieldValueKey(key: string): boolean {
   return /^\d+(\.\d+)?$/.test(key);
 }
 
+// Manifest recorded on a summary when one or more field values were too long
+// to keep verbatim — lists which keys were shortened so a consumer knows to
+// re-fetch them in full mode.
+interface ITruncationManifest {
+  truncated_fields: string[];
+  note: string;
+}
+
+// The shape returned by createEntrySummary: a handful of typed metadata keys,
+// plus arbitrary field-value keys (numeric field ids) carrying either the
+// original entry value or a truncated string, and an optional truncation
+// manifest under `_summary`.
+export interface IEntrySummary {
+  id?: string;
+  form_id?: string;
+  date_created?: string;
+  status?: string;
+  payment_status?: string;
+  _summary?: ITruncationManifest;
+  [key: string]: GfFieldValue | Record<string, unknown> | ITruncationManifest | undefined;
+}
+
 /**
  * Create a compact-but-complete summary of an entry for context-limited responses.
  *
@@ -66,8 +90,8 @@ function isFieldValueKey(key: string): boolean {
  * was no answer). This prevents the silent data loss that the old size-gated
  * filter caused for wide entries.
  */
-export function createEntrySummary(entry: any): any {
-  const summary: any = {};
+export function createEntrySummary(entry: IGravityEntry): IEntrySummary {
+  const summary: IEntrySummary = {};
 
   if (!entry || typeof entry !== 'object') return summary;
 
@@ -87,7 +111,11 @@ export function createEntrySummary(entry: any): any {
     const value = entry[key];
     if (value == null) return;
 
-    const stringValue = String(value);
+    // Field-value keys (matched by isFieldValueKey) are always GfFieldValue in
+    // practice; IGravityEntry's index signature also allows Record<string, unknown>
+    // for other, non-numeric entry keys. Narrow here so String() has a meaningful
+    // (non-default-Object) stringification — behavior is unchanged either way.
+    const stringValue = String(value as GfFieldValue);
     if (stringValue.trim() === '') return; // Unanswered — omit, not lost.
 
     if (stringValue.length <= MAX_SUMMARY_FIELD_VALUE_LENGTH) {
@@ -112,7 +140,14 @@ export function createEntrySummary(entry: any): any {
 /**
  * Create a summary of a large form object to prevent context overflow
  */
-export function createFormSummary(form: any): string {
+export function createFormSummary(form: IGravityForm): string {
+  // `entries` isn't part of the canonical form shape — some Gravity Forms API
+  // responses carry it as an entry count (string/number) rather than an array
+  // of entry objects. Read it through a duck-typed view so `.length` mirrors
+  // whatever the original untyped code saw at runtime (a string/array's
+  // character/element count, or `undefined` for a bare number).
+  const rawEntries = form.entries as { length?: number } | null | undefined;
+
   const summary = {
     id: form.id,
     title: form.title,
@@ -121,9 +156,9 @@ export function createFormSummary(form: any): string {
     is_trash: form.is_trash,
     date_created: form.date_created,
     field_count: form.fields ? form.fields.length : 0,
-    entry_count: form.entries ? form.entries.length : 0,
-    has_conditional_logic: form.fields ? form.fields.some((f: any) => f.conditionalLogic) : false,
-    has_calculations: form.fields ? form.fields.some((f: any) => f.calculations) : false,
+    entry_count: rawEntries ? rawEntries.length : 0,
+    has_conditional_logic: form.fields ? form.fields.some((f) => f.conditionalLogic) : false,
+    has_calculations: form.fields ? form.fields.some((f) => f.calculations) : false,
     notification_count: form.notifications ? Object.keys(form.notifications).length : 0,
     confirmation_count: form.confirmations ? Object.keys(form.confirmations).length : 0
   };

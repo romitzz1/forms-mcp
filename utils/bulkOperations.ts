@@ -1,13 +1,15 @@
 // ABOUTME: Bulk operations manager for Gravity Forms entries
 // ABOUTME: Provides safe bulk operations with confirmation, validation, and audit trails
 
+import type { IGravityEntry } from './gravityFormsTypes.js';
 import type { BulkProcessParams, ValidationResult } from './validation.js';
 
 export type BulkOperationType = 'delete' | 'update_status' | 'update_fields';
 
-export interface BulkOperationParams extends BulkProcessParams {
-  // Extends the base BulkProcessParams from validation
-}
+// Alias (not a re-declared interface) — BulkOperationParams adds no members
+// beyond BulkProcessParams, and an interface with no additional members over
+// its single supertype is flagged by no-empty-object-type.
+export type BulkOperationParams = BulkProcessParams;
 
 export interface BulkOperationPreview {
   operation_type: BulkOperationType;
@@ -45,7 +47,7 @@ export interface BulkOperationAuditTrail {
 export interface BulkOperationRollbackData {
   original_values: Array<{
     entry_id: string;
-    original_data: any;
+    original_data: unknown;
   }>;
   rollback_instructions: string;
 }
@@ -61,6 +63,24 @@ export interface BulkOperationResult {
   rollback_data?: BulkOperationRollbackData;
   audit_trail?: BulkOperationAuditTrail;
   operation_summary: string;
+}
+
+// Falls back to `fallback` for any falsy value, matching `||` semantics
+// (including an empty string) — `??` would only treat null/undefined as
+// "missing" and is deliberately not used here.
+function withFallback(value: string | undefined, fallback: string): string {
+  if (value) {
+    return value;
+  }
+  return fallback;
+}
+
+// Extracts a string `.code` off a caught error (Node system errors carry one,
+// e.g. 'ECONNREFUSED'), falling back to 'UNKNOWN_ERROR' for anything else —
+// matching the original `(error as any)?.code || 'UNKNOWN_ERROR'`.
+function getErrorCode(error: unknown): string {
+  const code = error && typeof error === 'object' && 'code' in error ? (error as { code?: unknown }).code : undefined;
+  return typeof code === 'string' && code !== '' ? code : 'UNKNOWN_ERROR';
 }
 
 export class BulkOperationsManager {
@@ -91,38 +111,30 @@ export class BulkOperationsManager {
     return typeof entryId === 'string' && /^\d+$/.test(entryId.trim());
   }
 
-  validateOperation(params: BulkOperationParams): ValidationResult {
-    const errors: string[] = [];
-
-    // Validate entry IDs
+  // Validates params.entry_ids (presence, MAX_ENTRY_LIMIT, and that every ID is
+  // purely numeric), appending any problems found to `errors`.
+  private validateEntryIdsList(params: BulkOperationParams, errors: string[]): void {
     if (!params.entry_ids || params.entry_ids.length === 0) {
       errors.push('At least one entry ID is required');
-    } else {
-      if (params.entry_ids.length > this.MAX_ENTRY_LIMIT) {
-        errors.push('Bulk operations limited to 100 entries maximum');
+      return;
+    }
+
+    if (params.entry_ids.length > this.MAX_ENTRY_LIMIT) {
+      errors.push('Bulk operations limited to 100 entries maximum');
+    }
+
+    // Reject any entry ID that isn't purely numeric to prevent it from being
+    // interpolated into request URLs and reaching an unintended REST resource
+    for (const entryId of params.entry_ids) {
+      if (!this.isValidEntryId(entryId)) {
+        errors.push(`Entry ID "${entryId}" must be numeric`);
       }
-
-      // Reject any entry ID that isn't purely numeric to prevent it from being
-      // interpolated into request URLs and reaching an unintended REST resource
-      for (const entryId of params.entry_ids) {
-        if (!this.isValidEntryId(entryId)) {
-          errors.push(`Entry ID "${entryId}" must be numeric`);
-        }
-      }
     }
+  }
 
-    // Validate operation type
-    const validOperations: BulkOperationType[] = ['delete', 'update_status', 'update_fields'];
-    if (!validOperations.includes(params.operation_type)) {
-      errors.push('Invalid operation type. Must be delete, update_status, or update_fields');
-    }
-
-    // Validate confirmation
-    if (!params.confirm) {
-      errors.push('Bulk operations require explicit confirmation (confirm: true)');
-    }
-
-    // Validate data for update operations
+  // Validates the `data` payload required for update_status/update_fields
+  // operations, appending any problems found to `errors`.
+  private validateUpdateData(params: BulkOperationParams, errors: string[]): void {
     if (params.operation_type === 'update_status' || params.operation_type === 'update_fields') {
       if (!params.data || Object.keys(params.data).length === 0) {
         errors.push('Data is required for update operations');
@@ -138,6 +150,25 @@ export class BulkOperationsManager {
         errors.push('update_status requires a non-empty "status" value in data');
       }
     }
+  }
+
+  validateOperation(params: BulkOperationParams): ValidationResult {
+    const errors: string[] = [];
+
+    this.validateEntryIdsList(params, errors);
+
+    // Validate operation type
+    const validOperations: BulkOperationType[] = ['delete', 'update_status', 'update_fields'];
+    if (!validOperations.includes(params.operation_type)) {
+      errors.push('Invalid operation type. Must be delete, update_status, or update_fields');
+    }
+
+    // Validate confirmation
+    if (!params.confirm) {
+      errors.push('Bulk operations require explicit confirmation (confirm: true)');
+    }
+
+    this.validateUpdateData(params, errors);
 
     return {
       isValid: errors.length === 0,
@@ -168,7 +199,7 @@ export class BulkOperationsManager {
         });
 
         if (response.ok) {
-          const entry = await response.json();
+          const entry = await response.json() as IGravityEntry;
           const preview = this.generateEntryPreview(entry, params.operation_type);
           entriesFound.push({ id: entryId, preview });
         } else {
@@ -196,7 +227,7 @@ export class BulkOperationsManager {
   }
 
   async executeOperation(
-    params: BulkOperationParams, 
+    params: BulkOperationParams,
     progressCallback?: (progress: BulkOperationProgress) => void
   ): Promise<BulkOperationResult> {
     // Validate operation first
@@ -211,7 +242,7 @@ export class BulkOperationsManager {
     const failedEntries: BulkOperationFailure[] = [];
     let rollbackData: BulkOperationRollbackData | undefined;
 
-    // Prepare rollback data for update operations 
+    // Prepare rollback data for update operations
     if (params.operation_type !== 'delete') {
       try {
         rollbackData = await this.prepareRollbackData(params.entry_ids);
@@ -230,7 +261,7 @@ export class BulkOperationsManager {
         successIds.push(entryId);
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        const errorCode = (error as any)?.code || 'UNKNOWN_ERROR';
+        const errorCode = getErrorCode(error);
         failedEntries.push({
           entry_id: entryId,
           error: errorMessage,
@@ -285,29 +316,32 @@ export class BulkOperationsManager {
   private async executeOperationForEntry(entryId: string, params: BulkOperationParams): Promise<void> {
     let url: string;
     let method: string;
-    let body: any = undefined;
+    let body: unknown;
 
     switch (params.operation_type) {
       case 'delete':
         url = `${this.baseUrl}/entries/${entryId}`;
         method = 'DELETE';
         break;
-      
+
       case 'update_status':
         url = `${this.baseUrl}/entries/${entryId}`;
         method = 'PUT';
         // For update_status, only send the status field to avoid confusion
         body = { status: params.data?.status };
         break;
-      
+
       case 'update_fields':
         url = `${this.baseUrl}/entries/${entryId}`;
         method = 'PUT';
         body = params.data;
         break;
-      
+
       default:
-        throw new Error(`Unsupported operation type: ${params.operation_type}`);
+        // params.operation_type is exhaustively covered above (BulkOperationType has
+        // exactly 3 members), so this branch is statically unreachable — String()
+        // covers a caller bypassing the type at runtime.
+        throw new Error(`Unsupported operation type: ${String(params.operation_type)}`);
     }
 
     const response = await fetch(url, {
@@ -318,13 +352,13 @@ export class BulkOperationsManager {
     });
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
+      const errorData = await response.json().catch(() => ({})) as { message?: string };
+      throw new Error(withFallback(errorData.message, `HTTP ${response.status}: ${response.statusText}`));
     }
   }
 
   private async prepareRollbackData(entryIds: string[]): Promise<BulkOperationRollbackData> {
-    const originalValues: Array<{ entry_id: string; original_data: any }> = [];
+    const originalValues: Array<{ entry_id: string; original_data: unknown }> = [];
 
     for (const entryId of entryIds) {
       try {
@@ -335,7 +369,7 @@ export class BulkOperationsManager {
         });
 
         if (response.ok) {
-          const originalData = await response.json();
+          const originalData: unknown = await response.json();
           originalValues.push({ entry_id: entryId, original_data: originalData });
         }
       } catch (error) {
@@ -351,10 +385,10 @@ export class BulkOperationsManager {
     };
   }
 
-  private generateEntryPreview(entry: any, operationType: BulkOperationType): string {
-    const entryId = entry.id || 'Unknown';
-    const formId = entry.form_id || 'Unknown';
-    
+  private generateEntryPreview(entry: IGravityEntry, operationType: BulkOperationType): string {
+    const entryId = withFallback(entry.id, 'Unknown');
+    const formId = withFallback(entry.form_id, 'Unknown');
+
     switch (operationType) {
       case 'delete':
         return `Entry ${entryId} (Form ${formId}) will be PERMANENTLY DELETED`;
@@ -369,20 +403,26 @@ export class BulkOperationsManager {
 
   private generateOperationDescription(params: BulkOperationParams, validEntries: number): string {
     const action = params.operation_type.toUpperCase().replace('_', ' ');
-    
+
     switch (params.operation_type) {
       case 'delete':
         return `WARNING: This will ${action} ${validEntries} entries permanently. This action cannot be undone.`;
-      
-      case 'update_status':
-        const status = params.data?.status || 'specified status';
+
+      case 'update_status': {
+        const status = withFallback(params.data?.status, 'specified status');
         return `This will ${action} to "${status}" for ${validEntries} entries.`;
-      
-      case 'update_fields':
-        const fieldCount = params.data ? Object.keys(params.data).length : 0;
+      }
+
+      case 'update_fields': {
+        // Computed for parity with the original (pre-existing, unused even before
+        // this migration) — kept rather than deleted since removing it is outside
+        // this task's typing-only scope; `_`-prefixed per the project's unused-var
+        // convention.
+        const _fieldCount = params.data ? Object.keys(params.data).length : 0;
         const fieldList = params.data ? Object.keys(params.data).map(k => `Field ${k}`).join(', ') : '';
         return `This will ${action} (${fieldList}) for ${validEntries} entries.`;
-      
+      }
+
       default:
         return `This will perform ${action} on ${validEntries} entries.`;
     }

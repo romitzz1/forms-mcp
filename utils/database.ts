@@ -4,6 +4,7 @@
 import Database from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
+import { getErrorInfo } from './errorInfo.js';
 
 export class DatabaseManager {
   private db: Database.Database | null = null;
@@ -14,7 +15,7 @@ export class DatabaseManager {
     if (dbPath === '') {
       this.dbPath = '';
     } else {
-      this.dbPath = dbPath || path.join(process.cwd(), 'data', 'forms-cache.db');
+      this.dbPath = dbPath ?? path.join(process.cwd(), 'data', 'forms-cache.db');
     }
   }
 
@@ -42,7 +43,9 @@ export class DatabaseManager {
       
     } catch (error) {
       this.db = null;
-      throw new Error(`Failed to initialize database: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      // Use getErrorInfo (not `instanceof Error`) so the real SQLite message
+      // survives on platforms where the native error fails `instanceof Error`.
+      throw new Error(`Failed to initialize database: ${getErrorInfo(error).message}`);
     }
   }
 
@@ -53,7 +56,7 @@ export class DatabaseManager {
     if (this.db) {
       try {
         this.db.close();
-      } catch (error) {
+      } catch {
         // Ignore close errors for cleanup scenarios
       } finally {
         this.db = null;
@@ -73,7 +76,7 @@ export class DatabaseManager {
       // Test if connection is still valid
       this.db.prepare('SELECT 1').get();
       return true;
-    } catch (error) {
+    } catch {
       this.db = null;
       return false;
     }
@@ -91,9 +94,9 @@ export class DatabaseManager {
    * Only available when connection is ready
    */
   getDatabase(): Database.Database {
-    if (!this.isReady()) {
+    if (!this.isReady() || !this.db) {
       throw new Error('Database not initialized or connection not ready');
     }
-    return this.db!;
+    return this.db;
   }
 }

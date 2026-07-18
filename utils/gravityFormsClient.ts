@@ -38,7 +38,7 @@ export class GravityFormsClient {
     );
   }
 
-  async makeRequest(endpoint: string, method = 'GET', body?: any): Promise<any> {
+  async makeRequest<T = unknown>(endpoint: string, method = 'GET', body?: unknown): Promise<T> {
     const url = `${this.baseUrl}/wp-json/gf/v2${endpoint}`;
     const headers = this.getAuthHeaders();
 
@@ -63,7 +63,7 @@ export class GravityFormsClient {
         throw new Error(errorDetail);
       }
 
-      return await response.json();
+      return (await response.json()) as T;
     } catch (error) {
       if (error instanceof McpError) {
         throw error;

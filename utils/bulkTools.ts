@@ -2,16 +2,24 @@
 // ABOUTME: Extracted from GravityFormsMCPServer to isolate handler logic from server infrastructure
 
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
-import type { BulkOperationsManager } from "./bulkOperations.js";
+import type { BulkOperationParams, BulkOperationsManager } from "./bulkOperations.js";
 
 export interface BulkToolContext {
   getBulkOperationsManager(): BulkOperationsManager;
 }
 
-export async function processEntriesBulk(ctx: BulkToolContext, args: any) {
+export interface BulkToolResult {
+  content: Array<{ type: "text"; text: string }>;
+}
+
+// process_entries_bulk's args are the same shape BulkOperationsManager itself
+// validates/executes against — reuse that domain type rather than duplicating it.
+export type ProcessEntriesBulkArgs = BulkOperationParams;
+
+export async function processEntriesBulk(ctx: BulkToolContext, args: unknown): Promise<BulkToolResult> {
     try {
       // Extract and validate parameters
-      const { entry_ids, operation_type, confirm, data } = args;
+      const { entry_ids, operation_type, confirm, data } = args as ProcessEntriesBulkArgs;
 
       // Get BulkOperationsManager (lazy initialization)
       const bulkManager = ctx.getBulkOperationsManager();

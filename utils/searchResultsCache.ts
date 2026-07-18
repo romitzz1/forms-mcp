@@ -44,8 +44,18 @@ export class SearchResultsCache {
             enableLogging: options.enableLogging ?? false
         };
         
-        // Check if caching is disabled via environment (don't mutate options)
-        this.effectiveMaxSize = process.env['SEARCH_CACHE_ENABLED'] === 'false' ? 0 : (this.options.maxSize || 100);
+        // Check if caching is disabled via environment (don't mutate options).
+        // A falsy configured maxSize (including an explicit 0) is coerced up to
+        // 100 to match historical behavior - the only supported "disable cache"
+        // switch here is SEARCH_CACHE_ENABLED=false, so callers can't silently
+        // disable the cache by passing 0. (Written as an if-block rather than
+        // `|| 100`/`?? 100` because 0 is a legitimate falsy trigger, which `??`
+        // would wrongly honor.)
+        let resolvedMaxSize = 100;
+        if (this.options.maxSize) {
+            resolvedMaxSize = this.options.maxSize;
+        }
+        this.effectiveMaxSize = process.env['SEARCH_CACHE_ENABLED'] === 'false' ? 0 : resolvedMaxSize;
         
         this.cache = new Map();
         this.accessOrder = [];
