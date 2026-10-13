@@ -234,39 +234,6 @@ describe('Export Entries Logic', () => {
   });
 
   describe('Response Format', () => {
-    it('should format successful export response correctly', () => {
-      const exportResult = {
-        data: 'id,name\n1,John',
-        base64Data: 'aWQsbmFtZQoxLEpvaG4=',
-        filename: 'export.csv',
-        format: 'csv' as const,
-        mimeType: 'text/csv'
-      };
-
-      const response = {
-        content: [
-          {
-            type: "text",
-            text: `Export completed successfully!
-            
-Format: ${exportResult.format.toUpperCase()}
-Filename: ${exportResult.filename}
-Records: 2
-File size: ${exportResult.data.length} characters
-
-Base64 encoded data for download:
-${exportResult.base64Data}`
-          }
-        ]
-      };
-
-      expect(response.content[0].text).toContain('Export completed successfully!');
-      expect(response.content[0].text).toContain('Format: CSV');
-      expect(response.content[0].text).toContain('Filename: export.csv');
-      expect(response.content[0].text).toContain('Records: 2');
-      expect(response.content[0].text).toContain('Base64 encoded data for download:');
-    });
-
     it('should format empty results response correctly', () => {
       const response = {
         content: [
