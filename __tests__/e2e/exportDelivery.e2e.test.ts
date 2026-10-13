@@ -88,20 +88,24 @@ async function freePort(): Promise<number> {
   afterAll(async () => {
     const leftovers: string[] = [];
     try {
-      const forms = await api.makeRequest<Record<string, { id: string; title: string }>>('/forms');
-      for (const f of Object.values(forms)) {
-        if (!f.title.startsWith(prefix)) continue;
-        const entries = await api.makeRequest<{ entries?: Array<{ id: string }> }>(`/forms/${f.id}/entries?paging[page_size]=100`);
-        for (const e of entries.entries ?? []) {
-          await api.makeRequest(`/entries/${e.id}?force=1`, 'DELETE').catch(() => leftovers.push(`entry ${e.id}`));
+      // beforeAll may have thrown before `api` was assigned; don't mask that failure
+      // with a TypeError from calling makeRequest on an unset variable.
+      if (api) {
+        const forms = await api.makeRequest<Record<string, { id: string; title: string }>>('/forms');
+        for (const f of Object.values(forms)) {
+          if (!f.title.startsWith(prefix)) continue;
+          const entries = await api.makeRequest<{ entries?: Array<{ id: string }> }>(`/forms/${f.id}/entries?paging[page_size]=100`);
+          for (const e of entries.entries ?? []) {
+            await api.makeRequest(`/entries/${e.id}?force=1`, 'DELETE').catch(() => leftovers.push(`entry ${e.id}`));
+          }
+          await api.makeRequest(`/forms/${f.id}?force=1`, 'DELETE').catch(() => leftovers.push(`form ${f.id}`));
         }
-        await api.makeRequest(`/forms/${f.id}?force=1`, 'DELETE').catch(() => leftovers.push(`form ${f.id}`));
       }
     } finally {
       if (leftovers.length > 0) console.error(`[e2e] cleanup left behind: ${leftovers.join(', ')}`);
       await client?.close();
-      await new Promise<void>((resolve) => httpServer.close(() => resolve()));
-      await fsp.rm(exportDir, { recursive: true, force: true });
+      await new Promise<void>((resolve) => (httpServer ? httpServer.close(() => resolve()) : resolve()));
+      if (exportDir) await fsp.rm(exportDir, { recursive: true, force: true });
     }
   });
 
