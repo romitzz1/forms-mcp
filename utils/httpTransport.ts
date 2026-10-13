@@ -70,12 +70,21 @@ export function createExportDownloadHandler(
     }
 
     if (isLinkExpired(Number(exp), Math.floor(now() / 1000))) {
-      await opened.handle.close();
+      await opened.handle.close().catch(() => undefined);
       sendText(res, 410, 'Link expired; ask Claude for a fresh link (get_export_link)');
       return;
     }
 
     const { record, handle } = opened;
+
+    // The client can disconnect while `store.open` above was pending; `res.on('close', ...)`
+    // below is registered too late to catch that, so check explicitly before piping — a
+    // destroyed response would otherwise strand the stream and leak the file handle.
+    if (res.destroyed) {
+      await handle.close();
+      return;
+    }
+
     res.status(200);
     res.setHeader('Content-Type', record.mimeType);
     res.setHeader('Content-Length', String(record.size));
@@ -84,7 +93,8 @@ export function createExportDownloadHandler(
     res.setHeader('X-Content-Type-Options', 'nosniff');
 
     // The handle was opened before streaming starts, so a concurrent sweep that
-    // unlinks the file cannot truncate this response. autoClose releases it.
+    // unlinks the file cannot truncate this response. autoClose releases it once
+    // piping starts; earlier exits close it explicitly.
     const stream = handle.createReadStream();
     stream.on('error', (error) => {
       console.error('Export stream error:', error);

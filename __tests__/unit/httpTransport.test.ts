@@ -1,4 +1,4 @@
-import { createBearerAuthMiddleware, startHttpServer } from '../../utils/httpTransport';
+import { createBearerAuthMiddleware, createExportDownloadHandler, startHttpServer } from '../../utils/httpTransport';
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import * as http from 'node:http';
@@ -178,6 +178,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { deriveLinkKey, signExportUrl } from '../../utils/exportLinks';
 import { ExportStore } from '../../utils/exportStore';
+import type { ExportRecord } from '../../utils/exportStore';
 
 function httpGet(url: string, headers: Record<string, string> = {}): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: Buffer }> {
   return new Promise((resolve, reject) => {
@@ -258,5 +259,45 @@ describe('GET /exports/:id', () => {
       req.end('{}');
     });
     expect(mcp).toBe(401);
+  });
+});
+
+describe('createExportDownloadHandler - client disconnects during store.open', () => {
+  it('closes the handle and pipes nothing when the response is already destroyed', async () => {
+    const key = deriveLinkKey('tok');
+    const id = 'A'.repeat(22);
+    const url = signExportUrl('http://example.test', id, Math.floor(Date.now() / 1000) + 600, key);
+    const { exp, sig } = Object.fromEntries(new URL(url).searchParams) as { exp: string; sig: string };
+
+    const record: ExportRecord = {
+      id,
+      filename: 'r.csv',
+      mimeType: 'text/csv; charset=utf-8',
+      size: 7,
+      createdAt: new Date(),
+      expiresAt: new Date(Date.now() + 86400000),
+      localPath: '/tmp/r.csv',
+    };
+    const handle = {
+      close: jest.fn().mockResolvedValue(undefined),
+      createReadStream: jest.fn(),
+    };
+    // `open` resolves after a tick, mirroring the window in which a client's socket
+    // can close while the real fs.open() for the export is still pending.
+    const store = {
+      open: jest.fn().mockImplementation(async () => {
+        await new Promise((resolve) => setImmediate(resolve));
+        return { record, handle };
+      }),
+    } as unknown as ExportStore;
+
+    const handler = createExportDownloadHandler(store, key);
+    const req = { params: { id }, query: { exp, sig } } as any;
+    const res = { destroyed: true } as any;
+
+    await handler(req, res, () => undefined);
+
+    expect(handle.close).toHaveBeenCalledTimes(1);
+    expect(handle.createReadStream).not.toHaveBeenCalled();
   });
 });
