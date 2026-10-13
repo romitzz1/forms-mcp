@@ -453,6 +453,126 @@ describe('ValidationHelper', () => {
       expect(r.isValid).toBe(true);
     });
 
+    describe('LLM-friendly date search validation', () => {
+      it('should allow same start and end date for single-day filtering', () => {
+        const params: ExportEntriesParams = {
+          form_id: '123',
+          format: 'csv',
+          search: {
+            date_range: { start: '2024-01-01', end: '2024-01-01' }
+          }
+        };
+        const result = validator.validateExportEntriesParams(params);
+        expect(result.isValid).toBe(true);
+      });
+
+      it('should accept LLM-friendly start_date/end_date format', () => {
+        const params: ExportEntriesParams = {
+          form_id: '123',
+          format: 'csv',
+          search: {
+            start_date: '2024-01-01',
+            end_date: '2024-12-31'
+          }
+        };
+        const result = validator.validateExportEntriesParams(params);
+        expect(result.isValid).toBe(true);
+      });
+
+      it('should validate LLM-friendly date format for invalid dates', () => {
+        const params: ExportEntriesParams = {
+          form_id: '123',
+          format: 'csv',
+          search: {
+            start_date: 'invalid-date',
+            end_date: '2024-12-31'
+          }
+        };
+        const result = validator.validateExportEntriesParams(params);
+        expect(result.isValid).toBe(false);
+        expect(result.errors).toContain('Invalid start date format');
+      });
+
+      it('should validate LLM-friendly date format for invalid range', () => {
+        const params: ExportEntriesParams = {
+          form_id: '123',
+          format: 'csv',
+          search: {
+            start_date: '2024-12-31',
+            end_date: '2024-01-01'
+          }
+        };
+        const result = validator.validateExportEntriesParams(params);
+        expect(result.isValid).toBe(false);
+        expect(result.errors).toContain('Date range start must be before or equal to end date');
+      });
+
+      it('should give precedence to LLM-friendly format when both are provided', () => {
+        const params: ExportEntriesParams = {
+          form_id: '123',
+          format: 'csv',
+          search: {
+            date_range: { start: '2024-01-01', end: '2024-06-30' },
+            start_date: '2024-12-31', // Invalid range - should be caught
+            end_date: '2024-01-01'
+          }
+        };
+        const result = validator.validateExportEntriesParams(params);
+        expect(result.isValid).toBe(false);
+        expect(result.errors).toContain('Date range start must be before or equal to end date');
+      });
+
+      it('should accept only start_date without end_date', () => {
+        const params: ExportEntriesParams = {
+          form_id: '123',
+          format: 'csv',
+          search: {
+            start_date: '2024-01-01'
+          }
+        };
+        const result = validator.validateExportEntriesParams(params);
+        expect(result.isValid).toBe(true);
+      });
+
+      it('should accept only end_date without start_date', () => {
+        const params: ExportEntriesParams = {
+          form_id: '123',
+          format: 'csv',
+          search: {
+            end_date: '2024-12-31'
+          }
+        };
+        const result = validator.validateExportEntriesParams(params);
+        expect(result.isValid).toBe(true);
+      });
+
+      it('should reject invalid start_date when provided alone', () => {
+        const params: ExportEntriesParams = {
+          form_id: '123',
+          format: 'csv',
+          search: {
+            start_date: 'invalid-date'
+          }
+        };
+        const result = validator.validateExportEntriesParams(params);
+        expect(result.isValid).toBe(false);
+        expect(result.errors).toContain('Invalid start date format');
+      });
+
+      it('should reject invalid end_date when provided alone', () => {
+        const params: ExportEntriesParams = {
+          form_id: '123',
+          format: 'csv',
+          search: {
+            end_date: 'not-a-date'
+          }
+        };
+        const result = validator.validateExportEntriesParams(params);
+        expect(result.isValid).toBe(false);
+        expect(result.errors).toContain('Invalid end date format');
+      });
+    });
+
     describe('field_ids parameter validation', () => {
       it('should accept valid field_ids array', () => {
         const params: ExportEntriesParams = {

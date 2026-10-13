@@ -1,4 +1,4 @@
-// ABOUTME: Zod input schemas + descriptions for all 22 MCP tools (McpServer registerTool)
+// ABOUTME: Zod input schemas + descriptions for all 23 MCP tools (McpServer registerTool)
 // ABOUTME: Faithful conversion of the original JSON inputSchemas; verified by toolSchemas.test.ts
 import { z } from "zod";
 
