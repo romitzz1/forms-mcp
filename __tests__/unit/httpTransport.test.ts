@@ -1,6 +1,7 @@
 import { createBearerAuthMiddleware, createExportDownloadHandler, startHttpServer } from '../../utils/httpTransport';
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { Request, Response } from 'express';
 import * as http from 'node:http';
 
 function mockRes() {
@@ -178,7 +179,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { deriveLinkKey, signExportUrl } from '../../utils/exportLinks';
 import { ExportStore } from '../../utils/exportStore';
-import type { ExportRecord } from '../../utils/exportStore';
+import type { IExportRecord } from '../../utils/exportStore';
 
 function httpGet(url: string, headers: Record<string, string> = {}): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: Buffer }> {
   return new Promise((resolve, reject) => {
@@ -269,7 +270,7 @@ describe('createExportDownloadHandler - client disconnects during store.open', (
     const url = signExportUrl('http://example.test', id, Math.floor(Date.now() / 1000) + 600, key);
     const { exp, sig } = Object.fromEntries(new URL(url).searchParams) as { exp: string; sig: string };
 
-    const record: ExportRecord = {
+    const record: IExportRecord = {
       id,
       filename: 'r.csv',
       mimeType: 'text/csv; charset=utf-8',
@@ -292,8 +293,8 @@ describe('createExportDownloadHandler - client disconnects during store.open', (
     } as unknown as ExportStore;
 
     const handler = createExportDownloadHandler(store, key);
-    const req = { params: { id }, query: { exp, sig } } as any;
-    const res = { destroyed: true } as any;
+    const req = { params: { id }, query: { exp, sig } } as unknown as Request;
+    const res = { destroyed: true } as unknown as Response;
 
     await handler(req, res, () => undefined);
 

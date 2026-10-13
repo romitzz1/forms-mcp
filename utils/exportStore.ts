@@ -15,7 +15,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const STAGING_MAX_AGE_MS = 60 * 60 * 1000;
 const MIME: Record<ExportFormat, string> = { csv: 'text/csv; charset=utf-8', json: 'application/json' };
 
-export interface ExportRecord {
+export interface IExportRecord {
   id: string;
   filename: string;
   mimeType: string;
@@ -93,7 +93,7 @@ export class ExportStore {
     }
   }
 
-  async save(content: string, filename: string, format: ExportFormat): Promise<ExportRecord> {
+  async save(content: string, filename: string, format: ExportFormat): Promise<IExportRecord> {
     const id = randomBytes(16).toString('base64url');
     const safeName = sanitizeExportFilename(filename, format);
     const stagingDir = path.join(this.staging, id);
@@ -121,8 +121,8 @@ export class ExportStore {
     return { filename, filePath: path.join(this.root, id, filename) };
   }
 
-  private toRecord(id: string, filename: string, filePath: string, size: number, mtime: Date): ExportRecord {
-    const record: ExportRecord = {
+  private toRecord(id: string, filename: string, filePath: string, size: number, mtime: Date): IExportRecord {
+    const record: IExportRecord = {
       id,
       filename,
       mimeType: MIME[formatFromFilename(filename)],
@@ -135,7 +135,7 @@ export class ExportStore {
     return record;
   }
 
-  async get(id: string): Promise<ExportRecord> {
+  async get(id: string): Promise<IExportRecord> {
     const { filename, filePath } = await this.locate(id);
     let stat;
     try {
@@ -146,7 +146,7 @@ export class ExportStore {
     return this.toRecord(id, filename, filePath, stat.size, stat.mtime);
   }
 
-  async open(id: string): Promise<{ record: ExportRecord; handle: FileHandle }> {
+  async open(id: string): Promise<{ record: IExportRecord; handle: FileHandle }> {
     const { filename, filePath } = await this.locate(id);
     let handle: FileHandle;
     try {

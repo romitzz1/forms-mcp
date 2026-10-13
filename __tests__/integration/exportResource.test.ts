@@ -6,6 +6,24 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { promises as fsp } from 'node:fs';
 import * as path from 'node:path';
 import { GravityFormsMCPServer } from '../../index';
+import type { ExportStore } from '../../utils/exportStore';
+
+// Widens access to the server's private export-store/lifecycle internals for
+// these integration tests without resorting to `any`.
+interface ITestableServer {
+  exportStore: ExportStore;
+  sweepTimer: NodeJS.Timeout | null;
+  startup(): Promise<void>;
+  shutdown(): Promise<void>;
+  callTool(request: { params: { name: string; arguments?: Record<string, unknown> } }): Promise<{
+    isError: boolean;
+    content: Array<{ text: string }>;
+  }>;
+}
+
+function asTestable(server: GravityFormsMCPServer): ITestableServer {
+  return server as unknown as ITestableServer;
+}
 
 async function connect(server: GravityFormsMCPServer): Promise<Client> {
   const [clientT, serverT] = InMemoryTransport.createLinkedPair();
@@ -16,14 +34,14 @@ async function connect(server: GravityFormsMCPServer): Promise<Client> {
 }
 
 describe('gf-export:// resources', () => {
-  let server: any;
+  let server: GravityFormsMCPServer;
 
   beforeEach(() => {
     server = new GravityFormsMCPServer();
   });
 
   it('reads an export by URI', async () => {
-    const rec = await server.exportStore.save('a,b\n1,2', 'r.csv', 'csv');
+    const rec = await asTestable(server).exportStore.save('a,b\n1,2', 'r.csv', 'csv');
     const client = await connect(server);
     const res = await client.readResource({ uri: `gf-export://${rec.id}` });
     expect(res.contents[0].mimeType).toBe('text/csv; charset=utf-8');
@@ -33,7 +51,7 @@ describe('gf-export:// resources', () => {
   it('returns -32002 for unknown ids and points over-cap reads at get_export_link', async () => {
     const client = await connect(server);
     await expect(client.readResource({ uri: 'gf-export://AbCdEfGhIjKlMnOpQrStUv' })).rejects.toMatchObject({ code: -32002 });
-    const big = await server.exportStore.save('x'.repeat(262145), 'big.csv', 'csv');
+    const big = await asTestable(server).exportStore.save('x'.repeat(262145), 'big.csv', 'csv');
     await expect(client.readResource({ uri: `gf-export://${big.id}` })).rejects.toThrow(/get_export_link/);
   });
 
@@ -44,8 +62,8 @@ describe('gf-export:// resources', () => {
   });
 
   it('get_export_link and import_form_json(export_id) are dispatched', async () => {
-    const rec = await server.exportStore.save('{"title":"T","fields":[]}', 'f.json', 'json');
-    const link = await server.callTool({ params: { name: 'get_export_link', arguments: { export_id: rec.id } } });
+    const rec = await asTestable(server).exportStore.save('{"title":"T","fields":[]}', 'f.json', 'json');
+    const link = await asTestable(server).callTool({ params: { name: 'get_export_link', arguments: { export_id: rec.id } } });
     expect(link.isError).toBe(false);
   });
 
@@ -56,7 +74,7 @@ describe('gf-export:// resources', () => {
     process.env.GRAVITY_FORMS_EXPORT_DIR = blocker;
     process.env.GRAVITY_FORMS_CACHE_ENABLED = 'false';
     try {
-      const s: any = new GravityFormsMCPServer();
+      const s = asTestable(new GravityFormsMCPServer());
       await expect(s.startup()).resolves.toBeUndefined();
       const calls = (console.error as jest.Mock).mock.calls.flat().join('\n');
       expect(calls).toContain('export directory not writable');
@@ -78,7 +96,7 @@ describe('gf-export:// resources', () => {
     await fsp.writeFile(path.join(dir, '42', '2026-08-01', 'old.csv'), 'x');
     process.env.GRAVITY_FORMS_CACHE_ENABLED = 'false';
     try {
-      const s: any = new GravityFormsMCPServer();
+      const s = asTestable(new GravityFormsMCPServer());
       await s.startup();
       const calls = (console.error as jest.Mock).mock.calls.flat().join('\n');
       expect(calls).toContain('legacy export files');

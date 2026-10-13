@@ -286,13 +286,13 @@ export interface ImportFormJsonArgs {
   use_complete_discovery?: boolean;
 }
 
-export interface ImportFormJsonContext extends TemplateToolContext {
+export interface IImportFormJsonContext extends TemplateToolContext {
   getExportStore(): ExportStore;
 }
 
 const ONE_SOURCE_REQUIRED = 'exactly one of form_json or export_id is required';
 
-async function resolveFormJson(ctx: ImportFormJsonContext, args: ImportFormJsonArgs): Promise<string> {
+async function resolveFormJson(ctx: IImportFormJsonContext, args: ImportFormJsonArgs): Promise<string> {
   const hasJson = typeof args.form_json === 'string' && args.form_json.trim() !== '';
   const hasId = typeof args.export_id === 'string' && args.export_id !== '';
   if (hasJson === hasId) {
@@ -315,7 +315,7 @@ async function resolveFormJson(ctx: ImportFormJsonContext, args: ImportFormJsonA
   }
 }
 
-export async function importFormJson(ctx: ImportFormJsonContext, args: ImportFormJsonArgs): Promise<TemplateToolResult> {
+export async function importFormJson(ctx: IImportFormJsonContext, args: ImportFormJsonArgs): Promise<TemplateToolResult> {
     try {
       const { force_import = false, use_complete_discovery = false } = args;
       const form_json = await resolveFormJson(ctx, args);

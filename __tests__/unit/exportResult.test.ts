@@ -8,9 +8,9 @@ import {
   buildFormJsonPreview,
   formatUtc,
 } from '../../utils/exportResult';
-import type { ExportRecord } from '../../utils/exportStore';
+import type { IExportRecord } from '../../utils/exportStore';
 
-const record: ExportRecord = {
+const record: IExportRecord = {
   id: 'AbCdEfGhIjKlMnOpQrStUv',
   filename: 'entries-form-1-20261013T003005Z.csv',
   mimeType: 'text/csv; charset=utf-8',

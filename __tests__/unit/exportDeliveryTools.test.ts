@@ -13,7 +13,7 @@ import {
   getExportLink,
   OUTPUT_PATH_REMOVED,
 } from '../../utils/exportTools';
-import type { ExportToolContext } from '../../utils/exportTools';
+import type { ExportEntriesFormattedArgs, ExportToolContext } from '../../utils/exportTools';
 import { ValidationHelper } from '../../utils/validation';
 
 const textOf = (r: { content: Array<{ type: string; text?: string }> }) =>
@@ -28,7 +28,7 @@ describe('export delivery tools', () => {
 
   function ctx(mode: 'http' | 'stdio', response: unknown, publicBaseUrl: string | undefined = 'http://nas.local:9807'): ExportToolContext {
     return {
-      makeRequest: jest.fn(async () => response) as any,
+      makeRequest: jest.fn(() => Promise.resolve(response)) as unknown as ExportToolContext['makeRequest'],
       validator: new ValidationHelper(),
       dataExporter: new DataExporter(),
       getExportStore: () => store,
@@ -78,7 +78,7 @@ describe('export delivery tools', () => {
     // parameter has a JS default value, which also applies when the caller
     // passes an explicit `undefined` — so it can't express "no base URL".
     const r = await exportEntriesFormatted({
-      makeRequest: jest.fn(async () => entries) as any,
+      makeRequest: jest.fn(() => Promise.resolve(entries)) as unknown as ExportToolContext['makeRequest'],
       validator: new ValidationHelper(),
       dataExporter: new DataExporter(),
       getExportStore: () => store,
@@ -93,7 +93,10 @@ describe('export delivery tools', () => {
       .rejects.toThrow(OUTPUT_PATH_REMOVED);
     await expect(exportFormJson(ctx('http', { id: '7', title: 'T', fields: [] }), { form_id: '7', output_path: '/tmp' }))
       .rejects.toThrow(OUTPUT_PATH_REMOVED);
-    const r = await exportEntriesFormatted(ctx('http', entries), { form_id: '7', format: 'csv', save_to_disk: true, skip_base64: true } as any);
+    const r = await exportEntriesFormatted(
+      ctx('http', entries),
+      { form_id: '7', format: 'csv', save_to_disk: true, skip_base64: true } as unknown as ExportEntriesFormattedArgs
+    );
     expect(linkOf(r)).toMatch(/^gf-export:\/\//);
   });
 
@@ -117,7 +120,7 @@ describe('export delivery tools', () => {
     expect(text).toContain('Title: League Signup');
     expect(text).toContain('{admin_email}');
     const id = linkOf(r).replace('gf-export://', '');
-    const saved = JSON.parse(await store.readText(id, 1_000_000));
+    const saved = JSON.parse(await store.readText(id, 1_000_000)) as { notifications: Array<{ to: string }> };
     expect(saved.notifications[0].to).toBe('{admin_email}');
     expect((await store.get(id)).filename).toBe('form-7-league-signup.json');
   });

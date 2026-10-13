@@ -37,7 +37,7 @@ import {
   exportFormJson as exportFormJsonHandler,
   getExportLink as getExportLinkHandler,
 } from "./utils/exportTools.js";
-import type { ExportEntriesFormattedArgs, ExportFormJsonArgs, ExportToolContext, ExportToolResult, GetExportLinkArgs, IExportDeliveryConfig } from "./utils/exportTools.js";
+import type { ExportEntriesFormattedArgs, ExportFormJsonArgs, ExportToolContext, IExportDeliveryConfig, IExportToolResult, IGetExportLinkArgs } from "./utils/exportTools.js";
 import { loadExportConfig } from "./utils/exportConfig.js";
 import type { IExportConfig } from "./utils/exportConfig.js";
 import { deriveLinkKey } from "./utils/exportLinks.js";
@@ -664,7 +664,7 @@ export class GravityFormsMCPServer {
     };
   }
 
-  private async exportEntriesFormatted(args: unknown): Promise<ExportToolResult> {
+  private async exportEntriesFormatted(args: unknown): Promise<IExportToolResult> {
     return exportEntriesFormattedHandler(this.exportToolContext(), args as ExportEntriesFormattedArgs);
   }
 
@@ -705,12 +705,12 @@ export class GravityFormsMCPServer {
     }, args as CreateFormFromTemplateArgs);
   }
 
-  private async exportFormJson(args: unknown): Promise<ExportToolResult> {
+  private async exportFormJson(args: unknown): Promise<IExportToolResult> {
     return exportFormJsonHandler(this.exportToolContext(), args as ExportFormJsonArgs);
   }
 
-  private async getExportLink(args: unknown): Promise<ExportToolResult> {
-    return getExportLinkHandler(this.exportToolContext(), args as GetExportLinkArgs);
+  private async getExportLink(args: unknown): Promise<IExportToolResult> {
+    return getExportLinkHandler(this.exportToolContext(), args as IGetExportLinkArgs);
   }
 
   private getTemplateManager(): TemplateManager {

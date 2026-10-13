@@ -48,8 +48,11 @@ describe("TOOL_SCHEMAS faithfulness vs legacy JSON schemas", () => {
   });
 
   it("get_export_link requires export_id", () => {
-    const generated: any = zodToJsonSchema(z.object(TOOL_SCHEMAS.get_export_link.inputSchema), { target: "jsonSchema7" });
-    expect(Object.keys(generated.properties)).toEqual(['export_id']);
-    expect(generated.required).toEqual(['export_id']);
+    const generated = zodToJsonSchema(z.object(TOOL_SCHEMAS.get_export_link.inputSchema), { target: "jsonSchema7" }) as {
+      properties: Record<string, unknown>;
+      required: string[];
+    };
+    expect(Object.keys(generated.properties)).toStrictEqual(['export_id']);
+    expect(generated.required).toStrictEqual(['export_id']);
   });
 });

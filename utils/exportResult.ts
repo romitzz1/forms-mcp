@@ -1,7 +1,7 @@
 // ABOUTME: Builds export tool results: capped summary text, preview, resource_link, and delivery lines
 // ABOUTME: Shared by export_form_json, export_entries_formatted, and get_export_link
 
-import type { ExportRecord } from './exportStore.js';
+import type { IExportRecord } from './exportStore.js';
 
 const MAX_PREVIEW_COLUMNS = 20;
 const MAX_CELL_CHARS = 80;
@@ -15,7 +15,7 @@ export type ExportContent =
   | { type: 'text'; text: string }
   | { type: 'resource_link'; uri: string; name: string; mimeType: string; size: number };
 
-export interface ExportToolResult {
+export interface IExportToolResult {
   content: ExportContent[];
 }
 
@@ -71,7 +71,7 @@ export function buildFormJsonPreview(form: { title?: string; fields?: Array<{ la
   return clampBytes(lines.join('\n'), MAX_PREVIEW_BYTES);
 }
 
-export function deliveryLines(record: ExportRecord, delivery: ExportDelivery): string[] {
+export function deliveryLines(record: IExportRecord, delivery: ExportDelivery): string[] {
   if (delivery.mode === 'stdio') {
     return [
       `Local file: ${record.localPath}`,
@@ -91,12 +91,12 @@ export function deliveryLines(record: ExportRecord, delivery: ExportDelivery): s
 }
 
 export function buildExportResult(p: {
-  record: ExportRecord;
+  record: IExportRecord;
   summaryLines: string[];
   preview: string;
   extraNotes: string[];
   delivery: ExportDelivery;
-}): ExportToolResult {
+}): IExportToolResult {
   const sections = [
     'Export completed successfully!',
     [

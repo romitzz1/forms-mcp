@@ -4,8 +4,10 @@
 import { promises as fsp } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import type { FormImporter } from '../../utils/formImporter';
 import { ExportStore } from '../../utils/exportStore';
 import { importFormJson } from '../../utils/templateTools';
+import type { IImportFormJsonContext } from '../../utils/templateTools';
 
 describe('import_form_json tool logic', () => {
   const mockApiCall = jest.fn();
@@ -602,13 +604,13 @@ describe('import_form_json tool logic', () => {
   describe('import_form_json export_id source', () => {
     let dir: string;
     let store: ExportStore;
-    const importForm = jest.fn(async () => ({ success: true, form_id: '99' }));
-    const ctx = () => ({
+    const importForm = jest.fn(() => ({ success: true, form_id: '99' }));
+    const ctx = (): IImportFormJsonContext => ({
       makeRequest: jest.fn(),
       getTemplateManager: jest.fn(),
-      getFormImporter: () => ({ importForm }) as any,
+      getFormImporter: () => ({ importForm }) as unknown as FormImporter,
       getExportStore: () => store,
-    }) as any;
+    });
 
     beforeEach(async () => {
       dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'gf-import-'));

@@ -14,13 +14,13 @@ import {
   formatUtc,
   SANITIZER_NOTE,
 } from "./exportResult.js";
-import type { ExportDelivery, ExportToolResult } from "./exportResult.js";
+import type { ExportDelivery, IExportToolResult } from "./exportResult.js";
 import { ExportDirUnwritableError, ExportExpiredError, ExportNotFoundError } from "./exportStore.js";
-import type { ExportRecord, ExportStore } from "./exportStore.js";
+import type { ExportStore, IExportRecord } from "./exportStore.js";
 import type { IGfEntriesResponse, IGravityEntry, IGravityForm } from "./gravityFormsTypes.js";
 import type { ValidationHelper } from "./validation.js";
 
-export type { ExportToolResult } from "./exportResult.js";
+export type { IExportToolResult } from "./exportResult.js";
 
 const MAX_EXPORT_ENTRIES = 1000; // Safety limit for exports
 const NEAR_EXPIRY_MS = 10 * 60 * 1000;
@@ -54,7 +54,7 @@ function rejectOutputPath(outputPath: unknown): void {
   }
 }
 
-function deliveryFor(ctx: ExportToolContext, record: ExportRecord): ExportDelivery {
+function deliveryFor(ctx: ExportToolContext, record: IExportRecord): ExportDelivery {
   const { mode, publicBaseUrl, linkKey, linkTtlMinutes } = ctx.delivery;
   if (mode === 'stdio') return { mode: 'stdio' };
   if (!publicBaseUrl || !linkKey) return { mode: 'http', link: null };
@@ -62,7 +62,7 @@ function deliveryFor(ctx: ExportToolContext, record: ExportRecord): ExportDelive
   return { mode: 'http', link: { url: signExportUrl(publicBaseUrl, record.id, exp, linkKey), expiresAt: new Date(exp * 1000) } };
 }
 
-async function saveExport(ctx: ExportToolContext, content: string, filename: string, format: ExportFormat): Promise<ExportRecord> {
+async function saveExport(ctx: ExportToolContext, content: string, filename: string, format: ExportFormat): Promise<IExportRecord> {
   try {
     return await ctx.getExportStore().save(content, filename, format);
   } catch (error) {
@@ -327,7 +327,7 @@ function extractEntriesAndTotal(response: IGfEntriesResponse | IGravityEntry[]):
   return { entries: response?.entries ?? [], totalCount: response?.total_count };
 }
 
-export async function exportEntriesFormatted(ctx: ExportToolContext, args: ExportEntriesFormattedArgs): Promise<ExportToolResult> {
+export async function exportEntriesFormatted(ctx: ExportToolContext, args: ExportEntriesFormattedArgs): Promise<IExportToolResult> {
     rejectOutputPath(args.output_path);
 
     // Validate input parameters
@@ -537,7 +537,7 @@ function sanitizeExportedForm(exportForm: IExportableForm): void {
   }
 }
 
-export async function exportFormJson(ctx: ExportToolContext, args: ExportFormJsonArgs): Promise<ExportToolResult> {
+export async function exportFormJson(ctx: ExportToolContext, args: ExportFormJsonArgs): Promise<IExportToolResult> {
     rejectOutputPath(args.output_path);
 
     try {
@@ -627,18 +627,18 @@ export async function exportFormJson(ctx: ExportToolContext, args: ExportFormJso
     }
 }
 
-export interface GetExportLinkArgs {
+export interface IGetExportLinkArgs {
   export_id?: string;
 }
 
-export async function getExportLink(ctx: ExportToolContext, args: GetExportLinkArgs): Promise<ExportToolResult> {
-  const { export_id } = args;
-  if (!export_id || typeof export_id !== 'string') {
+export async function getExportLink(ctx: ExportToolContext, args: IGetExportLinkArgs): Promise<IExportToolResult> {
+  const { export_id: exportId } = args;
+  if (!exportId || typeof exportId !== 'string') {
     throw new McpError(ErrorCode.InvalidParams, 'export_id is required');
   }
-  let record: ExportRecord;
+  let record: IExportRecord;
   try {
-    record = await ctx.getExportStore().get(export_id);
+    record = await ctx.getExportStore().get(exportId);
   } catch (error) {
     if (error instanceof ExportNotFoundError || error instanceof ExportExpiredError) {
       throw new McpError(ErrorCode.InvalidParams, error.message);
