@@ -36,7 +36,11 @@ import {
   exportEntriesFormatted as exportEntriesFormattedHandler,
   exportFormJson as exportFormJsonHandler,
 } from "./utils/exportTools.js";
-import type { ExportEntriesFormattedArgs, ExportFormJsonArgs, ExportToolResult } from "./utils/exportTools.js";
+import type { ExportEntriesFormattedArgs, ExportFormJsonArgs, ExportToolContext, ExportToolResult, IExportDeliveryConfig } from "./utils/exportTools.js";
+import { loadExportConfig } from "./utils/exportConfig.js";
+import type { IExportConfig } from "./utils/exportConfig.js";
+import { deriveLinkKey } from "./utils/exportLinks.js";
+import { ExportStore } from "./utils/exportStore.js";
 import { processEntriesBulk as processEntriesBulkHandler } from "./utils/bulkTools.js";
 import {
   cloneFormWithModifications as cloneFormWithModificationsHandler,
@@ -73,6 +77,7 @@ import type { IGravityEntry, IGravityForm } from "./utils/gravityFormsTypes.js";
 import type { IEntrySummary } from "./utils/responseSizeManager.js";
 import type { ApiClient as SearchApiClient } from "./utils/universalSearchManager.js";
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 
 // Configuration interface
@@ -107,6 +112,10 @@ export class GravityFormsMCPServer {
   private readonly cacheConfig: ICacheConfig;
   private readonly dataExporter: DataExporter;
   private readonly validator: ValidationHelper;
+  private readonly exportConfig: IExportConfig;
+  private readonly exportStore: ExportStore;
+  private readonly linkKey: Buffer | null;
+  private readonly exportStoreError: string | null = null;
   private bulkOperationsManager?: BulkOperationsManager;
   private templateManager?: TemplateManager;
   private formImporter?: FormImporter;
@@ -139,6 +148,15 @@ export class GravityFormsMCPServer {
 
     // Load cache configuration
     this.cacheConfig = this.loadCacheConfig();
+
+    this.exportConfig = loadExportConfig(process.env, os.homedir());
+    this.exportStore = new ExportStore({
+      dir: this.exportConfig.exportDir,
+      retentionDays: this.exportConfig.retentionDays,
+    });
+    this.linkKey = this.exportConfig.mode === 'http' && this.exportConfig.authToken
+      ? deriveLinkKey(this.exportConfig.authToken)
+      : null;
 
     // Initialize utility classes
     this.dataExporter = new DataExporter();
@@ -530,12 +548,35 @@ export class GravityFormsMCPServer {
     return updateFormHandler({ makeRequest: (endpoint, method, body) => this.makeRequest(endpoint, method, body) }, args);
   }
 
-  private async exportEntriesFormatted(args: unknown): Promise<ExportToolResult> {
-    return exportEntriesFormattedHandler({
-      makeRequest: (endpoint, method, body) => this.makeRequest(endpoint, method, body),
+  private getExportStore(): ExportStore {
+    if (this.exportStoreError) {
+      // exportStoreError already reads "export directory not writable: <dir> (<cause>)"
+      throw new McpError(ErrorCode.InternalError, this.exportStoreError);
+    }
+    return this.exportStore;
+  }
+
+  private getExportDelivery(): IExportDeliveryConfig {
+    return {
+      mode: this.exportConfig.mode,
+      publicBaseUrl: this.exportConfig.publicBaseUrl,
+      linkKey: this.linkKey,
+      linkTtlMinutes: this.exportConfig.linkTtlMinutes,
+    };
+  }
+
+  private exportToolContext(): ExportToolContext {
+    return {
+      makeRequest: <T = unknown>(endpoint: string, method?: string, body?: unknown) => this.makeRequest<T>(endpoint, method, body),
       validator: this.validator,
       dataExporter: this.dataExporter,
-    }, args as ExportEntriesFormattedArgs);
+      getExportStore: () => this.getExportStore(),
+      delivery: this.getExportDelivery(),
+    };
+  }
+
+  private async exportEntriesFormatted(args: unknown): Promise<ExportToolResult> {
+    return exportEntriesFormattedHandler(this.exportToolContext(), args as ExportEntriesFormattedArgs);
   }
 
   private getBulkOperationsManager(): BulkOperationsManager {
@@ -576,11 +617,7 @@ export class GravityFormsMCPServer {
   }
 
   private async exportFormJson(args: unknown): Promise<ExportToolResult> {
-    return exportFormJsonHandler({
-      makeRequest: (endpoint, method, body) => this.makeRequest(endpoint, method, body),
-      validator: this.validator,
-      dataExporter: this.dataExporter,
-    }, args as ExportFormJsonArgs);
+    return exportFormJsonHandler(this.exportToolContext(), args as ExportFormJsonArgs);
   }
 
   private getTemplateManager(): TemplateManager {

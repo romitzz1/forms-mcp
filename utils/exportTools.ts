@@ -1,21 +1,79 @@
-// ABOUTME: Export MCP tool handlers (export_entries_formatted, export_form_json)
+// ABOUTME: Export MCP tool handlers (export_entries_formatted, export_form_json, get_export_link)
 // ABOUTME: Extracted from GravityFormsMCPServer to isolate handler logic from server infrastructure
 
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
-import type { DataExporter, ExportResult } from "./dataExporter.js";
+import type { DataExporter, ExportFormat, ExportResult } from "./dataExporter.js";
+import type { TransportMode } from "./exportConfig.js";
+import { linkExpiryUnix, signExportUrl } from "./exportLinks.js";
+import {
+  buildCsvPreview,
+  buildEntriesJsonPreview,
+  buildExportResult,
+  buildFormJsonPreview,
+  deliveryLines,
+  formatUtc,
+  SANITIZER_NOTE,
+} from "./exportResult.js";
+import type { ExportDelivery, ExportToolResult } from "./exportResult.js";
+import { ExportDirUnwritableError, ExportExpiredError, ExportNotFoundError } from "./exportStore.js";
+import type { ExportRecord, ExportStore } from "./exportStore.js";
 import type { IGfEntriesResponse, IGravityEntry, IGravityForm } from "./gravityFormsTypes.js";
 import type { ValidationHelper } from "./validation.js";
 
+export type { ExportToolResult } from "./exportResult.js";
+
 const MAX_EXPORT_ENTRIES = 1000; // Safety limit for exports
+const NEAR_EXPIRY_MS = 10 * 60 * 1000;
+
+export const OUTPUT_PATH_REMOVED =
+  '`output_path` was removed; exports are returned as a download link and a gf-export:// resource';
+
+export interface IExportDeliveryConfig {
+  mode: TransportMode;
+  publicBaseUrl: string | undefined;
+  linkKey: Buffer | null;
+  linkTtlMinutes: number;
+}
 
 export interface ExportToolContext {
   makeRequest<T = unknown>(endpoint: string, method?: string, body?: unknown): Promise<T>;
   validator: ValidationHelper;
   dataExporter: DataExporter;
+  getExportStore(): ExportStore;
+  delivery: IExportDeliveryConfig;
+  now?: () => Date;
 }
 
-export interface ExportToolResult {
-  content: Array<{ type: "text"; text: string }>;
+function nowOf(ctx: ExportToolContext): Date {
+  return ctx.now ? ctx.now() : new Date();
+}
+
+function rejectOutputPath(outputPath: unknown): void {
+  if (outputPath !== undefined) {
+    throw new McpError(ErrorCode.InvalidParams, OUTPUT_PATH_REMOVED);
+  }
+}
+
+function deliveryFor(ctx: ExportToolContext, record: ExportRecord): ExportDelivery {
+  const { mode, publicBaseUrl, linkKey, linkTtlMinutes } = ctx.delivery;
+  if (mode === 'stdio') return { mode: 'stdio' };
+  if (!publicBaseUrl || !linkKey) return { mode: 'http', link: null };
+  const exp = linkExpiryUnix(nowOf(ctx).getTime(), linkTtlMinutes, record.expiresAt);
+  return { mode: 'http', link: { url: signExportUrl(publicBaseUrl, record.id, exp, linkKey), expiresAt: new Date(exp * 1000) } };
+}
+
+async function saveExport(ctx: ExportToolContext, content: string, filename: string, format: ExportFormat): Promise<ExportRecord> {
+  try {
+    return await ctx.getExportStore().save(content, filename, format);
+  } catch (error) {
+    if (error instanceof ExportDirUnwritableError) {
+      throw new McpError(ErrorCode.InternalError, error.message);
+    }
+    throw new McpError(
+      ErrorCode.InternalError,
+      `Failed to save export: ${error instanceof Error ? error.message : 'Unknown error'}`
+    );
+  }
 }
 
 // A single field_filters entry. The Zod schema types each item as `unknown`
@@ -50,9 +108,7 @@ export interface ExportEntriesFormattedArgs {
   date_format?: string;
   filename?: string;
   include_headers?: boolean;
-  save_to_disk?: boolean;
-  output_path?: string;
-  skip_base64?: boolean;
+  output_path?: string; // Removed parameter, still declared so it can be rejected with a clear message.
   field_ids?: string[];
   paging?: {
     page_size?: number;
@@ -176,9 +232,7 @@ function buildSearchQueryParam(search: IExportEntriesSearch | undefined): string
   return Object.keys(searchObject).length > 0 ? JSON.stringify(searchObject) : undefined;
 }
 
-interface IExportMessageParams {
-  exportResult: ExportResult;
-  entriesCount: number;
+interface IPaginationParams {
   totalCount: number | undefined;
   pageSize: number;
   currentPage: number;
@@ -188,60 +242,42 @@ interface IExportMessageParams {
   format: string;
 }
 
-// Builds the export-completed summary message, including pagination and
-// "more entries available" guidance when applicable.
-function buildExportMessage(p: IExportMessageParams): string {
-  let exportMessage = `Export completed successfully!\n\n`;
-  exportMessage += `Format: ${p.exportResult.format.toUpperCase()}\n`;
-  exportMessage += `Filename: ${p.exportResult.filename}\n`;
-  exportMessage += `Records exported: ${p.entriesCount}\n`;
-
-  // Add pagination info if total count is available
-  if (p.totalCount !== undefined) {
-    exportMessage += `Total entries available: ${p.totalCount}\n`;
-
-    const totalPages = Math.ceil(p.totalCount / p.pageSize);
-    exportMessage += `Current page: ${p.currentPage} of ${totalPages}\n`;
-    exportMessage += `Page size: ${p.pageSize}\n`;
-
-    // Fix math edge case for zero entries
-    if (p.totalCount > 0) {
-      exportMessage += `Showing entries: ${((p.currentPage - 1) * p.pageSize) + 1} to ${Math.min(p.currentPage * p.pageSize, p.totalCount)}\n`;
-    } else {
-      exportMessage += `Showing entries: No entries found\n`;
-    }
-
-    // Add safety warning if using default limit without explicit pagination
-    if (!p.pagingExplicit && p.totalCount > p.maxExportEntries) {
-      exportMessage += `\n⚠️  Large Dataset Safety Limit Applied!\n`;
-      exportMessage += `- Only first ${p.maxExportEntries} entries exported (safety limit)\n`;
-      exportMessage += `- Total available: ${p.totalCount} entries\n`;
-      exportMessage += `- Use explicit pagination to access all data:\n`;
-      exportMessage += `{ "form_id": "${p.formId}", "format": "${p.format}", "paging": { "page_size": 1000, "current_page": 2 } }\n`;
-    } else if (p.totalCount > (p.currentPage * p.pageSize)) {
-      const remaining = p.totalCount - (p.currentPage * p.pageSize);
-      exportMessage += `\n⚠️  More entries available!\n`;
-      exportMessage += `- Remaining: ${remaining} entries\n`;
-      exportMessage += `\nTo export the next page:\n`;
-      exportMessage += `{ "form_id": "${p.formId}", "format": "${p.format}", "paging": { "page_size": ${p.pageSize}, "current_page": ${p.currentPage + 1} } }\n`;
-    }
-  }
-
-  exportMessage += `\nFile size: ${p.exportResult.data.length} characters\n`;
-
-  // Add file path information if saved to disk
-  if (p.exportResult.filePath) {
-    exportMessage += `\n✅ File saved to disk: ${p.exportResult.filePath}\n`;
-  }
-
-  // Add base64 data if not skipped
-  if (p.exportResult.base64Data !== undefined) {
-    exportMessage += `\nBase64 encoded data for download:\n${p.exportResult.base64Data}`;
+// Pagination and "more entries available" guidance, appended to the export summary.
+function buildPaginationNotes(p: IPaginationParams): string[] {
+  if (p.totalCount === undefined) return [];
+  const lines: string[] = [];
+  const totalPages = Math.ceil(p.totalCount / p.pageSize);
+  lines.push(`Total entries available: ${p.totalCount}`);
+  lines.push(`Current page: ${p.currentPage} of ${totalPages}`);
+  lines.push(`Page size: ${p.pageSize}`);
+  // Fix math edge case for zero entries
+  if (p.totalCount > 0) {
+    lines.push(`Showing entries: ${((p.currentPage - 1) * p.pageSize) + 1} to ${Math.min(p.currentPage * p.pageSize, p.totalCount)}`);
   } else {
-    exportMessage += `\n⚡ Base64 encoding skipped to reduce response size`;
+    lines.push(`Showing entries: No entries found`);
   }
+  // Add safety warning if using default limit without explicit pagination
+  if (!p.pagingExplicit && p.totalCount > p.maxExportEntries) {
+    lines.push('');
+    lines.push(`⚠️  Large Dataset Safety Limit Applied!`);
+    lines.push(`- Only first ${p.maxExportEntries} entries exported (safety limit)`);
+    lines.push(`- Total available: ${p.totalCount} entries`);
+    lines.push(`- Use explicit pagination to access all data:`);
+    lines.push(`{ "form_id": "${p.formId}", "format": "${p.format}", "paging": { "page_size": 1000, "current_page": 2 } }`);
+  } else if (p.totalCount > (p.currentPage * p.pageSize)) {
+    const remaining = p.totalCount - (p.currentPage * p.pageSize);
+    lines.push('');
+    lines.push(`⚠️  More entries available!`);
+    lines.push(`- Remaining: ${remaining} entries`);
+    lines.push(`To export the next page:`);
+    lines.push(`{ "form_id": "${p.formId}", "format": "${p.format}", "paging": { "page_size": ${p.pageSize}, "current_page": ${p.currentPage + 1} } }`);
+  }
+  return lines;
+}
 
-  return exportMessage;
+function previewFor(exportResult: ExportResult, entries: IGravityEntry[]): string {
+  if (exportResult.format === 'csv') return buildCsvPreview(exportResult.previewRows ?? []);
+  return buildEntriesJsonPreview(entries);
 }
 
 interface IResolvedPagination {
@@ -292,6 +328,8 @@ function extractEntriesAndTotal(response: IGfEntriesResponse | IGravityEntry[]):
 }
 
 export async function exportEntriesFormatted(ctx: ExportToolContext, args: ExportEntriesFormattedArgs): Promise<ExportToolResult> {
+    rejectOutputPath(args.output_path);
+
     // Validate input parameters
     const validationResult = ctx.validator.validateExportEntriesParams(args);
     if (!validationResult.isValid) {
@@ -305,7 +343,7 @@ export async function exportEntriesFormatted(ctx: ExportToolContext, args: Expor
     // when present, has already been validated by validateExportEntriesParams above to
     // match this same shape — casting here documents that validated boundary.
     const sanitizedArgs = (validationResult.sanitizedValue ?? args) as ExportEntriesFormattedArgs;
-    const { form_id, format, search, date_format, filename, include_headers, save_to_disk, output_path, skip_base64, paging, field_ids } = sanitizedArgs;
+    const { form_id, format, search, date_format, filename, include_headers, paging, field_ids } = sanitizedArgs;
 
     try {
       // Build API endpoint URL
@@ -355,10 +393,8 @@ export async function exportEntriesFormatted(ctx: ExportToolContext, args: Expor
         dateFormat: date_format,
         includeHeaders: include_headers !== false, // Default to true
         filename: filename,
-        saveToDisk: save_to_disk ?? false,
-        outputPath: output_path,
-        skipBase64: skip_base64 ?? false,
-        fieldIds: field_ids
+        fieldIds: field_ids,
+        entryOffset: (currentPage - 1) * pageSize,
       };
 
       let exportResult;
@@ -371,27 +407,22 @@ export async function exportEntriesFormatted(ctx: ExportToolContext, args: Expor
         );
       }
 
-      // Build export success message with pagination info
-      const exportMessage = buildExportMessage({
-        exportResult,
-        entriesCount: entries.length,
-        totalCount,
-        pageSize,
-        currentPage,
-        pagingExplicit: paging !== undefined,
-        maxExportEntries,
-        formId: form_id,
-        format
+      const record = await saveExport(ctx, exportResult.data, exportResult.filename, format);
+      return buildExportResult({
+        record,
+        summaryLines: [`Format: ${exportResult.format.toUpperCase()}`, `Records exported: ${entries.length}`],
+        preview: previewFor(exportResult, entries),
+        extraNotes: buildPaginationNotes({
+          totalCount,
+          pageSize,
+          currentPage,
+          pagingExplicit: paging !== undefined,
+          maxExportEntries,
+          formId: form_id,
+          format,
+        }),
+        delivery: deliveryFor(ctx, record),
       });
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: exportMessage
-          }
-        ]
-      };
 
     } catch (error) {
       if (error instanceof McpError) {
@@ -507,6 +538,8 @@ function sanitizeExportedForm(exportForm: IExportableForm): void {
 }
 
 export async function exportFormJson(ctx: ExportToolContext, args: ExportFormJsonArgs): Promise<ExportToolResult> {
+    rejectOutputPath(args.output_path);
+
     try {
       // Validate required parameters
       const { form_id } = args;
@@ -552,10 +585,8 @@ export async function exportFormJson(ctx: ExportToolContext, args: ExportFormJso
       // Format JSON with proper indentation for readability
       const formattedJson = JSON.stringify(exportForm, null, 2);
 
-      // Always write the export to disk rather than inlining the (potentially huge)
-      // JSON in the response — a large form definition can overflow the model's
-      // context. Callers get a path + summary and read the file to import/inspect.
-      const { filename, output_path } = args;
+      // The definition is saved to the export store rather than inlined — a large form can overflow the model's context.
+      const { filename } = args;
       // '' is a legitimate title, distinct from "not provided" — an explicit
       // `if` (rather than `||`) keeps that fall-through without tripping
       // prefer-nullish-coalescing (which would only trigger on null/undefined).
@@ -573,37 +604,18 @@ export async function exportFormJson(ctx: ExportToolContext, args: ExportFormJso
         exportFilename = filename;
       }
 
-      const filePath = await ctx.dataExporter.saveContentToDisk(
-        formattedJson,
-        exportFilename,
-        form_id,
-        output_path
-      );
-
+      const record = await saveExport(ctx, formattedJson, exportFilename, 'json');
       let formTitle = 'Untitled Form';
       if (exportForm.title) {
         formTitle = exportForm.title;
       }
-
-      const response = {
-        success: true,
-        message: 'Form exported to disk as JSON',
-        form_id: form_id,
-        form_title: formTitle,
-        export_size: formattedJson.length,
-        fields_count: exportForm.fields ? exportForm.fields.length : 0,
-        file_path: filePath,
-        note: 'Full JSON written to disk (not inlined) to avoid overflowing context. Read the file to import or inspect it.'
-      };
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify(response, null, 2)
-          }
-        ]
-      };
+      return buildExportResult({
+        record,
+        summaryLines: [`Form: ${formTitle} (ID ${form_id})`, `Fields: ${exportForm.fields ? exportForm.fields.length : 0}`],
+        preview: buildFormJsonPreview({ title: formTitle, fields: exportForm.fields as Array<{ label?: string }> | undefined }),
+        extraNotes: [SANITIZER_NOTE],
+        delivery: deliveryFor(ctx, record),
+      });
     } catch (error) {
       if (error instanceof McpError) {
         throw error;
@@ -613,4 +625,34 @@ export async function exportFormJson(ctx: ExportToolContext, args: ExportFormJso
         `Failed to export form as JSON: ${error instanceof Error ? error.message : 'Unknown error'}`
       );
     }
+}
+
+export interface GetExportLinkArgs {
+  export_id?: string;
+}
+
+export async function getExportLink(ctx: ExportToolContext, args: GetExportLinkArgs): Promise<ExportToolResult> {
+  const { export_id } = args;
+  if (!export_id || typeof export_id !== 'string') {
+    throw new McpError(ErrorCode.InvalidParams, 'export_id is required');
+  }
+  let record: ExportRecord;
+  try {
+    record = await ctx.getExportStore().get(export_id);
+  } catch (error) {
+    if (error instanceof ExportNotFoundError || error instanceof ExportExpiredError) {
+      throw new McpError(ErrorCode.InvalidParams, error.message);
+    }
+    throw error;
+  }
+  const lines = [
+    `Filename: ${record.filename}`,
+    `Size: ${record.size} bytes`,
+    `Retained until: ${formatUtc(record.expiresAt)}`,
+  ];
+  if (record.expiresAt.getTime() - nowOf(ctx).getTime() < NEAR_EXPIRY_MS) {
+    lines.push(`⚠️  This export expires soon (${formatUtc(record.expiresAt)}) — download it now or re-run the export.`);
+  }
+  lines.push('', ...deliveryLines(record, deliveryFor(ctx, record)));
+  return { content: [{ type: 'text', text: lines.join('\n') }] };
 }
