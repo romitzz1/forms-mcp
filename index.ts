@@ -643,6 +643,7 @@ export class GravityFormsMCPServer {
       makeRequest: (endpoint, method, body) => this.makeRequest(endpoint, method, body),
       getTemplateManager: () => this.getTemplateManager(),
       getFormImporter: () => this.getFormImporter(),
+      getExportStore: () => this.getExportStore(),
     }, args as ImportFormJsonArgs);
   }
 

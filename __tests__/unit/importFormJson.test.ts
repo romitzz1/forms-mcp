@@ -1,6 +1,12 @@
 // ABOUTME: Tests for import_form_json tool functionality and JSON import capabilities
 // ABOUTME: Tests JSON validation, conflict resolution, ID mapping, and error handling
 
+import { promises as fsp } from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { ExportStore } from '../../utils/exportStore';
+import { importFormJson } from '../../utils/templateTools';
+
 describe('import_form_json tool logic', () => {
   const mockApiCall = jest.fn();
 
@@ -590,6 +596,47 @@ describe('import_form_json tool logic', () => {
       expect(result.fields_imported).toBe(1);
       expect(result.fields_skipped).toBe(1);
       expect(result.warnings).toContain('Field with invalid type skipped: invalid_type');
+    });
+  });
+
+  describe('import_form_json export_id source', () => {
+    let dir: string;
+    let store: ExportStore;
+    const importForm = jest.fn(async () => ({ success: true, form_id: '99' }));
+    const ctx = () => ({
+      makeRequest: jest.fn(),
+      getTemplateManager: jest.fn(),
+      getFormImporter: () => ({ importForm }) as any,
+      getExportStore: () => store,
+    }) as any;
+
+    beforeEach(async () => {
+      dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'gf-import-'));
+      store = new ExportStore({ dir, retentionDays: 7 });
+      importForm.mockClear();
+    });
+
+    afterEach(async () => {
+      await fsp.rm(dir, { recursive: true, force: true });
+    });
+
+    it('imports the JSON stored under export_id and discloses sanitization', async () => {
+      const rec = await store.save(JSON.stringify({ title: 'Copy', fields: [] }), 'form-1-copy.json', 'json');
+      const r = await importFormJson(ctx(), { export_id: rec.id });
+      expect(importForm).toHaveBeenCalledWith(JSON.stringify({ title: 'Copy', fields: [] }), expect.any(Object));
+      expect(r.content[0].text).toContain('{admin_email}');
+    });
+
+    it('requires exactly one of form_json or export_id', async () => {
+      await expect(importFormJson(ctx(), {})).rejects.toThrow('exactly one of form_json or export_id');
+      await expect(importFormJson(ctx(), { form_json: '{}', export_id: 'AbCdEfGhIjKlMnOpQrStUv' }))
+        .rejects.toThrow('exactly one of form_json or export_id');
+    });
+
+    it('rejects CSV exports and unknown ids', async () => {
+      const csv = await store.save('a,b', 'x.csv', 'csv');
+      await expect(importFormJson(ctx(), { export_id: csv.id })).rejects.toThrow('is not a JSON export');
+      await expect(importFormJson(ctx(), { export_id: 'AbCdEfGhIjKlMnOpQrStUv' })).rejects.toThrow('Export not found');
     });
   });
 
