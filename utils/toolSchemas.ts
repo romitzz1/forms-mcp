@@ -180,7 +180,7 @@ export const TOOL_SCHEMAS: Record<string, { description: string; inputSchema: z.
   },
 
   export_entries_formatted: {
-    description: "Export entries from a form in CSV or JSON format with advanced formatting options",
+    description: "Export entries from a form as CSV or JSON. The file is saved to the server's export store and returned as a summary with a short preview, a gf-export:// resource link, and (HTTP mode) a signed download link or (stdio mode) a local file path. Files expire after the retention period (default 7 days).",
     inputSchema: {
       form_id: z.string().describe("Form ID to export entries from"),
       format: z.enum(["csv", "json"] as [string, ...string[]]).describe("Export format"),
@@ -203,12 +203,7 @@ export const TOOL_SCHEMAS: Record<string, { description: string; inputSchema: z.
       date_format: z.string().describe("Date format for exported dates").optional(),
       filename: z.string().describe("Custom filename for export").optional(),
       include_headers: z.boolean().describe("Include headers in CSV export").default(true),
-      save_to_disk: z.boolean().describe("Save the exported file to disk").default(false),
-      output_path: z.string().describe("Custom file path for saving (optional, auto-generated if not provided)").optional(),
-      skip_base64: z
-        .boolean()
-        .describe("Skip base64 encoding to reduce response size (useful for large exports)")
-        .default(false),
+      output_path: z.string().describe("Removed — rejected if set. Exports are returned as a download link and a gf-export:// resource.").optional(),
       field_ids: z
         .array(z.string())
         .describe(
@@ -298,25 +293,23 @@ export const TOOL_SCHEMAS: Record<string, { description: string; inputSchema: z.
 
   export_form_json: {
     description:
-      "Export a complete form definition as JSON for backup, migration, or import purposes. Removes sensitive data (API keys, private settings) while preserving all form structure, fields, conditional logic, and calculations. Always writes the JSON to disk and returns the file path plus a summary (never inlines the full definition, which can overflow context).",
+      "Export a complete form definition as JSON for migration or import_form_json. Notification recipients are replaced with {admin_email} and payment-gateway secrets are removed. The JSON is saved to the export store (never inlined) and returned as a summary, a gf-export:// resource link, and a download link or local path. Download promptly — files expire after the retention period.",
     inputSchema: {
       form_id: z.string().describe("ID of the form to export (required)"),
       filename: z
         .string()
         .describe("Optional output filename. Defaults to form-{form_id}-{title-slug}.json.")
         .optional(),
-      output_path: z
-        .string()
-        .describe("Optional path (absolute, or relative to the working directory) to write the export to. Defaults to the configured export directory (GRAVITY_FORMS_EXPORT_DIR), organized by form ID and date.")
-        .optional(),
+      output_path: z.string().describe("Removed — rejected if set. Exports are returned as a download link and a gf-export:// resource.").optional(),
     },
   },
 
   import_form_json: {
     description:
-      "Import a form definition from JSON with automatic conflict resolution. Handles form ID conflicts, validates JSON structure, supports force import to overwrite existing forms. Maps field IDs and updates references (conditional logic, calculations) to maintain form integrity. Supports complete discovery to check conflicts against both active and inactive forms.",
+      "Import a form definition from JSON with automatic conflict resolution. Provide exactly one of form_json (the JSON string) or export_id (an export from export_form_json). Handles form ID conflicts, validates JSON structure, supports force import to overwrite existing forms. Maps field IDs and updates references (conditional logic, calculations) to maintain form integrity. Supports complete discovery to check conflicts against both active and inactive forms.",
     inputSchema: {
-      form_json: z.string().describe("JSON string containing the form definition to import (required)"),
+      form_json: z.string().describe("JSON string containing the form definition to import (provide this or export_id)").optional(),
+      export_id: z.string().describe("ID of a JSON export from export_form_json to import (provide this or form_json)").optional(),
       force_import: z
         .boolean()
         .describe("Force import and overwrite existing form with same title (optional, default: false)")
@@ -325,6 +318,14 @@ export const TOOL_SCHEMAS: Record<string, { description: string; inputSchema: z.
         .boolean()
         .describe("Use complete form discovery including inactive forms for conflict detection (optional, default: false)")
         .default(false),
+    },
+  },
+
+  get_export_link: {
+    description:
+      "Get a fresh download link (HTTP mode) or the local file path (stdio mode) for an existing export, by export ID. Use this when an export's download link has expired; the export itself is kept for the retention period.",
+    inputSchema: {
+      export_id: z.string().describe("Export ID shown in an export result (the part after gf-export://)"),
     },
   },
 

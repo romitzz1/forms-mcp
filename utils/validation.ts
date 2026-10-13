@@ -21,9 +21,7 @@ export interface ExportEntriesParams {
   date_format?: string;
   filename?: string;
   include_headers?: boolean;
-  save_to_disk?: boolean;
   output_path?: string;
-  skip_base64?: boolean;
   field_ids?: string[];
 }
 
@@ -257,24 +255,6 @@ export class ValidationHelper {
     }
   }
 
-  // Extracted from validateExportEntriesParams to keep that method's complexity
-  // under the repo's lint threshold. Mirrors the original's inline output_path
-  // validation exactly.
-  private validateExportOutputPath(outputPath: unknown, result: ValidationResult): void {
-    if (!outputPath) return;
-
-    if (typeof outputPath !== 'string') {
-      result.isValid = false;
-      result.errors.push('output_path must be a string');
-    } else if (outputPath.trim().length === 0) {
-      result.isValid = false;
-      result.errors.push('output_path cannot be empty');
-    } else if (this.containsInvalidPathChars(outputPath)) {
-      result.isValid = false;
-      result.errors.push('output_path contains invalid characters');
-    }
-  }
-
   // Extracted from validateExportEntriesParams (see note above). Mirrors the
   // original's inline field_ids handling exactly, including the JSON-string
   // parsing path and the "only set sanitizedValue once" behavior.
@@ -359,21 +339,6 @@ export class ValidationHelper {
       result.isValid = false;
       result.errors.push('Filename contains invalid characters');
     }
-
-    // Validate save_to_disk parameter
-    if (params.save_to_disk !== undefined && typeof params.save_to_disk !== 'boolean') {
-      result.isValid = false;
-      result.errors.push('save_to_disk must be a boolean value');
-    }
-
-    // Validate skip_base64 parameter
-    if (params.skip_base64 !== undefined && typeof params.skip_base64 !== 'boolean') {
-      result.isValid = false;
-      result.errors.push('skip_base64 must be a boolean value');
-    }
-
-    // Validate output_path parameter
-    this.validateExportOutputPath(params.output_path, result);
 
     // Validate search parameters - support multiple date formats
     this.validateExportSearchParams(params.search, result);
