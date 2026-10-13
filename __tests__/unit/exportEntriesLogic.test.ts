@@ -5,6 +5,8 @@ import { DataExporter } from '../../utils/dataExporter';
 import { ValidationHelper } from '../../utils/validation';
 import { GravityFormsMocks } from '../mocks/gravityFormsMocks';
 
+const stripBom = (s: string): string => s.replace(/^\uFEFF/, '');
+
 describe('Export Entries Logic', () => {
   let dataExporter: DataExporter;
   let validator: ValidationHelper;
@@ -78,8 +80,7 @@ describe('Export Entries Logic', () => {
       expect(result.format).toBe('csv');
       expect(result.filename).toBe('test-export.csv');
       expect(result.mimeType).toBe('text/csv');
-      expect(result.data).toContain('id,1,2,3,4,form_id,date_created');
-      expect(result.base64Data).toBeDefined();
+      expect(stripBom(result.data)).toContain('id,1,2,3,4,form_id,date_created');
     });
 
     it('should export entries to JSON format', async () => {
@@ -93,14 +94,12 @@ describe('Export Entries Logic', () => {
       expect(result.filename).toBe('test-export.json');
       expect(result.mimeType).toBe('application/json');
       expect(() => JSON.parse(result.data)).not.toThrow();
-      expect(result.base64Data).toBeDefined();
     });
 
     it('should handle empty entries array', async () => {
       const result = await dataExporter.export([], 'csv');
 
       expect(result.data).toBe('');
-      expect(result.base64Data).toBe('');
       expect(result.filename).toMatch(/\.csv$/);
     });
 
@@ -113,7 +112,7 @@ describe('Export Entries Logic', () => {
         dateFormat: 'MM/DD/YYYY'
       });
 
-      expect(result.data).toContain('01/15/2024');
+      expect(stripBom(result.data)).toContain('01/15/2024');
     });
   });
 
@@ -181,10 +180,10 @@ describe('Export Entries Logic', () => {
 
       const result = await dataExporter.export(malformedEntries, 'csv');
 
-      expect(result.data).toContain('John');
-      expect(result.data).toContain('Jane');
+      expect(stripBom(result.data)).toContain('John');
+      expect(stripBom(result.data)).toContain('Jane');
       // Should skip null/undefined entries
-      expect(result.data.split('\n').filter(line => line.trim())).toHaveLength(3); // header + 2 valid entries
+      expect(stripBom(result.data).split('\n').filter(line => line.trim())).toHaveLength(3); // header + 2 valid entries
     });
 
     it('should validate complex search parameters', () => {

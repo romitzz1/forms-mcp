@@ -1,8 +1,6 @@
 // ABOUTME: Data export utilities for converting Gravity Forms entries to CSV/JSON
-// ABOUTME: Handles complex field types, date formatting, and base64 encoding for downloads
+// ABOUTME: Handles complex field types, date formatting, CSV formula neutralization, and UTC filenames
 
-import * as fs from 'fs';
-import * as path from 'path';
 import type { IGravityEntry } from './gravityFormsTypes.js';
 
 export type ExportFormat = 'csv' | 'json';
@@ -11,29 +9,31 @@ export interface ExportOptions {
   dateFormat?: string;
   includeHeaders?: boolean;
   filename?: string;
-  saveToDisk?: boolean;
-  outputPath?: string;
-  skipBase64?: boolean;
   fieldIds?: string[];
+  entryOffset?: number;
 }
 
 export interface ExportResult {
   data: string;
-  base64Data?: string;
   filename: string;
   format: ExportFormat;
   mimeType: string;
-  filePath?: string;
+  previewRows?: string[][];
 }
 
-// Falls back to `fallback` for any falsy value, matching `||` semantics
-// (including an empty string) — `??`/`??=` would only treat null/undefined as
-// "missing" and is deliberately not used here.
-function withFallback(value: string | undefined, fallback: string): string {
-  if (value) {
-    return value;
-  }
-  return fallback;
+const FORMULA_LEADING = /^[=+\-@\t\r]/;
+const NUMBER_SHAPED = /^[+-]?(\d+(\.\d+)?|\.\d+)$/;
+const PHONE_SHAPED = /^\+[\d\s().-]+$/;
+const BOM = '﻿';
+const PREVIEW_DATA_ROWS = 3;
+
+// Spreadsheet apps execute cells that start with = + - @ (and tab/CR) as formulas.
+// Gravity Forms returns every value as a string, so number- and phone-shaped
+// strings are exempted by pattern rather than by type.
+export function neutralizeCsvCell(value: string): string {
+  if (!FORMULA_LEADING.test(value)) return value;
+  if (NUMBER_SHAPED.test(value) || PHONE_SHAPED.test(value)) return value;
+  return `'${value}`;
 }
 
 export class DataExporter {
@@ -100,27 +100,24 @@ export class DataExporter {
     return /^\d{4}-\d{2}-\d{2}(\s\d{2}:\d{2}:\d{2})?$/.test(value);
   }
 
-  private escapeCSVValue(value: unknown): string {
+  private cellText(value: unknown): string {
     if (value === null || value === undefined) {
       return '';
     }
-
-    let stringValue: string;
-
     if (typeof value === 'object' && !Array.isArray(value)) {
-      stringValue = JSON.stringify(value);
-    } else {
-      // This branch only ever sees primitives or arrays (plain objects were routed
-      // to JSON.stringify above), both of which have a meaningful (non-"[object
-      // Object]") toString, so the cast documents that rather than changing behavior.
-      stringValue = String(value as string | number | boolean | unknown[]);
+      return neutralizeCsvCell(JSON.stringify(value));
     }
+    // This branch only ever sees primitives or arrays (plain objects were routed
+    // to JSON.stringify above), both of which have a meaningful (non-"[object
+    // Object]") toString, so the cast documents that rather than changing behavior.
+    return neutralizeCsvCell(String(value as string | number | boolean | unknown[]));
+  }
 
+  private quoteCSV(stringValue: string): string {
     // Escape CSV special characters
     if (stringValue.includes(',') || stringValue.includes('\n') || stringValue.includes('"')) {
-      stringValue = '"' + stringValue.replace(/"/g, '""') + '"';
+      return '"' + stringValue.replace(/"/g, '""') + '"';
     }
-
     return stringValue;
   }
 
@@ -189,11 +186,11 @@ export class DataExporter {
     return filtered as IGravityEntry;
   }
 
-  private exportToCSV(entries: IGravityEntry[], options: ExportOptions = {}): string {
+  private exportToCSV(entries: IGravityEntry[], options: ExportOptions = {}): { data: string; previewRows: string[][] } {
     const validEntries = entries.filter(entry => entry && typeof entry === 'object');
 
     if (validEntries.length === 0) {
-      return '';
+      return { data: '', previewRows: [] };
     }
 
     // Apply field filtering if fieldIds is provided
@@ -213,20 +210,13 @@ export class DataExporter {
     ) as Array<Record<string, unknown>>;
 
     const allFields = this.getAllFields(sanitizedEntries);
-    const rows: string[] = [];
+    const cellRows: string[][] = sanitizedEntries.map(entry => allFields.map(field => this.cellText(entry[field])));
+    const includeHeaders = options.includeHeaders !== false;
+    const textRows = includeHeaders ? [allFields, ...cellRows] : cellRows;
+    const data = BOM + textRows.map(row => row.map(cell => this.quoteCSV(cell)).join(',')).join('\n');
+    const previewRows = [allFields, ...cellRows.slice(0, PREVIEW_DATA_ROWS)];
 
-    // Add headers if requested
-    if (options.includeHeaders !== false) {
-      rows.push(allFields.join(','));
-    }
-
-    // Add data rows
-    for (const entry of sanitizedEntries) {
-      const row = allFields.map(field => this.escapeCSVValue(entry[field]));
-      rows.push(row.join(','));
-    }
-
-    return rows.join('\n');
+    return { data, previewRows };
   }
 
   private exportToJSON(entries: IGravityEntry[], options: ExportOptions = {}): string {
@@ -252,16 +242,17 @@ export class DataExporter {
     return JSON.stringify(sanitizedEntries, null, 2);
   }
 
-  private generateFilename(format: ExportFormat, customFilename?: string): string {
+  private utcStamp(now: Date): string {
+    return now.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+  }
+
+  private generateFilename(format: ExportFormat, customFilename?: string, formId?: string, entryOffset?: number): string {
     if (customFilename) {
       return customFilename.endsWith(`.${format}`) ? customFilename : `${customFilename}.${format}`;
     }
-
-    const now = new Date();
-    const dateStr = now.toISOString().slice(0, 10); // YYYY-MM-DD
-    const timeStr = now.toTimeString().slice(0, 8).replace(/:/g, ''); // HHMMSS
-
-    return `export_${dateStr}_${timeStr}.${format}`;
+    const formPart = formId ? `-form-${formId}` : '';
+    const offsetPart = entryOffset ? `-offset-${entryOffset}` : '';
+    return `entries${formPart}${offsetPart}-${this.utcStamp(new Date())}.${format}`;
   }
 
   private getMimeType(format: ExportFormat): string {
@@ -275,74 +266,24 @@ export class DataExporter {
     }
   }
 
-  private getDefaultExportPath(formId?: string): string {
-    const exportDir = withFallback(process.env.GRAVITY_FORMS_EXPORT_DIR, './exports');
-    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-
-    if (formId) {
-      return path.join(exportDir, formId, today);
-    }
-    return path.join(exportDir, today);
-  }
-
-  private ensureDirectoryExists(dirPath: string): void {
-    try {
-      fs.mkdirSync(dirPath, { recursive: true });
-    } catch (error) {
-      throw new Error(`Failed to create directory ${dirPath}: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  }
-
-  private async saveToFile(data: string, filename: string, outputPath?: string, formId?: string): Promise<string> {
-    let fullPath: string;
-
-    if (outputPath) {
-      // Custom path provided
-      if (path.isAbsolute(outputPath)) {
-        fullPath = outputPath;
-      } else {
-        fullPath = path.resolve(outputPath);
-      }
-    } else {
-      // Use default path structure
-      const defaultDir = this.getDefaultExportPath(formId);
-      this.ensureDirectoryExists(defaultDir);
-      fullPath = path.join(defaultDir, filename);
-    }
-
-    // Ensure the directory exists for the file
-    const dir = path.dirname(fullPath);
-    this.ensureDirectoryExists(dir);
-
-    try {
-      await fs.promises.writeFile(fullPath, data, 'utf8');
-      return fullPath;
-    } catch (error) {
-      throw new Error(`Failed to save file to ${fullPath}: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  }
-
-  /**
-   * Persist arbitrary text content to disk using the same path conventions as
-   * entry exports (EXPORT_DIR/[formId]/YYYY-MM-DD/filename, or an explicit
-   * outputPath). Returns the absolute path written.
-   */
-  async saveContentToDisk(content: string, filename: string, formId?: string, outputPath?: string): Promise<string> {
-    return this.saveToFile(content, filename, outputPath, formId);
-  }
-
-  async export(
+  // Rendering is synchronous (no disk I/O), but the signature stays
+  // Promise-returning so callers awaiting export() don't need to change.
+  export(
     entries: IGravityEntry[],
     format: ExportFormat,
     options: ExportOptions = {},
     formId?: string
   ): Promise<ExportResult> {
     let data: string;
+    let previewRows: string[][] | undefined;
 
     switch (format) {
-      case 'csv':
-        data = this.exportToCSV(entries, options);
+      case 'csv': {
+        const csv = this.exportToCSV(entries, options);
+        data = csv.data;
+        previewRows = csv.previewRows;
         break;
+      }
       case 'json':
         data = this.exportToJSON(entries, options);
         break;
@@ -353,33 +294,12 @@ export class DataExporter {
         throw new Error(`Unsupported export format: ${String(format)}`);
     }
 
-    const filename = this.generateFilename(format, options.filename);
-    const mimeType = this.getMimeType(format);
-
-    // Conditionally generate base64 data
-    let base64Data: string | undefined;
-    if (!options.skipBase64) {
-      base64Data = data ? Buffer.from(data, 'utf-8').toString('base64') : '';
-    }
-
-    let filePath: string | undefined;
-
-    // Save to disk if requested
-    if (options.saveToDisk) {
-      try {
-        filePath = await this.saveToFile(data, filename, options.outputPath, formId);
-      } catch (error) {
-        throw new Error(`Failed to save export to disk: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      }
-    }
-
-    return {
+    return Promise.resolve({
       data,
-      base64Data,
-      filename,
+      filename: this.generateFilename(format, options.filename, formId, options.entryOffset),
       format,
-      mimeType,
-      filePath
-    };
+      mimeType: this.getMimeType(format),
+      previewRows,
+    });
   }
 }
