@@ -40,6 +40,8 @@ Edit `.env` and set:
 ```dotenv
 # A long random secret clients must present. Generate one with:  openssl rand -hex 32
 MCP_AUTH_TOKEN=paste-a-long-random-secret-here
+# The address your laptop uses to reach the container — download links are built from it
+MCP_PUBLIC_BASE_URL=http://<this-machine>:9807
 GRAVITY_FORMS_BASE_URL=https://your-wordpress-site.com
 GRAVITY_FORMS_CONSUMER_KEY=ck_your_consumer_key_here
 GRAVITY_FORMS_CONSUMER_SECRET=cs_your_consumer_secret_here
@@ -52,7 +54,7 @@ GRAVITY_FORMS_AUTH_METHOD=basic
 docker compose up -d --build
 ```
 
-The container runs as a non-root user on Node 24, listens on port `9807`, and persists the form cache and exports in the `gf-cache` / `gf-exports` named volumes (they survive restarts and rebuilds).
+The container runs as a non-root user on Node 24, listens on port `9807`, and keeps the form cache in the `gf-cache` volume and exports in the `gf-exports` volume. Exports survive restarts but are deleted after `GRAVITY_FORMS_EXPORT_RETENTION_DAYS` (default 7).
 
 Verify it's healthy (this endpoint needs no token):
 
