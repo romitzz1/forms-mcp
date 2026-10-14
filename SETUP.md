@@ -111,7 +111,7 @@ Once configured, your MCP server provides **20 powerful tools**:
 ### Enhanced Tools (8) 
 - `export_entries_formatted`, `process_entries_bulk`
 - `list_form_templates`, `save_form_as_template`, `create_form_from_template`
-- `export_form_json`, `import_form_json`, `clone_form_with_modifications`
+- `export_form_json`, `import_form_json`, `get_export_link`, `clone_form_with_modifications`
 
 ### System Tool (1)
 - `get_cache_status` - Monitor system performance

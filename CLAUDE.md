@@ -8,7 +8,7 @@ Claude's name in this project is "TurboMan", and likes to talk about itself in t
 
 This is an **Enhanced** Model Context Protocol (MCP) server that provides comprehensive tools for interacting with Gravity Forms through its REST API v2. The server enables AI assistants and MCP clients to manage WordPress Gravity Forms with advanced capabilities including bulk operations, template management, data export, and form import/export functionality.
 
-22 MCP tools are registered via the MCP SDK's `McpServer.registerTool` with hand-authored Zod input schemas (`utils/toolSchemas.ts`). The user-facing README documents them grouped by purpose; see "Architecture" below for where each tool's handler logic lives.
+23 MCP tools are registered via the MCP SDK's `McpServer.registerTool` with hand-authored Zod input schemas (`utils/toolSchemas.ts`). The user-facing README documents them grouped by purpose; see "Architecture" below for where each tool's handler logic lives.
 
 ## Development Commands
 
@@ -42,6 +42,9 @@ npm run test:watch
 
 # Type-check, lint, and test in one shot
 npm run quality
+
+# Opt-in end-to-end test against the live site (creates and force-deletes a synthetic form)
+RUN_E2E=1 npm run test:e2e
 ```
 
 Node.js 24+ is required (`.nvmrc` and `package.json` `engines` both pin `>=24.0.0`), driven by `better-sqlite3` ^12's prebuilt binaries.
@@ -51,7 +54,7 @@ Node.js 24+ is required (`.nvmrc` and `package.json` `engines` both pin `>=24.0.
 ### Entry points
 
 - **`cli.ts`** — the executable entry point. `package.json`'s `main`/`bin`/`start`/`dev` scripts all point at the compiled `dist/cli.js`. It exists as a separate file from `index.ts` so that importing the library (e.g. under Jest) never auto-starts a server.
-- **`index.ts`** — a ~657-line library module exporting `class GravityFormsMCPServer`. It owns configuration loading, cache lifecycle, and tool dispatch, but delegates most tool *logic* to the per-cluster modules below. It builds an `McpServer` (from `@modelcontextprotocol/sdk/server/mcp.js`), registers all 22 tools from `TOOL_SCHEMAS` in a loop, and dispatches each call by name to a handler method.
+- **`index.ts`** — a ~657-line library module exporting `class GravityFormsMCPServer`. It owns configuration loading, cache lifecycle, and tool dispatch, but delegates most tool *logic* to the per-cluster modules below. It builds an `McpServer` (from `@modelcontextprotocol/sdk/server/mcp.js`), registers all 23 tools from `TOOL_SCHEMAS` in a loop, and dispatches each call by name to a handler method.
 
 This is a migration away from the older, low-level `Server` + manual `ListTools`/`CallTool` request-handler pattern — the SDK's `McpServer.registerTool` now owns schema registration, and Zod schemas replace hand-written JSON Schema.
 
@@ -61,7 +64,7 @@ Each module exports plain functions that take a small dependency-injection objec
 
 - `utils/entryCrudTools.ts` — `submit_form`, `create_entry`, `update_entry`, `delete_entry`
 - `utils/formsTools.ts` — `create_form`, `update_form`
-- `utils/exportTools.ts` — `export_entries_formatted`, `export_form_json`
+- `utils/exportTools.ts` — `export_entries_formatted`, `export_form_json`, `get_export_link`
 - `utils/bulkTools.ts` — `process_entries_bulk`
 - `utils/templateTools.ts` — `save_form_as_template`, `create_form_from_template`, `clone_form_with_modifications`, `import_form_json`
 - `utils/fieldMappingTools.ts` — `get_field_mappings`
@@ -72,11 +75,15 @@ Each module exports plain functions that take a small dependency-injection objec
 
 ### Shared core
 
-- `utils/toolSchemas.ts` — `TOOL_SCHEMAS`: Zod input schemas + descriptions for all 22 tools; this is the single source of truth for tool names, inputs, and registered descriptions. Verified against the original hand-written JSON schemas by `toolSchemas.test.ts`.
+- `utils/toolSchemas.ts` — `TOOL_SCHEMAS`: Zod input schemas + descriptions for all 23 tools; this is the single source of truth for tool names, inputs, and registered descriptions. Verified against the original hand-written JSON schemas by `toolSchemas.test.ts`.
 - `utils/gravityFormsClient.ts` — `GravityFormsClient`: HTTP client for the Gravity Forms REST API v2 (auth headers + request execution), isolating transport concerns from tool handlers.
 - `utils/responseSizeManager.ts` — token/size estimation and entry/form summarization helpers, used to keep large responses from overflowing model context.
 - `utils/cacheTypes.ts` — shared `ICacheConfig`/`ICacheStatus` interfaces used by `index.ts` and `cacheTools.ts`.
 - `utils/database.ts` — SQLite connection management (init, connect, cleanup) underlying `FormCache`.
+- `utils/exportStore.ts` — filesystem export store
+- `utils/exportLinks.ts` — signed download URLs
+- `utils/exportConfig.ts` — export env parsing
+- `utils/exportResult.ts` — export result shaping
 
 ### Supporting utility classes
 
@@ -107,6 +114,7 @@ Each module exports plain functions that take a small dependency-injection objec
 - `POST /mcp` — session-based JSON-RPC endpoint, guarded by a constant-time bearer-token check (`createBearerAuthMiddleware`, SHA-256 + `timingSafeEqual`)
 - `GET /mcp` / `DELETE /mcp` — session resumption/close, also bearer-guarded
 - `GET /health` — unauthenticated liveness probe (used by the Docker `HEALTHCHECK` and orchestrators)
+- `GET /exports/:id` — signature-guarded export download (no bearer)
 - Idle sessions are swept every 5 minutes and closed after 30 minutes of inactivity
 
 Default port is `9807` (`MCP_HTTP_PORT`).
@@ -130,7 +138,10 @@ Default port is `9807` (`MCP_HTTP_PORT`).
   - `GRAVITY_FORMS_CACHE_MAX_AGE_SECONDS` — Cache entry max age (default: 3600, clamped to 60-86400)
   - `GRAVITY_FORMS_CACHE_MAX_PROBE_FAILURES` — Consecutive gap-probe failures before giving up during discovery (default: 10, clamped to 1-50)
   - `GRAVITY_FORMS_CACHE_AUTO_SYNC` — Automatic cache synchronization (default: true)
-  - `GRAVITY_FORMS_EXPORT_DIR` — Default directory for file exports (default: ./exports)
+  - `GRAVITY_FORMS_EXPORT_DIR` — Directory where exports are stored; must be absolute, `~` is expanded (default: `~/.gravity-forms-mcp/exports`)
+  - `GRAVITY_FORMS_EXPORT_RETENTION_DAYS` — Days to keep exports before deletion (default: 7, clamped to 1-365)
+  - `EXPORT_LINK_TTL_MINUTES` — Minutes a download link stays valid (default: 60, clamped to 1-1440)
+  - `MCP_PUBLIC_BASE_URL` — HTTP mode only; address clients use to reach the server, used to build export download links (missing → warning, links disabled)
   - `MCP_TRANSPORT` — `stdio` (default) or `http`
   - `MCP_HTTP_PORT` — HTTP transport port (default: 9807)
   - `MCP_AUTH_TOKEN` — Bearer token; required when `MCP_TRANSPORT=http`
