@@ -20,10 +20,12 @@ GRAVITY_FORMS_AUTH_METHOD=basic
 # Default: ~/.gravity-forms-mcp/exports
 GRAVITY_FORMS_EXPORT_DIR=/absolute/path/to/exports
 
-# Days to keep exports before they are deleted (clamped to 1-365, default 7)
+# Days to keep exports before they are deleted (1-365, default 7; values
+# outside the range fall back to the default, with a startup warning)
 GRAVITY_FORMS_EXPORT_RETENTION_DAYS=7
 
-# Minutes a download link stays valid (clamped to 1-1440, default 60)
+# Minutes a download link stays valid (1-1440, default 60; values outside
+# the range fall back to the default, with a startup warning)
 EXPORT_LINK_TTL_MINUTES=60
 
 # HTTP mode only — the address clients use to reach this server; download

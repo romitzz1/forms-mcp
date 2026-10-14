@@ -375,7 +375,7 @@ const result = await get_export_link({ export_id: "AbCdEf123..." });
 
 ### Result Shape
 
-`export_entries_formatted`, `export_form_json`, and `get_export_link` all return an MCP `content` array, not a raw file:
+`export_entries_formatted` and `export_form_json` return an MCP `content` array, not a raw file — a text block plus a `resource_link` pointing at the saved export. `get_export_link` returns only the text block (filename, size, retention, and the delivery line); it never returns a `resource_link`, since the export already has one from whichever tool created it.
 
 ```typescript
 interface IExportToolResult {

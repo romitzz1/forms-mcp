@@ -83,6 +83,9 @@ set the same variables in the `env` block instead).
 | `GRAVITY_FORMS_CACHE_DB_PATH` | no | `./data/forms-cache.db` | Cache database path |
 | `GRAVITY_FORMS_CACHE_MAX_AGE_SECONDS` | no | `3600` | How long cached forms are considered fresh |
 | `GRAVITY_FORMS_EXPORT_DIR` | no | `~/.gravity-forms-mcp/exports` | Directory where exports are stored (must be absolute) |
+| `GRAVITY_FORMS_EXPORT_RETENTION_DAYS` | no | `7` | Days to keep exports before deletion (1-365; out-of-range values fall back to the default, with a startup warning) |
+| `EXPORT_LINK_TTL_MINUTES` | no | `60` | Minutes a download link stays valid (1-1440; out-of-range values fall back to the default, with a startup warning) |
+| `MCP_PUBLIC_BASE_URL` | no (HTTP mode only) | — | The address your laptop uses to reach the server; export download links are built from it |
 
 The cache also supports `GRAVITY_FORMS_CACHE_AUTO_SYNC`,
 `GRAVITY_FORMS_FULL_SYNC_INTERVAL_HOURS`, `GRAVITY_FORMS_MIN_FORM_ID`, and a
@@ -110,6 +113,7 @@ instead of stdio:
 MCP_TRANSPORT=http
 MCP_AUTH_TOKEN=a-long-random-string   # required — server refuses to start without it
 MCP_HTTP_PORT=9807                    # optional, this is the default
+MCP_PUBLIC_BASE_URL=http://<host>:9807 # the address your laptop uses to reach the server; download links are built from it
 ```
 
 Clients connect to `http://<host>:9807/mcp` with an
@@ -125,7 +129,9 @@ the HTTP mode above in a container:
 
 ```bash
 cp .env.docker.example .env
-# edit .env: set a strong MCP_AUTH_TOKEN and your GRAVITY_FORMS_* credentials
+# edit .env: set a strong MCP_AUTH_TOKEN, your GRAVITY_FORMS_* credentials, and
+# MCP_PUBLIC_BASE_URL=http://<host>:9807 — the address your laptop uses to
+# reach the server; download links are built from it
 docker compose up -d --build
 ```
 

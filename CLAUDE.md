@@ -54,7 +54,7 @@ Node.js 24+ is required (`.nvmrc` and `package.json` `engines` both pin `>=24.0.
 ### Entry points
 
 - **`cli.ts`** — the executable entry point. `package.json`'s `main`/`bin`/`start`/`dev` scripts all point at the compiled `dist/cli.js`. It exists as a separate file from `index.ts` so that importing the library (e.g. under Jest) never auto-starts a server.
-- **`index.ts`** — a ~657-line library module exporting `class GravityFormsMCPServer`. It owns configuration loading, cache lifecycle, and tool dispatch, but delegates most tool *logic* to the per-cluster modules below. It builds an `McpServer` (from `@modelcontextprotocol/sdk/server/mcp.js`), registers all 23 tools from `TOOL_SCHEMAS` in a loop, and dispatches each call by name to a handler method.
+- **`index.ts`** — a ~840-line library module exporting `class GravityFormsMCPServer`. It owns configuration loading, cache lifecycle, and tool dispatch, but delegates most tool *logic* to the per-cluster modules below. It builds an `McpServer` (from `@modelcontextprotocol/sdk/server/mcp.js`), registers all 23 tools from `TOOL_SCHEMAS` in a loop, and dispatches each call by name to a handler method.
 
 This is a migration away from the older, low-level `Server` + manual `ListTools`/`CallTool` request-handler pattern — the SDK's `McpServer.registerTool` now owns schema registration, and Zod schemas replace hand-written JSON Schema.
 
@@ -139,8 +139,8 @@ Default port is `9807` (`MCP_HTTP_PORT`).
   - `GRAVITY_FORMS_CACHE_MAX_PROBE_FAILURES` — Consecutive gap-probe failures before giving up during discovery (default: 10, clamped to 1-50)
   - `GRAVITY_FORMS_CACHE_AUTO_SYNC` — Automatic cache synchronization (default: true)
   - `GRAVITY_FORMS_EXPORT_DIR` — Directory where exports are stored; must be absolute, `~` is expanded (default: `~/.gravity-forms-mcp/exports`)
-  - `GRAVITY_FORMS_EXPORT_RETENTION_DAYS` — Days to keep exports before deletion (default: 7, clamped to 1-365)
-  - `EXPORT_LINK_TTL_MINUTES` — Minutes a download link stays valid (default: 60, clamped to 1-1440)
+  - `GRAVITY_FORMS_EXPORT_RETENTION_DAYS` — Days to keep exports before deletion (default: 7; values outside the range 1-365 fall back to the default, with a startup warning)
+  - `EXPORT_LINK_TTL_MINUTES` — Minutes a download link stays valid (default: 60; values outside the range 1-1440 fall back to the default, with a startup warning)
   - `MCP_PUBLIC_BASE_URL` — HTTP mode only; address clients use to reach the server, used to build export download links (missing → warning, links disabled)
   - `MCP_TRANSPORT` — `stdio` (default) or `http`
   - `MCP_HTTP_PORT` — HTTP transport port (default: 9807)
