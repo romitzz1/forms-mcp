@@ -1,0 +1,139 @@
+// ABOUTME: Integration tests for the gf-export:// resource template and export lifecycle wiring
+// ABOUTME: Drives a real McpServer over InMemoryTransport with the SDK client
+
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { promises as fsp } from 'node:fs';
+import * as path from 'node:path';
+import { GravityFormsMCPServer } from '../../index';
+import type { ExportStore } from '../../utils/exportStore';
+
+// Widens access to the server's private export-store/lifecycle internals for
+// these integration tests without resorting to `any`.
+interface ITestableServer {
+  exportStore: ExportStore;
+  sweepTimer: NodeJS.Timeout | null;
+  startup(): Promise<void>;
+  shutdown(): Promise<void>;
+  callTool(request: { params: { name: string; arguments?: Record<string, unknown> } }): Promise<{
+    isError: boolean;
+    content: Array<{ text: string }>;
+  }>;
+}
+
+function asTestable(server: GravityFormsMCPServer): ITestableServer {
+  return server as unknown as ITestableServer;
+}
+
+async function connect(server: GravityFormsMCPServer): Promise<Client> {
+  const [clientT, serverT] = InMemoryTransport.createLinkedPair();
+  await server.createSessionServer().connect(serverT);
+  const client = new Client({ name: 'test', version: '0.0.0' });
+  await client.connect(clientT);
+  return client;
+}
+
+describe('gf-export:// resources', () => {
+  let server: GravityFormsMCPServer;
+
+  beforeEach(() => {
+    server = new GravityFormsMCPServer();
+  });
+
+  it('reads an export by URI', async () => {
+    const rec = await asTestable(server).exportStore.save('a,b\n1,2', 'r.csv', 'csv');
+    const client = await connect(server);
+    const res = await client.readResource({ uri: `gf-export://${rec.id}` });
+    expect(res.contents[0].mimeType).toBe('text/csv; charset=utf-8');
+    expect((res.contents[0] as { text: string }).text).toHaveLength(7);
+  });
+
+  it('returns -32002 for unknown ids and points over-cap reads at get_export_link', async () => {
+    const client = await connect(server);
+    await expect(client.readResource({ uri: 'gf-export://AbCdEfGhIjKlMnOpQrStUv' })).rejects.toMatchObject({ code: -32002 });
+    const big = await asTestable(server).exportStore.save('x'.repeat(262145), 'big.csv', 'csv');
+    await expect(client.readResource({ uri: `gf-export://${big.id}` })).rejects.toThrow(/get_export_link/);
+  });
+
+  it('lists get_export_link among the tools', async () => {
+    const client = await connect(server);
+    const { tools } = await client.listTools();
+    expect(tools.map((t) => t.name)).toContain('get_export_link');
+  });
+
+  it('get_export_link and import_form_json(export_id) are dispatched', async () => {
+    const rec = await asTestable(server).exportStore.save('{"title":"T","fields":[]}', 'f.json', 'json');
+    const link = await asTestable(server).callTool({ params: { name: 'get_export_link', arguments: { export_id: rec.id } } });
+    expect(link.isError).toBe(false);
+
+    // An unknown but well-formed export_id reaches the store (via getExportStore())
+    // instead of being treated as inline form_json or hitting the WordPress API.
+    const imported = await asTestable(server).callTool({
+      params: { name: 'import_form_json', arguments: { export_id: 'AbCdEfGhIjKlMnOpQrStUv' } },
+    });
+    expect(imported.isError).toBe(true);
+    expect(imported.content[0].text).toContain('Export not found');
+  });
+
+  it('rejects resources/read for a URI that matches no resource template', async () => {
+    const client = await connect(server);
+    await expect(client.readResource({ uri: 'gf-export://a/b' })).rejects.toMatchObject({ code: -32602 });
+    await expect(client.readResource({ uri: 'other://x' })).rejects.toMatchObject({ code: -32602 });
+  });
+
+  it('startup warns (does not throw) on an unwritable export dir, and shutdown clears the sweep timer', async () => {
+    const blocker = path.join(process.env.GRAVITY_FORMS_EXPORT_DIR as string, 'blocker-file');
+    await fsp.writeFile(blocker, 'x');
+    const original = process.env.GRAVITY_FORMS_EXPORT_DIR;
+    process.env.GRAVITY_FORMS_EXPORT_DIR = blocker;
+    process.env.GRAVITY_FORMS_CACHE_ENABLED = 'false';
+    try {
+      const s = asTestable(new GravityFormsMCPServer());
+      await expect(s.startup()).resolves.toBeUndefined();
+      const calls = (console.error as jest.Mock).mock.calls.flat().join('\n');
+      expect(calls).toContain('export directory not writable');
+      const r = await s.callTool({ params: { name: 'get_export_link', arguments: { export_id: 'AbCdEfGhIjKlMnOpQrStUv' } } });
+      expect(r.isError).toBe(true);
+      expect(r.content[0].text).toContain('export directory not writable');
+      expect(s.sweepTimer).not.toBeNull();
+      await s.shutdown();
+      expect(s.sweepTimer).toBeNull();
+    } finally {
+      process.env.GRAVITY_FORMS_EXPORT_DIR = original;
+      delete process.env.GRAVITY_FORMS_CACHE_ENABLED;
+    }
+  });
+
+  it('clears the previous sweep timer when startup() runs twice', async () => {
+    process.env.GRAVITY_FORMS_CACHE_ENABLED = 'false';
+    const clearSpy = jest.spyOn(global, 'clearInterval');
+    try {
+      const s = asTestable(new GravityFormsMCPServer());
+      await s.startup();
+      const firstTimer = s.sweepTimer;
+      await s.startup();
+      expect(clearSpy).toHaveBeenCalledWith(firstTimer);
+      await s.shutdown();
+    } finally {
+      clearSpy.mockRestore();
+      delete process.env.GRAVITY_FORMS_CACHE_ENABLED;
+    }
+  });
+
+  it('startup logs a warning when legacy export files exist', async () => {
+    const dir = process.env.GRAVITY_FORMS_EXPORT_DIR as string;
+    await fsp.mkdir(path.join(dir, '42', '2026-08-01'), { recursive: true });
+    await fsp.writeFile(path.join(dir, '42', '2026-08-01', 'old.csv'), 'x');
+    process.env.GRAVITY_FORMS_CACHE_ENABLED = 'false';
+    try {
+      const s = asTestable(new GravityFormsMCPServer());
+      await s.startup();
+      const calls = (console.error as jest.Mock).mock.calls.flat().join('\n');
+      expect(calls).toContain('legacy export files');
+      await s.shutdown();
+    } finally {
+      delete process.env.GRAVITY_FORMS_CACHE_ENABLED;
+      await fsp.rm(path.join(dir, '42'), { recursive: true, force: true });
+    }
+  });
+});

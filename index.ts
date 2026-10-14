@@ -1,5 +1,5 @@
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
   ErrorCode,
@@ -35,8 +35,18 @@ import {
 import {
   exportEntriesFormatted as exportEntriesFormattedHandler,
   exportFormJson as exportFormJsonHandler,
+  getExportLink as getExportLinkHandler,
 } from "./utils/exportTools.js";
-import type { ExportEntriesFormattedArgs, ExportFormJsonArgs, ExportToolResult } from "./utils/exportTools.js";
+import type { ExportEntriesFormattedArgs, ExportFormJsonArgs, ExportToolContext, IExportDeliveryConfig, IExportToolResult, IGetExportLinkArgs } from "./utils/exportTools.js";
+import { loadExportConfig } from "./utils/exportConfig.js";
+import type { IExportConfig } from "./utils/exportConfig.js";
+import { deriveLinkKey } from "./utils/exportLinks.js";
+import {
+  ExportExpiredError,
+  ExportNotFoundError,
+  ExportStore,
+  ExportTooLargeError,
+} from "./utils/exportStore.js";
 import { processEntriesBulk as processEntriesBulkHandler } from "./utils/bulkTools.js";
 import {
   cloneFormWithModifications as cloneFormWithModificationsHandler,
@@ -73,6 +83,7 @@ import type { IGravityEntry, IGravityForm } from "./utils/gravityFormsTypes.js";
 import type { IEntrySummary } from "./utils/responseSizeManager.js";
 import type { ApiClient as SearchApiClient } from "./utils/universalSearchManager.js";
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 
 // Configuration interface
@@ -99,6 +110,12 @@ interface IToolCallResponse {
   [key: string]: unknown;
 }
 
+// Largest export body a resources/read will return inline; bigger files go through get_export_link.
+const EXPORT_RESOURCE_MAX_BYTES = 256 * 1024;
+// MCP 2025-11-25 "resource not found" code; 2026-07-28 clients are told to accept it.
+const RESOURCE_NOT_FOUND = -32002;
+const EXPORT_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
+
 export class GravityFormsMCPServer {
   private readonly mcpServer: McpServer;
   private readonly server: Server;
@@ -107,6 +124,11 @@ export class GravityFormsMCPServer {
   private readonly cacheConfig: ICacheConfig;
   private readonly dataExporter: DataExporter;
   private readonly validator: ValidationHelper;
+  private readonly exportConfig: IExportConfig;
+  private readonly exportStore: ExportStore;
+  private readonly linkKey: Buffer | null;
+  private exportStoreError: string | null = null;
+  private sweepTimer: NodeJS.Timeout | null = null;
   private bulkOperationsManager?: BulkOperationsManager;
   private templateManager?: TemplateManager;
   private formImporter?: FormImporter;
@@ -139,6 +161,15 @@ export class GravityFormsMCPServer {
 
     // Load cache configuration
     this.cacheConfig = this.loadCacheConfig();
+
+    this.exportConfig = loadExportConfig(process.env, os.homedir());
+    this.exportStore = new ExportStore({
+      dir: this.exportConfig.exportDir,
+      retentionDays: this.exportConfig.retentionDays,
+    });
+    this.linkKey = this.exportConfig.mode === 'http' && this.exportConfig.authToken
+      ? deriveLinkKey(this.exportConfig.authToken)
+      : null;
 
     // Initialize utility classes
     this.dataExporter = new DataExporter();
@@ -244,11 +275,55 @@ export class GravityFormsMCPServer {
   }
 
   /**
+   * Prepare the export store: create its directories, warn about unmanaged
+   * legacy files and missing link configuration, and start the retention sweep.
+   * Never throws — export tools report an unwritable directory per call.
+   */
+  private async initializeExportStore(): Promise<void> {
+    for (const warning of this.exportConfig.warnings) {
+      console.error(`[WARN] ${warning}`);
+    }
+    try {
+      await this.exportStore.init();
+    } catch (error) {
+      this.exportStoreError = error instanceof Error ? error.message : String(error);
+      console.error(`[WARN] ${this.exportStoreError}; export tools will fail until this is fixed`);
+    }
+    try {
+      const legacy = await this.exportStore.countLegacyFiles();
+      if (legacy > 0) {
+        console.error(`[WARN] ${legacy} legacy export files in ${this.exportConfig.exportDir} are not managed and will not expire; delete them manually`);
+      }
+    } catch (error) {
+      console.error(`[WARN] could not scan for legacy export files: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    const sweep = (): void => {
+      this.exportStore.sweep().catch((error: unknown) => {
+        console.error('[WARN] export sweep failed:', error instanceof Error ? error.message : String(error));
+      });
+    };
+    sweep();
+    if (this.sweepTimer) {
+      clearInterval(this.sweepTimer);
+    }
+    this.sweepTimer = setInterval(sweep, EXPORT_SWEEP_INTERVAL_MS);
+    this.sweepTimer.unref();
+  }
+
+  /**
+   * Export download wiring for the HTTP transport; undefined when links can't be signed.
+   */
+  getHttpExportOptions(): { store: ExportStore; linkKey: Buffer } | undefined {
+    return this.linkKey ? { store: this.exportStore, linkKey: this.linkKey } : undefined;
+  }
+
+  /**
    * Server startup lifecycle method
    */
   private async startup(): Promise<void> {
     this.validateConfig();
     await this.initializeCache();
+    await this.initializeExportStore();
   }
 
   /**
@@ -270,6 +345,10 @@ export class GravityFormsMCPServer {
    * Server shutdown lifecycle method
    */
   private async shutdown(): Promise<void> {
+    if (this.sweepTimer) {
+      clearInterval(this.sweepTimer);
+      this.sweepTimer = null;
+    }
     if (this.formCache && this.formCache !== null) {
       try {
         await this.formCache.close();
@@ -331,6 +410,38 @@ export class GravityFormsMCPServer {
 
   private setupToolHandlers(): void {
     this.registerTools(this.mcpServer);
+    this.registerExportResource(this.mcpServer);
+  }
+
+  /**
+   * Register the gf-export://{id} resource template (read only — no list callback).
+   */
+  private registerExportResource(target: McpServer): void {
+    target.registerResource(
+      'export',
+      new ResourceTemplate('gf-export://{id}', { list: undefined }),
+      { description: 'A file produced by export_form_json or export_entries_formatted' },
+      async (uri, variables) => {
+        const id = Array.isArray(variables.id) ? variables.id[0] : variables.id;
+        try {
+          const store = this.getExportStore();
+          const record = await store.get(id);
+          const text = await store.readText(id, EXPORT_RESOURCE_MAX_BYTES);
+          return { contents: [{ uri: uri.href, mimeType: record.mimeType, text }] };
+        } catch (error) {
+          if (error instanceof ExportNotFoundError || error instanceof ExportExpiredError) {
+            throw new McpError(RESOURCE_NOT_FOUND, error.message);
+          }
+          if (error instanceof ExportTooLargeError) {
+            throw new McpError(
+              ErrorCode.InvalidParams,
+              `Export is ${error.size} bytes, over the ${EXPORT_RESOURCE_MAX_BYTES}-byte read limit; call get_export_link to download it`
+            );
+          }
+          throw error;
+        }
+      }
+    );
   }
 
   /**
@@ -363,10 +474,12 @@ export class GravityFormsMCPServer {
    * Build a fresh MCP server (all tools registered) for a single connection. The
    * Streamable HTTP transport needs one server per session because a server can
    * only connect to a single transport; the shared handlers keep caches unified.
+   * Also used by the end-to-end test harness.
    */
-  private createSessionServer(): Server {
+  createSessionServer(): Server {
     const mcpServer = new McpServer({ name: SERVER_NAME, version: SERVER_VERSION });
     this.registerTools(mcpServer);
+    this.registerExportResource(mcpServer);
     return mcpServer.server;
   }
 
@@ -400,6 +513,7 @@ export class GravityFormsMCPServer {
       search_entries_by_name: (args) => this.searchEntriesByName(args),
       search_entries_universal: (args) => this.searchEntriesUniversal(args),
       get_field_mappings: (args) => this.getFieldMappings(args),
+      get_export_link: (args) => this.getExportLink(args),
     };
   }
 
@@ -530,12 +644,35 @@ export class GravityFormsMCPServer {
     return updateFormHandler({ makeRequest: (endpoint, method, body) => this.makeRequest(endpoint, method, body) }, args);
   }
 
-  private async exportEntriesFormatted(args: unknown): Promise<ExportToolResult> {
-    return exportEntriesFormattedHandler({
-      makeRequest: (endpoint, method, body) => this.makeRequest(endpoint, method, body),
+  private getExportStore(): ExportStore {
+    if (this.exportStoreError) {
+      // exportStoreError already reads "export directory not writable: <dir> (<cause>)"
+      throw new McpError(ErrorCode.InternalError, this.exportStoreError);
+    }
+    return this.exportStore;
+  }
+
+  private getExportDelivery(): IExportDeliveryConfig {
+    return {
+      mode: this.exportConfig.mode,
+      publicBaseUrl: this.exportConfig.publicBaseUrl,
+      linkKey: this.linkKey,
+      linkTtlMinutes: this.exportConfig.linkTtlMinutes,
+    };
+  }
+
+  private exportToolContext(): ExportToolContext {
+    return {
+      makeRequest: <T = unknown>(endpoint: string, method?: string, body?: unknown) => this.makeRequest<T>(endpoint, method, body),
       validator: this.validator,
       dataExporter: this.dataExporter,
-    }, args as ExportEntriesFormattedArgs);
+      getExportStore: () => this.getExportStore(),
+      delivery: this.getExportDelivery(),
+    };
+  }
+
+  private async exportEntriesFormatted(args: unknown): Promise<IExportToolResult> {
+    return exportEntriesFormattedHandler(this.exportToolContext(), args as ExportEntriesFormattedArgs);
   }
 
   private getBulkOperationsManager(): BulkOperationsManager {
@@ -575,12 +712,12 @@ export class GravityFormsMCPServer {
     }, args as CreateFormFromTemplateArgs);
   }
 
-  private async exportFormJson(args: unknown): Promise<ExportToolResult> {
-    return exportFormJsonHandler({
-      makeRequest: (endpoint, method, body) => this.makeRequest(endpoint, method, body),
-      validator: this.validator,
-      dataExporter: this.dataExporter,
-    }, args as ExportFormJsonArgs);
+  private async exportFormJson(args: unknown): Promise<IExportToolResult> {
+    return exportFormJsonHandler(this.exportToolContext(), args as ExportFormJsonArgs);
+  }
+
+  private async getExportLink(args: unknown): Promise<IExportToolResult> {
+    return getExportLinkHandler(this.exportToolContext(), args as IGetExportLinkArgs);
   }
 
   private getTemplateManager(): TemplateManager {
@@ -606,6 +743,7 @@ export class GravityFormsMCPServer {
       makeRequest: (endpoint, method, body) => this.makeRequest(endpoint, method, body),
       getTemplateManager: () => this.getTemplateManager(),
       getFormImporter: () => this.getFormImporter(),
+      getExportStore: () => this.getExportStore(),
     }, args as ImportFormJsonArgs);
   }
 
@@ -699,7 +837,7 @@ export class GravityFormsMCPServer {
       }
       const port = Number(process.env.MCP_HTTP_PORT ?? "9807");
       const { startHttpServer } = await import("./utils/httpTransport.js");
-      await startHttpServer(() => this.createSessionServer(), { port, token });
+      await startHttpServer(() => this.createSessionServer(), { port, token, exports: this.getHttpExportOptions() });
       console.error(`Gravity Forms MCP server listening on http://0.0.0.0:${port}/mcp`);
     } else {
       const transport = new StdioServerTransport();

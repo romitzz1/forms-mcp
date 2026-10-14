@@ -1,11 +1,14 @@
 // ABOUTME: Express-based Streamable HTTP transport for the Gravity Forms MCP server.
-// ABOUTME: Guards the /mcp endpoint with a shared bearer token for private-network use.
+// ABOUTME: Guards /mcp with a shared bearer token; serves exports via signed, short-lived links.
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import express from 'express';
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { Server as HttpServer } from 'node:http';
+import { checkSignature, isLinkExpired } from './exportLinks.js';
+import { ExportExpiredError, ExportNotFoundError, isValidExportId } from './exportStore.js';
+import type { ExportStore } from './exportStore.js';
 
 const SESSION_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
 const SESSION_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
@@ -28,9 +31,83 @@ export function createBearerAuthMiddleware(expected: string): express.RequestHan
   };
 }
 
+function sendText(res: express.Response, status: number, text: string): void {
+  res.status(status).type('text/plain').send(text);
+}
+
+export function createExportDownloadHandler(
+  store: ExportStore,
+  linkKey: Buffer,
+  now: () => number = () => Date.now()
+): express.RequestHandler {
+  return async (req, res) => {
+    const id = String(req.params.id);
+    const exp = typeof req.query.exp === 'string' ? req.query.exp : '';
+    const sig = typeof req.query.sig === 'string' ? req.query.sig : '';
+
+    if (!isValidExportId(id)) {
+      sendText(res, 404, 'Export not found');
+      return;
+    }
+    if (!checkSignature(id, exp, sig, linkKey)) {
+      sendText(res, 403, 'Invalid link');
+      return;
+    }
+
+    let opened;
+    try {
+      opened = await store.open(id);
+    } catch (error) {
+      if (error instanceof ExportNotFoundError) {
+        sendText(res, 404, 'Export not found');
+      } else if (error instanceof ExportExpiredError) {
+        sendText(res, 410, 'Export expired');
+      } else {
+        console.error('Export download failed:', error);
+        sendText(res, 500, 'Download failed');
+      }
+      return;
+    }
+
+    if (isLinkExpired(Number(exp), Math.floor(now() / 1000))) {
+      await opened.handle.close().catch(() => undefined);
+      sendText(res, 410, 'Link expired; ask Claude for a fresh link (get_export_link)');
+      return;
+    }
+
+    const { record, handle } = opened;
+
+    // The client can disconnect while `store.open` above was pending; `res.on('close', ...)`
+    // below is registered too late to catch that, so check explicitly before piping — a
+    // destroyed response would otherwise strand the stream and leak the file handle.
+    if (res.destroyed) {
+      await handle.close();
+      return;
+    }
+
+    res.status(200);
+    res.setHeader('Content-Type', record.mimeType);
+    res.setHeader('Content-Length', String(record.size));
+    res.setHeader('Content-Disposition', `attachment; filename="${record.filename}"`);
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+
+    // The handle was opened before streaming starts, so a concurrent sweep that
+    // unlinks the file cannot truncate this response. autoClose releases it once
+    // piping starts; earlier exits close it explicitly.
+    const stream = handle.createReadStream();
+    stream.on('error', (error) => {
+      console.error('Export stream error:', error);
+      res.destroy(error);
+    });
+    res.on('close', () => stream.destroy());
+    stream.pipe(res);
+  };
+}
+
 export function startHttpServer(
   createServer: () => Server,
-  opts: { port: number; token: string }
+  opts: { port: number; token: string; exports?: { store: ExportStore; linkKey: Buffer } }
 ): Promise<HttpServer> {
   const app = express();
   app.use(express.json());
@@ -39,6 +116,11 @@ export function startHttpServer(
   app.get('/health', (_req, res) => {
     res.status(200).json({ status: 'ok' });
   });
+
+  // Signature-guarded, not bearer-guarded: links must work from a browser click.
+  if (opts.exports) {
+    app.get('/exports/:id', createExportDownloadHandler(opts.exports.store, opts.exports.linkKey));
+  }
 
   const transports: Record<string, StreamableHTTPServerTransport> = {};
   const lastActivity: Record<string, number> = {};

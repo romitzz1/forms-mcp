@@ -287,6 +287,117 @@ const entries = await get_entries({
 });
 ```
 
+## Export & Import Tools
+
+### export_entries_formatted
+
+**Export entries from a form as CSV or JSON**
+
+Saves the file to the server's export store (never inlined in the response) and returns a summary, a preview, and a delivery method.
+
+#### Parameters
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `form_id` | string | ✅ | - | Gravity Forms form ID |
+| `format` | string | ✅ | - | `"csv"` or `"json"` |
+| `search` | object | ❌ | - | `field_filters`, `status`, `date_range` (`start`/`end`), or the LLM-friendly `start_date`/`end_date` |
+| `date_format` | string | ❌ | - | Date format for exported dates |
+| `filename` | string | ❌ | - | Custom filename for the export |
+| `include_headers` | boolean | ❌ | `true` | Include headers in CSV export |
+| `field_ids` | string[] | ❌ | - | Only export these field IDs, e.g. `["1", "2", "4.3"]` |
+| `paging` | object | ❌ | - | `page_size` (max 1000), `current_page` |
+
+`output_path` was removed; passing it throws an error. Exports are always delivered as a download link (HTTP mode) or local path (stdio mode) plus a `gf-export://` resource link — see [Result Shape](#result-shape) below.
+
+#### Example Usage
+
+```javascript
+const result = await export_entries_formatted({
+  form_id: "193",
+  format: "csv",
+  search: { status: "active" }
+});
+```
+
+---
+
+### export_form_json
+
+**Export a complete form definition as JSON**
+
+For migration or re-import via `import_form_json`'s `export_id`. Notification recipients are replaced with `{admin_email}` and payment-gateway secrets are removed before saving.
+
+#### Parameters
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `form_id` | string | ✅ | - | ID of the form to export |
+| `filename` | string | ❌ | `form-{form_id}-{title-slug}.json` | Output filename |
+
+`output_path` was removed; passing it throws an error.
+
+#### Example Usage
+
+```javascript
+const result = await export_form_json({ form_id: "193" });
+```
+
+---
+
+### import_form_json (export_id)
+
+`import_form_json` accepts exactly one of `form_json` (a JSON string) or `export_id` (the ID from a prior `export_form_json` result) — passing both or neither is an error. Using `export_id` re-reads the saved export from the export store instead of requiring the caller to paste the whole JSON definition back in.
+
+```javascript
+const result = await import_form_json({ export_id: "AbCdEf123...", force_import: false });
+```
+
+---
+
+### get_export_link
+
+**Get a fresh download link or local path for an existing export**
+
+Use this when a previously returned download link has expired; the underlying export file is kept until the retention period elapses, independent of link expiry.
+
+#### Parameters
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `export_id` | string | ✅ | - | Export ID (the part after `gf-export://` in a prior result's resource link) |
+
+#### Example Usage
+
+```javascript
+const result = await get_export_link({ export_id: "AbCdEf123..." });
+```
+
+### Result Shape
+
+`export_entries_formatted` and `export_form_json` return an MCP `content` array, not a raw file — a text block plus a `resource_link` pointing at the saved export. `get_export_link` returns only the text block (filename, size, retention, and the delivery line); it never returns a `resource_link`, since the export already has one from whichever tool created it.
+
+```typescript
+interface IExportToolResult {
+  content: Array<
+    | { type: "text"; text: string }               // summary + preview + delivery info
+    | {                                              // the saved file, referenced (not inlined)
+        type: "resource_link";
+        uri: string;        // gf-export://<export_id>
+        name: string;       // filename
+        mimeType: string;
+        size: number;       // bytes
+      }
+  >;
+}
+```
+
+The `text` block's delivery line depends on transport:
+
+- **HTTP mode**, `MCP_PUBLIC_BASE_URL` set: a signed `Download:` URL plus its expiry, and a `curl` command to save it.
+- **HTTP mode**, `MCP_PUBLIC_BASE_URL` unset: a line stating download links are disabled.
+- **stdio mode**: the export's local file path on disk, plus a reminder that it is deleted after the retention period.
+
 ## Utility Tools
 
 ### get_cache_status

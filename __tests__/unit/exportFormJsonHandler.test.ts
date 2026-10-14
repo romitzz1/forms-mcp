@@ -1,16 +1,23 @@
-// ABOUTME: Tests for the real export_form_json handler: disk write, summary response, sanitization
+// ABOUTME: Tests for the real export_form_json handler: store save, summary response, sanitization
 // ABOUTME: Complements exportFormJson.test.ts, which only exercises simulated export logic
 
-import { exportFormJson, ExportToolContext } from '../../utils/exportTools';
+import { promises as fsp } from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { DataExporter } from '../../utils/dataExporter';
+import { ExportStore } from '../../utils/exportStore';
+import { exportFormJson, ExportToolContext, OUTPUT_PATH_REMOVED } from '../../utils/exportTools';
+import { ValidationHelper } from '../../utils/validation';
 
-function makeCtx(form: any, saveImpl?: (content: string, filename: string, formId?: string, outputPath?: string) => Promise<string>) {
-  const saveContentToDisk = jest.fn(saveImpl ?? (async (_c, filename, formId) => `/exports/${formId}/${filename}`));
+function makeCtx(form: any, store: ExportStore) {
   const ctx = {
     makeRequest: jest.fn(async () => form),
-    validator: {} as any,
-    dataExporter: { saveContentToDisk } as any
+    validator: new ValidationHelper(),
+    dataExporter: new DataExporter(),
+    getExportStore: () => store,
+    delivery: { mode: 'stdio' as const, publicBaseUrl: undefined, linkKey: null, linkTtlMinutes: 60 },
   } as unknown as ExportToolContext;
-  return { ctx, saveContentToDisk };
+  return { ctx };
 }
 
 const baseForm = {
@@ -24,26 +31,37 @@ const baseForm = {
 };
 
 describe('export_form_json handler', () => {
-  it('writes the JSON to disk and returns a path + summary without inlining json_data', async () => {
-    const { ctx, saveContentToDisk } = makeCtx(baseForm);
+  let dir: string;
+  let store: ExportStore;
 
-    const result = await exportFormJson(ctx, { form_id: '5' });
-    const parsed = JSON.parse(result.content[0].text);
-
-    expect(saveContentToDisk).toHaveBeenCalledTimes(1);
-    expect(parsed.success).toBe(true);
-    expect(parsed.file_path).toBe('/exports/5/form-5-customer-contact-form.json');
-    expect(parsed.form_title).toBe('Customer Contact Form');
-    expect(parsed.fields_count).toBe(1);
-    expect(parsed.export_size).toBeGreaterThan(0);
-    expect(parsed.json_data).toBeUndefined(); // no longer inlined
+  beforeEach(async () => {
+    dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'gf-form-json-'));
+    store = new ExportStore({ dir, retentionDays: 7 });
   });
 
-  it('sanitizes sensitive data before writing to disk', async () => {
-    let written = '';
-    const { ctx } = makeCtx(baseForm, async (content) => { written = content; return '/exports/5/x.json'; });
+  afterEach(async () => {
+    await fsp.rm(dir, { recursive: true, force: true });
+  });
 
-    await exportFormJson(ctx, { form_id: '5' });
+  it('saves the JSON to the export store and returns a summary with a resource_link', async () => {
+    const { ctx } = makeCtx(baseForm, store);
+
+    const result = await exportFormJson(ctx, { form_id: '5' });
+
+    const resourceLinks = result.content.filter((c) => c.type === 'resource_link');
+    expect(resourceLinks).toHaveLength(1);
+    const text = result.content.find((c) => c.type === 'text')?.text ?? '';
+    expect(text).toContain('Customer Contact Form');
+    expect(text).toContain('Fields: 1');
+  });
+
+  it('sanitizes sensitive data before writing to the store', async () => {
+    const { ctx } = makeCtx(baseForm, store);
+
+    const result = await exportFormJson(ctx, { form_id: '5' });
+    const uri = result.content.find((c) => c.type === 'resource_link')?.uri ?? '';
+    const id = uri.replace('gf-export://', '');
+    const written = await store.readText(id, 1_000_000);
     const exported = JSON.parse(written);
 
     expect(exported.settings.stripe.secretKey).toBeUndefined();
@@ -56,24 +74,36 @@ describe('export_form_json handler', () => {
     expect(exported.export_metadata.original_form_id).toBe('5');
   });
 
-  it('honors an explicit filename and output_path', async () => {
-    const { ctx, saveContentToDisk } = makeCtx(baseForm);
+  it('rejects output_path', async () => {
+    const { ctx } = makeCtx(baseForm, store);
 
-    await exportFormJson(ctx, { form_id: '5', filename: 'backup.json', output_path: '/tmp/forms' });
+    await expect(exportFormJson(ctx, { form_id: '5', output_path: '/tmp/forms' })).rejects.toThrow(OUTPUT_PATH_REMOVED);
+  });
 
-    expect(saveContentToDisk).toHaveBeenCalledWith(expect.any(String), 'backup.json', '5', '/tmp/forms');
+  it('honors an explicit filename, stored with a .json extension', async () => {
+    const { ctx } = makeCtx(baseForm, store);
+
+    const result = await exportFormJson(ctx, { form_id: '5', filename: 'backup' });
+    const uri = result.content.find((c) => c.type === 'resource_link')?.uri ?? '';
+    const id = uri.replace('gf-export://', '');
+    const record = await store.get(id);
+
+    expect(record.filename).toBe('backup.json');
   });
 
   it('defaults the filename slug to "form" when the title is empty', async () => {
-    const { ctx, saveContentToDisk } = makeCtx({ id: '9', title: '', fields: [] });
+    const { ctx } = makeCtx({ id: '9', title: '', fields: [] }, store);
 
-    await exportFormJson(ctx, { form_id: '9' });
+    const result = await exportFormJson(ctx, { form_id: '9' });
+    const uri = result.content.find((c) => c.type === 'resource_link')?.uri ?? '';
+    const id = uri.replace('gf-export://', '');
+    const record = await store.get(id);
 
-    expect(saveContentToDisk).toHaveBeenCalledWith(expect.any(String), 'form-9-form.json', '9', undefined);
+    expect(record.filename).toBe('form-9-form.json');
   });
 
   it('throws for a missing form_id', async () => {
-    const { ctx } = makeCtx(baseForm);
+    const { ctx } = makeCtx(baseForm, store);
     await expect(exportFormJson(ctx, {})).rejects.toThrow('form_id is required');
   });
 });

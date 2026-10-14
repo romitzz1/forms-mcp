@@ -4,7 +4,7 @@ A Model Context Protocol (MCP) server that lets AI assistants manage WordPress
 Gravity Forms through the Gravity Forms REST API v2 — reading and writing
 forms and entries, searching, exporting data, and managing templates.
 
-22 tools are exposed, covering core CRUD, advanced multi-field search, bulk
+23 tools are exposed, covering core CRUD, advanced multi-field search, bulk
 operations, template management, and JSON import/export. See the
 [Tool Catalog](#tool-catalog) below.
 
@@ -82,7 +82,10 @@ set the same variables in the `env` block instead).
 | `GRAVITY_FORMS_CACHE_ENABLED` | no | `true` | Enable the SQLite form cache |
 | `GRAVITY_FORMS_CACHE_DB_PATH` | no | `./data/forms-cache.db` | Cache database path |
 | `GRAVITY_FORMS_CACHE_MAX_AGE_SECONDS` | no | `3600` | How long cached forms are considered fresh |
-| `GRAVITY_FORMS_EXPORT_DIR` | no | `./exports` | Directory for `save_to_disk` exports |
+| `GRAVITY_FORMS_EXPORT_DIR` | no | `~/.gravity-forms-mcp/exports` | Directory where exports are stored (must be absolute) |
+| `GRAVITY_FORMS_EXPORT_RETENTION_DAYS` | no | `7` | Days to keep exports before deletion (1-365; out-of-range values fall back to the default, with a startup warning) |
+| `EXPORT_LINK_TTL_MINUTES` | no | `60` | Minutes a download link stays valid (1-1440; out-of-range values fall back to the default, with a startup warning) |
+| `MCP_PUBLIC_BASE_URL` | no (HTTP mode only) | — | The address your laptop uses to reach the server; export download links are built from it |
 
 The cache also supports `GRAVITY_FORMS_CACHE_AUTO_SYNC`,
 `GRAVITY_FORMS_FULL_SYNC_INTERVAL_HOURS`, `GRAVITY_FORMS_MIN_FORM_ID`, and a
@@ -110,6 +113,7 @@ instead of stdio:
 MCP_TRANSPORT=http
 MCP_AUTH_TOKEN=a-long-random-string   # required — server refuses to start without it
 MCP_HTTP_PORT=9807                    # optional, this is the default
+MCP_PUBLIC_BASE_URL=http://<host>:9807 # the address your laptop uses to reach the server; download links are built from it
 ```
 
 Clients connect to `http://<host>:9807/mcp` with an
@@ -125,18 +129,21 @@ the HTTP mode above in a container:
 
 ```bash
 cp .env.docker.example .env
-# edit .env: set a strong MCP_AUTH_TOKEN and your GRAVITY_FORMS_* credentials
+# edit .env: set a strong MCP_AUTH_TOKEN, your GRAVITY_FORMS_* credentials, and
+# MCP_PUBLIC_BASE_URL=http://<host>:9807 — the address your laptop uses to
+# reach the server; download links are built from it
 docker compose up -d --build
 ```
 
 The container runs as a non-root user on Node 24, listens on port `9807`,
-and persists the SQLite form cache and exported files in the `gf-cache` and
-`gf-exports` named volumes, so they survive restarts and rebuilds. Docker's
-`HEALTHCHECK` polls `/health`. Tail logs with `docker compose logs -f`.
+and keeps the form cache in the `gf-cache` volume and exports in the
+`gf-exports` volume. Exports survive restarts but are deleted after
+`GRAVITY_FORMS_EXPORT_RETENTION_DAYS` (default 7). Docker's `HEALTHCHECK`
+polls `/health`. Tail logs with `docker compose logs -f`.
 
 ## Tool Catalog
 
-All 22 tools, grouped by purpose. Exact input names are hand-authored Zod
+All 23 tools, grouped by purpose. Exact input names are hand-authored Zod
 schemas in `utils/toolSchemas.ts`.
 
 ### Core
@@ -166,8 +173,9 @@ schemas in `utils/toolSchemas.ts`.
 ### Import / Export
 
 - `export_entries_formatted` — Export entries to CSV or JSON with filtering and formatting options
-- `export_form_json` — Export a form definition as JSON to disk (returns a file path + summary) for backup or migration
-- `import_form_json` — Import a form from JSON, with conflict resolution
+- `export_form_json` — Export a form definition as JSON for backup or migration
+- `import_form_json` — Import a form from JSON (from `form_json` or a prior export's `export_id`), with conflict resolution
+- `get_export_link` — Get a fresh download link or local path for an export whose link has expired
 - `clone_form_with_modifications` — Clone a form with title/field-label modifications
 
 ### Bulk
@@ -181,6 +189,20 @@ schemas in `utils/toolSchemas.ts`.
 ### Server
 
 - `get_server_info` — Report this MCP server's name and version (handy for support and bug reports)
+
+## Getting your exports
+
+`export_entries_formatted` and `export_form_json` save files to the server's export store and return a short summary, a preview, and a `gf-export://` resource link — never the whole file.
+
+- **Claude Desktop:** click the download link in the result.
+- **Claude Code:** run the `curl -fsSL -o ~/Downloads/'<file>' '<link>'` command from the result. Don't use WebFetch.
+- **Link expired?** Ask Claude to call `get_export_link` with the export ID (links last 60 minutes; exports last 7 days by default).
+- **Re-import a form:** `import_form_json` accepts `export_id` instead of `form_json`. Notification recipients come back as `{admin_email}` — review before activating.
+- **Stdio mode:** the result shows the local file path instead of a link. Copy files you want to keep; they are deleted after the retention period.
+
+Exports from versions before this one are not managed and never expire. The server logs how many it found at startup. Review and delete them by hand:
+
+    find <export dir> -mindepth 1 -maxdepth 1 ! -name store
 
 ## Field Input Names
 

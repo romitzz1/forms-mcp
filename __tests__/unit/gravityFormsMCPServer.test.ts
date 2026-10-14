@@ -918,8 +918,9 @@ describe('GravityFormsMCPServer', () => {
         export: jest.fn().mockResolvedValue({
           format: 'csv',
           filename: 'test-export.csv',
+          mimeType: 'text/csv',
           data: 'id,name\n1,Test\n2,Test2',
-          base64Data: 'aWQsbmFtZQoxLFRlc3QKMixUZXN0Mg=='
+          previewRows: [['id', 'name'], ['1', 'Test']]
         })
       };
     });

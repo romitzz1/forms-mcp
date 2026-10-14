@@ -12,6 +12,34 @@ GRAVITY_FORMS_CONSUMER_SECRET=cs_xxxxxxxxxxxxxxxx
 GRAVITY_FORMS_AUTH_METHOD=basic
 ```
 
+### Export Delivery
+
+```bash
+# Where exports are stored. Must be absolute (~ is expanded); a relative path
+# is rejected with a warning and the default is used instead.
+# Default: ~/.gravity-forms-mcp/exports
+GRAVITY_FORMS_EXPORT_DIR=/absolute/path/to/exports
+
+# Days to keep exports before they are deleted (1-365, default 7; values
+# outside the range fall back to the default, with a startup warning)
+GRAVITY_FORMS_EXPORT_RETENTION_DAYS=7
+
+# Minutes a download link stays valid (1-1440, default 60; values outside
+# the range fall back to the default, with a startup warning)
+EXPORT_LINK_TTL_MINUTES=60
+
+# HTTP mode only — the address clients use to reach this server; download
+# links are built from it. If it's missing, the server logs a warning and
+# disables download links: exports are still saved and returned as a
+# gf-export:// resource link (readable over MCP, up to 256 KB) and can be
+# re-imported with import_form_json's export_id — get_export_link will only
+# report that download links are disabled.
+MCP_PUBLIC_BASE_URL=http://your-server.local:9807
+```
+
+Changing `GRAVITY_FORMS_EXPORT_DIR` orphans the old store — nothing sweeps
+or migrates it, so clean up the previous directory by hand if you move it.
+
 ### Field Detection & Caching
 
 ```bash

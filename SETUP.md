@@ -97,7 +97,7 @@ npm start
 
 ## Verify Installation
 
-Once configured, your MCP server provides **20 powerful tools**:
+Once configured, your MCP server provides **23 powerful tools**:
 
 ### 🆕 Universal Search Tools (NEW!)
 - `search_entries_by_name` - Intelligent name search across any form
@@ -108,10 +108,10 @@ Once configured, your MCP server provides **20 powerful tools**:
 - `get_forms`, `get_entries`, `submit_form`, `create_entry`
 - `update_entry`, `delete_entry`, `create_form`, `update_form`
 
-### Enhanced Tools (8) 
+### Enhanced Tools (9) 
 - `export_entries_formatted`, `process_entries_bulk`
 - `list_form_templates`, `save_form_as_template`, `create_form_from_template`
-- `export_form_json`, `import_form_json`, `clone_form_with_modifications`
+- `export_form_json`, `import_form_json`, `get_export_link`, `clone_form_with_modifications`
 
 ### System Tool (1)
 - `get_cache_status` - Monitor system performance

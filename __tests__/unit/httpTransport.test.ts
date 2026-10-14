@@ -1,6 +1,7 @@
-import { createBearerAuthMiddleware, startHttpServer } from '../../utils/httpTransport';
+import { createBearerAuthMiddleware, createExportDownloadHandler, startHttpServer } from '../../utils/httpTransport';
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { Request, Response } from 'express';
 import * as http from 'node:http';
 
 function mockRes() {
@@ -169,5 +170,135 @@ describe('POST /mcp session handling', () => {
     } finally {
       await new Promise<void>((resolve) => httpServer.close(() => resolve()));
     }
+  });
+});
+
+import { createHash } from 'node:crypto';
+import { promises as fsp } from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { deriveLinkKey, signExportUrl } from '../../utils/exportLinks';
+import { ExportStore } from '../../utils/exportStore';
+import type { IExportRecord } from '../../utils/exportStore';
+
+function httpGet(url: string, headers: Record<string, string> = {}): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: Buffer }> {
+  return new Promise((resolve, reject) => {
+    http.get(url, { headers }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on('data', (c: Buffer) => chunks.push(c));
+      res.on('end', () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body: Buffer.concat(chunks) }));
+    }).on('error', reject);
+  });
+}
+
+describe('GET /exports/:id', () => {
+  const key = deriveLinkKey('tok');
+  let dir: string;
+  let store: ExportStore;
+  let nowMs: number;
+  let server: import('node:http').Server;
+  let base: string;
+
+  beforeEach(async () => {
+    dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'gf-dl-'));
+    nowMs = Date.now();
+    store = new ExportStore({ dir, retentionDays: 7, now: () => new Date(nowMs) });
+    server = await startHttpServer(() => ({} as unknown as Server), { port: 0, token: 'tok', exports: { store, linkKey: key } });
+    const addr = server.address();
+    base = `http://127.0.0.1:${typeof addr === 'object' && addr ? addr.port : 0}`;
+  });
+
+  afterEach(async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await fsp.rm(dir, { recursive: true, force: true });
+  });
+
+  const expIn = (seconds: number) => Math.floor(Date.now() / 1000) + seconds;
+
+  it('streams the file with download headers', async () => {
+    const body = 'a,b\n1,2';
+    const rec = await store.save(body, 'r.csv', 'csv');
+    const res = await httpGet(signExportUrl(base, rec.id, expIn(600), key));
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toBe('text/csv; charset=utf-8');
+    expect(res.headers['content-length']).toBe(String(Buffer.byteLength(body)));
+    expect(res.headers['content-disposition']).toBe('attachment; filename="r.csv"');
+    expect(res.headers['cache-control']).toBe('no-store');
+    expect(res.headers['x-content-type-options']).toBe('nosniff');
+    expect(createHash('sha256').update(res.body).digest('hex')).toBe(createHash('sha256').update(body).digest('hex'));
+  });
+
+  it('403s a tampered link and 404s an unknown or malformed id', async () => {
+    const rec = await store.save('x', 'r.csv', 'csv');
+    const url = signExportUrl(base, rec.id, expIn(600), key);
+    expect((await httpGet(`${url}x`)).status).toBe(403);
+    expect((await httpGet(signExportUrl(base, 'AbCdEfGhIjKlMnOpQrStUv', expIn(600), key))).status).toBe(404);
+    expect((await httpGet(`${base}/exports/..%2F..%2Fetc?exp=1&sig=x`)).status).toBe(404);
+  });
+
+  it('410s an expired link with fresh-link guidance', async () => {
+    const rec = await store.save('x', 'r.csv', 'csv');
+    const res = await httpGet(signExportUrl(base, rec.id, expIn(-1), key));
+    expect(res.status).toBe(410);
+    expect(res.body.toString()).toContain('get_export_link');
+  });
+
+  it('410s an expired export as "Export expired" even when the link is also expired', async () => {
+    const rec = await store.save('x', 'r.csv', 'csv');
+    nowMs += 8 * 24 * 60 * 60 * 1000;
+    const res = await httpGet(signExportUrl(base, rec.id, expIn(-1), key));
+    expect(res.status).toBe(410);
+    expect(res.body.toString()).toBe('Export expired');
+  });
+
+  it('does not require the bearer token, while /mcp still does', async () => {
+    const rec = await store.save('x', 'r.csv', 'csv');
+    expect((await httpGet(signExportUrl(base, rec.id, expIn(600), key))).status).toBe(200);
+    const mcp = await new Promise<number>((resolve, reject) => {
+      const req = http.request(`${base}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json' } }, (res) => resolve(res.statusCode ?? 0));
+      req.on('error', reject);
+      req.end('{}');
+    });
+    expect(mcp).toBe(401);
+  });
+});
+
+describe('createExportDownloadHandler - client disconnects during store.open', () => {
+  it('closes the handle and pipes nothing when the response is already destroyed', async () => {
+    const key = deriveLinkKey('tok');
+    const id = 'A'.repeat(22);
+    const url = signExportUrl('http://example.test', id, Math.floor(Date.now() / 1000) + 600, key);
+    const { exp, sig } = Object.fromEntries(new URL(url).searchParams) as { exp: string; sig: string };
+
+    const record: IExportRecord = {
+      id,
+      filename: 'r.csv',
+      mimeType: 'text/csv; charset=utf-8',
+      size: 7,
+      createdAt: new Date(),
+      expiresAt: new Date(Date.now() + 86400000),
+      localPath: '/tmp/r.csv',
+    };
+    const handle = {
+      close: jest.fn().mockResolvedValue(undefined),
+      createReadStream: jest.fn(),
+    };
+    // `open` resolves after a tick, mirroring the window in which a client's socket
+    // can close while the real fs.open() for the export is still pending.
+    const store = {
+      open: jest.fn().mockImplementation(async () => {
+        await new Promise((resolve) => setImmediate(resolve));
+        return { record, handle };
+      }),
+    } as unknown as ExportStore;
+
+    const handler = createExportDownloadHandler(store, key);
+    const req = { params: { id }, query: { exp, sig } } as unknown as Request;
+    const res = { destroyed: true } as unknown as Response;
+
+    await handler(req, res, () => undefined);
+
+    expect(handle.close).toHaveBeenCalledTimes(1);
+    expect(handle.createReadStream).not.toHaveBeenCalled();
   });
 });

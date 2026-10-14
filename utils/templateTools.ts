@@ -7,6 +7,9 @@ import type { TemplateModification } from "./templateCreator.js";
 import type { FormImporter } from "./formImporter.js";
 import type { IGravityForm, IGravityFormField } from "./gravityFormsTypes.js";
 import type { TemplateManager } from "./templateManager.js";
+import { SANITIZER_NOTE } from "./exportResult.js";
+import { ExportExpiredError, ExportNotFoundError } from "./exportStore.js";
+import type { ExportStore } from "./exportStore.js";
 
 export interface TemplateToolContext {
   makeRequest<T = unknown>(endpoint: string, method?: string, body?: unknown): Promise<T>;
@@ -278,21 +281,44 @@ export async function createFormFromTemplate(ctx: TemplateToolContext, args: Cre
 
 export interface ImportFormJsonArgs {
   form_json?: string;
+  export_id?: string;
   force_import?: boolean;
   use_complete_discovery?: boolean;
 }
 
-export async function importFormJson(ctx: TemplateToolContext, args: ImportFormJsonArgs): Promise<TemplateToolResult> {
-    try {
-      // Validate required parameters
-      const { form_json, force_import = false, use_complete_discovery = false } = args;
+export interface IImportFormJsonContext extends TemplateToolContext {
+  getExportStore(): ExportStore;
+}
 
-      if (!form_json || typeof form_json !== 'string' || form_json.trim() === '') {
-        throw new McpError(
-          ErrorCode.InvalidParams,
-          'form_json is required and must be a non-empty string'
-        );
-      }
+const ONE_SOURCE_REQUIRED = 'exactly one of form_json or export_id is required';
+
+async function resolveFormJson(ctx: IImportFormJsonContext, args: ImportFormJsonArgs): Promise<string> {
+  const hasJson = typeof args.form_json === 'string' && args.form_json.trim() !== '';
+  const hasId = typeof args.export_id === 'string' && args.export_id !== '';
+  if (hasJson === hasId) {
+    throw new McpError(ErrorCode.InvalidParams, ONE_SOURCE_REQUIRED);
+  }
+  if (hasJson) return args.form_json as string;
+
+  const store = ctx.getExportStore();
+  try {
+    const record = await store.get(args.export_id as string);
+    if (!record.filename.endsWith('.json')) {
+      throw new McpError(ErrorCode.InvalidParams, `export ${record.id} is not a JSON export`);
+    }
+    return await store.readText(record.id, Number.MAX_SAFE_INTEGER);
+  } catch (error) {
+    if (error instanceof ExportNotFoundError || error instanceof ExportExpiredError) {
+      throw new McpError(ErrorCode.InvalidParams, error.message);
+    }
+    throw error;
+  }
+}
+
+export async function importFormJson(ctx: IImportFormJsonContext, args: ImportFormJsonArgs): Promise<TemplateToolResult> {
+    try {
+      const { force_import = false, use_complete_discovery = false } = args;
+      const form_json = await resolveFormJson(ctx, args);
 
       if (force_import !== undefined && typeof force_import !== 'boolean') {
         throw new McpError(
@@ -326,7 +352,7 @@ export async function importFormJson(ctx: TemplateToolContext, args: ImportFormJ
         content: [
           {
             type: "text",
-            text: `Form Import Results:\n${JSON.stringify(result, null, 2)}`
+            text: `Form Import Results:\n${JSON.stringify(result, null, 2)}\n\n${SANITIZER_NOTE}`
           }
         ]
       };
