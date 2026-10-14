@@ -87,7 +87,7 @@ Each module exports plain functions that take a small dependency-injection objec
 
 ### Supporting utility classes
 
-- **DataExporter** (`utils/dataExporter.ts`) — CSV/JSON export with base64 encoding
+- **DataExporter** (`utils/dataExporter.ts`) — renders entries as CSV/JSON strings (UTF-8 BOM and formula neutralization for CSV, UTC default filenames); saving is done by `ExportStore`
 - **ValidationHelper** (`utils/validation.ts`) — input validation and sanitization
 - **BulkOperationsManager** (`utils/bulkOperations.ts`) — safe bulk operations with rollback and audit trails
 - **TemplateManager** (`utils/templateManager.ts`) — template identification and listing
@@ -121,7 +121,7 @@ Default port is `9807` (`MCP_HTTP_PORT`).
 
 ### Docker / central deployment
 
-`Dockerfile` is a two-stage build: `node:24-bookworm-slim` build stage compiles TypeScript and the native `better-sqlite3` binding (needs `python3 make g++`), then `npm prune --omit=dev`; the runtime stage copies only `node_modules`, `dist`, and `package.json`, runs as a non-root `appuser` (uid 10001), and defaults `MCP_TRANSPORT=http`. `docker-compose.yml` builds the image, maps `9807:9807`, loads `.env`, and mounts two named volumes: `gf-cache:/data` (SQLite cache) and `gf-exports:/exports` (file exports). Bring it up with `docker compose up -d --build`; the container's `HEALTHCHECK` polls `/health` every 30s.
+`Dockerfile` is a two-stage build: `node:24-bookworm-slim` build stage compiles TypeScript and the native `better-sqlite3` binding (needs `python3 make g++`), then `npm prune --omit=dev`; the runtime stage copies only `node_modules`, `dist`, and `package.json`, runs as a non-root `appuser` (uid 10001), and defaults `MCP_TRANSPORT=http`. `docker-compose.yml` builds the image, maps `9807:9807`, loads `.env`, and mounts two named volumes: `gf-cache:/data` (SQLite cache) and `gf-exports:/exports` (file exports; contents expire after `GRAVITY_FORMS_EXPORT_RETENTION_DAYS`, default 7 days). Bring it up with `docker compose up -d --build`; the container's `HEALTHCHECK` polls `/health` every 30s.
 
 ### Authentication & Configuration
 

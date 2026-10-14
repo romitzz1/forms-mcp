@@ -28,8 +28,10 @@ EXPORT_LINK_TTL_MINUTES=60
 
 # HTTP mode only — the address clients use to reach this server; download
 # links are built from it. If it's missing, the server logs a warning and
-# disables download links (exports are still saved and reachable via
-# get_export_link's local-path fallback is not available in HTTP mode).
+# disables download links: exports are still saved and returned as a
+# gf-export:// resource link (readable over MCP, up to 256 KB) and can be
+# re-imported with import_form_json's export_id — get_export_link will only
+# report that download links are disabled.
 MCP_PUBLIC_BASE_URL=http://your-server.local:9807
 ```
 
