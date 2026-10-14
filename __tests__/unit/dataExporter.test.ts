@@ -327,10 +327,10 @@ describe('DataExporter', () => {
     it('generates UTC default filenames with form id and optional offset', async () => {
       jest.useFakeTimers().setSystemTime(new Date(Date.UTC(2026, 9, 13, 0, 30, 5)));
       try {
-        const a = await dataExporter.export([{ id: '1' } as any], 'csv', {}, '299');
-        expect(a.filename).toBe('entries-form-299-20261013T003005Z.csv');
-        const b = await dataExporter.export([{ id: '1' } as any], 'json', { entryOffset: 1000 }, '299');
-        expect(b.filename).toBe('entries-form-299-offset-1000-20261013T003005Z.json');
+        const a = await dataExporter.export([{ id: '1' } as any], 'csv', {}, '42');
+        expect(a.filename).toBe('entries-form-42-20261013T003005Z.csv');
+        const b = await dataExporter.export([{ id: '1' } as any], 'json', { entryOffset: 1000 }, '42');
+        expect(b.filename).toBe('entries-form-42-offset-1000-20261013T003005Z.json');
       } finally {
         jest.useRealTimers();
       }

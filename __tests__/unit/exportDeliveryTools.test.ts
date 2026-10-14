@@ -115,15 +115,15 @@ describe('export delivery tools', () => {
   });
 
   it('exports form JSON with the sanitizer note and a form preview', async () => {
-    const form = { id: '7', title: 'League Signup', fields: [{ label: 'Name' }], notifications: [{ to: 'treasurer@club.org' }] };
+    const form = { id: '7', title: 'Event Signup', fields: [{ label: 'Name' }], notifications: [{ to: 'treasurer@example.org' }] };
     const r = await exportFormJson(ctx('http', form), { form_id: '7' });
     const text = textOf(r);
-    expect(text).toContain('Title: League Signup');
+    expect(text).toContain('Title: Event Signup');
     expect(text).toContain('{admin_email}');
     const id = linkOf(r).replace('gf-export://', '');
     const saved = JSON.parse(await store.readText(id, 1_000_000)) as { notifications: Array<{ to: string }> };
     expect(saved.notifications[0].to).toBe('{admin_email}');
-    expect((await store.get(id)).filename).toBe('form-7-league-signup.json');
+    expect((await store.get(id)).filename).toBe('form-7-event-signup.json');
   });
 
   it('get_export_link re-mints a link and warns when the export is about to expire', async () => {

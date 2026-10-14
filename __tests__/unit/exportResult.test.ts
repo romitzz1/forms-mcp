@@ -87,8 +87,8 @@ describe('exportResult', () => {
 
   it('previews a form as title, field count, and up to 20 labels', () => {
     const fields = Array.from({ length: 25 }, (_, i) => ({ label: `Field ${i}` }));
-    const p = buildFormJsonPreview({ title: 'League Signup', fields });
-    expect(p).toContain('Title: League Signup');
+    const p = buildFormJsonPreview({ title: 'Event Signup', fields });
+    expect(p).toContain('Title: Event Signup');
     expect(p).toContain('Fields: 25');
     expect(p).toContain('Field 19');
     expect(p).not.toContain('Field 20,');
