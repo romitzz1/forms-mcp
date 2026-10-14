@@ -66,6 +66,9 @@ async function saveExport(ctx: ExportToolContext, content: string, filename: str
   try {
     return await ctx.getExportStore().save(content, filename, format);
   } catch (error) {
+    if (error instanceof McpError) {
+      throw error;
+    }
     if (error instanceof ExportDirUnwritableError) {
       throw new McpError(ErrorCode.InternalError, error.message);
     }

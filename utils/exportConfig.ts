@@ -17,10 +17,24 @@ export interface IExportConfig {
 
 type Env = Record<string, string | undefined>;
 
-function parseClampedInt(value: string | undefined, fallback: number, min: number, max: number): number {
+function parseClampedInt(
+  name: string,
+  value: string | undefined,
+  fallback: number,
+  min: number,
+  max: number,
+  warnings: string[]
+): number {
   if (value === undefined) return fallback;
   const parsed = parseInt(value, 10);
-  if (isNaN(parsed) || parsed < min || parsed > max) return fallback;
+  if (isNaN(parsed)) {
+    warnings.push(`${name}=${value} is not a number; using ${fallback}`);
+    return fallback;
+  }
+  if (parsed < min || parsed > max) {
+    warnings.push(`${name}=${value} is outside ${min}-${max}; using ${fallback}`);
+    return fallback;
+  }
   return parsed;
 }
 
@@ -54,8 +68,8 @@ export function loadExportConfig(env: Env, homeDir: string): IExportConfig {
   return {
     mode,
     exportDir: resolveExportDir(env.GRAVITY_FORMS_EXPORT_DIR, homeDir, warnings),
-    retentionDays: parseClampedInt(env.GRAVITY_FORMS_EXPORT_RETENTION_DAYS, 7, 1, 365),
-    linkTtlMinutes: parseClampedInt(env.EXPORT_LINK_TTL_MINUTES, 60, 1, 1440),
+    retentionDays: parseClampedInt('GRAVITY_FORMS_EXPORT_RETENTION_DAYS', env.GRAVITY_FORMS_EXPORT_RETENTION_DAYS, 7, 1, 365, warnings),
+    linkTtlMinutes: parseClampedInt('EXPORT_LINK_TTL_MINUTES', env.EXPORT_LINK_TTL_MINUTES, 60, 1, 1440, warnings),
     publicBaseUrl: resolveBaseUrl(env.MCP_PUBLIC_BASE_URL, mode, warnings),
     authToken: env.MCP_AUTH_TOKEN ?? undefined,
     warnings,

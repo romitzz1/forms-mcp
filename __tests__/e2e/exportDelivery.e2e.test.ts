@@ -143,7 +143,7 @@ async function freePort(): Promise<number> {
     const id = idOf(exp);
     const link = await callTool('get_export_link', { export_id: id });
     expect((await fetch(urlOf(link))).status).toBe(200);
-    const imported = await callTool('import_form_json', { export_id: id, force_import: true });
+    const imported = await callTool('import_form_json', { export_id: id, force_import: false });
     expect(imported.isError).toBeFalsy();
     expect(textOf(imported)).toContain('{admin_email}');
   });

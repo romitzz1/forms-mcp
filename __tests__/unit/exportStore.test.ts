@@ -125,6 +125,21 @@ describe('ExportStore', () => {
     expect(await store.countLegacyFiles()).toBe(3);
   });
 
+  it('skips an unreadable legacy subdirectory instead of rejecting', async () => {
+    if (process.getuid?.() === 0) return; // root bypasses permission bits
+    await fsp.mkdir(path.join(dir, '95', '2026-01-10'), { recursive: true });
+    await fsp.writeFile(path.join(dir, '95', '2026-01-10', 'a.json'), '1');
+    const blockedDateDir = path.join(dir, '42', '2026-01-01');
+    await fsp.mkdir(blockedDateDir, { recursive: true });
+    await fsp.writeFile(path.join(blockedDateDir, 'b.csv'), '1');
+    await fsp.chmod(blockedDateDir, 0o000);
+    try {
+      await expect(store.countLegacyFiles()).resolves.toBe(1);
+    } finally {
+      await fsp.chmod(blockedDateDir, 0o755);
+    }
+  });
+
   it('returns 0 legacy files and sweeps nothing when the dir does not exist yet', async () => {
     const fresh = new ExportStore({ dir: path.join(dir, 'missing'), retentionDays: 7 });
     expect(await fresh.countLegacyFiles()).toBe(0);

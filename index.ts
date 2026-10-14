@@ -289,9 +289,13 @@ export class GravityFormsMCPServer {
       this.exportStoreError = error instanceof Error ? error.message : String(error);
       console.error(`[WARN] ${this.exportStoreError}; export tools will fail until this is fixed`);
     }
-    const legacy = await this.exportStore.countLegacyFiles();
-    if (legacy > 0) {
-      console.error(`[WARN] ${legacy} legacy export files in ${this.exportConfig.exportDir} are not managed and will not expire; delete them manually`);
+    try {
+      const legacy = await this.exportStore.countLegacyFiles();
+      if (legacy > 0) {
+        console.error(`[WARN] ${legacy} legacy export files in ${this.exportConfig.exportDir} are not managed and will not expire; delete them manually`);
+      }
+    } catch (error) {
+      console.error(`[WARN] could not scan for legacy export files: ${error instanceof Error ? error.message : String(error)}`);
     }
     const sweep = (): void => {
       this.exportStore.sweep().catch((error: unknown) => {
@@ -299,6 +303,9 @@ export class GravityFormsMCPServer {
       });
     };
     sweep();
+    if (this.sweepTimer) {
+      clearInterval(this.sweepTimer);
+    }
     this.sweepTimer = setInterval(sweep, EXPORT_SWEEP_INTERVAL_MS);
     this.sweepTimer.unref();
   }

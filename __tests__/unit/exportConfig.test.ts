@@ -38,6 +38,19 @@ describe('loadExportConfig', () => {
     expect(loadExportConfig({ GRAVITY_FORMS_EXPORT_RETENTION_DAYS: '30' }, HOME).retentionDays).toBe(30);
   });
 
+  it('warns when a clamped value is out of range or not a number', () => {
+    const outOfRange = loadExportConfig({ GRAVITY_FORMS_EXPORT_RETENTION_DAYS: '400' }, HOME);
+    expect(outOfRange.retentionDays).toBe(7);
+    expect(outOfRange.warnings).toContain('GRAVITY_FORMS_EXPORT_RETENTION_DAYS=400 is outside 1-365; using 7');
+
+    const notANumber = loadExportConfig({ EXPORT_LINK_TTL_MINUTES: 'soon' }, HOME);
+    expect(notANumber.linkTtlMinutes).toBe(60);
+    expect(notANumber.warnings).toContain('EXPORT_LINK_TTL_MINUTES=soon is not a number; using 60');
+
+    const inRange = loadExportConfig({ GRAVITY_FORMS_EXPORT_RETENTION_DAYS: '30' }, HOME);
+    expect(inRange.warnings).toEqual([]);
+  });
+
   it('accepts an http(s) base URL, strips trailing slashes, and warns when missing in http mode', () => {
     const ok = loadExportConfig({ MCP_TRANSPORT: 'http', MCP_AUTH_TOKEN: 't', MCP_PUBLIC_BASE_URL: 'http://nas.local:9807//' }, HOME);
     expect(ok.mode).toBe('http');

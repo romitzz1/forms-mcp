@@ -1,6 +1,7 @@
 // ABOUTME: Tests export handlers end-to-end against a real temp ExportStore (http and stdio delivery)
 // ABOUTME: Covers get_export_link, output_path rejection, ignored legacy flags, and zero-entry exports
 
+import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 import { promises as fsp } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -135,6 +136,20 @@ describe('export delivery tools', () => {
     nowMs += 7 * 24 * 60 * 60 * 1000 - 5 * 60 * 1000;
     const late = textOf(await getExportLink(ctx('http', null), { export_id: id }));
     expect(late).toContain('expires soon');
+  });
+
+  it('rethrows an McpError from getExportStore() without re-wrapping it', async () => {
+    const storeError = new McpError(ErrorCode.InternalError, 'export directory not writable: /x (EACCES)');
+    const ctxWithThrowingStore: ExportToolContext = {
+      makeRequest: jest.fn(() => Promise.resolve(entries)) as unknown as ExportToolContext['makeRequest'],
+      validator: new ValidationHelper(),
+      dataExporter: new DataExporter(),
+      getExportStore: () => { throw storeError; },
+      delivery: { mode: 'http', publicBaseUrl: 'http://nas.local:9807', linkKey: deriveLinkKey('tok'), linkTtlMinutes: 60 },
+      now: () => new Date(nowMs),
+    };
+    await expect(exportEntriesFormatted(ctxWithThrowingStore, { form_id: '7', format: 'csv' }))
+      .rejects.toMatchObject({ message: expect.not.stringContaining('Failed to save export') });
   });
 
   it('get_export_link reports not found and expired', async () => {

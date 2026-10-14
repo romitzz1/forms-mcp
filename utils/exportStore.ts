@@ -222,8 +222,13 @@ export class ExportStore {
 
   async countLegacyFiles(): Promise<number> {
     const countFilesIn = async (dirPath: string): Promise<number> => {
-      const items = await fsp.readdir(dirPath, { withFileTypes: true });
-      return items.filter((i) => i.isFile()).length;
+      try {
+        const items = await fsp.readdir(dirPath, { withFileTypes: true });
+        return items.filter((i) => i.isFile()).length;
+      } catch (error) {
+        console.error(`[WARN] legacy export scan skipped ${dirPath}: ${errorMessage(error)}`);
+        return 0;
+      }
     };
     let top;
     try {
@@ -238,7 +243,13 @@ export class ExportStore {
       if (DATE_DIR.test(entry.name)) {
         count += await countFilesIn(entryPath);
       } else if (DIGITS_DIR.test(entry.name)) {
-        const subs = await fsp.readdir(entryPath, { withFileTypes: true });
+        let subs;
+        try {
+          subs = await fsp.readdir(entryPath, { withFileTypes: true });
+        } catch (error) {
+          console.error(`[WARN] legacy export scan skipped ${entryPath}: ${errorMessage(error)}`);
+          continue;
+        }
         for (const sub of subs) {
           if (sub.isDirectory() && DATE_DIR.test(sub.name)) count += await countFilesIn(path.join(entryPath, sub.name));
         }

@@ -65,6 +65,20 @@ describe('gf-export:// resources', () => {
     const rec = await asTestable(server).exportStore.save('{"title":"T","fields":[]}', 'f.json', 'json');
     const link = await asTestable(server).callTool({ params: { name: 'get_export_link', arguments: { export_id: rec.id } } });
     expect(link.isError).toBe(false);
+
+    // An unknown but well-formed export_id reaches the store (via getExportStore())
+    // instead of being treated as inline form_json or hitting the WordPress API.
+    const imported = await asTestable(server).callTool({
+      params: { name: 'import_form_json', arguments: { export_id: 'AbCdEfGhIjKlMnOpQrStUv' } },
+    });
+    expect(imported.isError).toBe(true);
+    expect(imported.content[0].text).toContain('Export not found');
+  });
+
+  it('rejects resources/read for a URI that matches no resource template', async () => {
+    const client = await connect(server);
+    await expect(client.readResource({ uri: 'gf-export://a/b' })).rejects.toMatchObject({ code: -32602 });
+    await expect(client.readResource({ uri: 'other://x' })).rejects.toMatchObject({ code: -32602 });
   });
 
   it('startup warns (does not throw) on an unwritable export dir, and shutdown clears the sweep timer', async () => {
@@ -86,6 +100,22 @@ describe('gf-export:// resources', () => {
       expect(s.sweepTimer).toBeNull();
     } finally {
       process.env.GRAVITY_FORMS_EXPORT_DIR = original;
+      delete process.env.GRAVITY_FORMS_CACHE_ENABLED;
+    }
+  });
+
+  it('clears the previous sweep timer when startup() runs twice', async () => {
+    process.env.GRAVITY_FORMS_CACHE_ENABLED = 'false';
+    const clearSpy = jest.spyOn(global, 'clearInterval');
+    try {
+      const s = asTestable(new GravityFormsMCPServer());
+      await s.startup();
+      const firstTimer = s.sweepTimer;
+      await s.startup();
+      expect(clearSpy).toHaveBeenCalledWith(firstTimer);
+      await s.shutdown();
+    } finally {
+      clearSpy.mockRestore();
       delete process.env.GRAVITY_FORMS_CACHE_ENABLED;
     }
   });
