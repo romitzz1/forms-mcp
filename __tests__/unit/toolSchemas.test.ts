@@ -1,7 +1,6 @@
 // ABOUTME: Faithfulness test verifying TOOL_SCHEMAS (Zod) matches LEGACY_TOOL_SCHEMAS (JSON Schema)
-// ABOUTME: Round-trips each Zod raw shape through zod-to-json-schema and compares property/required/enum parity
+// ABOUTME: Round-trips each Zod raw shape through Zod 4's z.toJSONSchema (io: 'input') and compares property/required/enum parity
 import { z } from "zod";
-import { zodToJsonSchema } from "zod-to-json-schema";
 import { TOOL_SCHEMAS } from "../../utils/toolSchemas";
 import { LEGACY_TOOL_SCHEMAS } from "../fixtures/legacyToolSchemas";
 
@@ -23,7 +22,7 @@ describe("TOOL_SCHEMAS faithfulness vs legacy JSON schemas", () => {
   it.each(toolNames)("%s: property names, required, and enums match", (name) => {
     const legacy = LEGACY_TOOL_SCHEMAS[name];
     const change = INTENTIONAL_SCHEMA_CHANGES[name] ?? {};
-    const generated: any = zodToJsonSchema(z.object(TOOL_SCHEMAS[name].inputSchema), { target: "jsonSchema7" });
+    const generated: any = z.toJSONSchema(z.object(TOOL_SCHEMAS[name].inputSchema), { io: "input" });
 
     const legacyProps = Object.keys(legacy.properties ?? {})
       .filter((p) => !(change.removed ?? []).includes(p))
@@ -48,7 +47,7 @@ describe("TOOL_SCHEMAS faithfulness vs legacy JSON schemas", () => {
   });
 
   it("get_export_link requires export_id", () => {
-    const generated = zodToJsonSchema(z.object(TOOL_SCHEMAS.get_export_link.inputSchema), { target: "jsonSchema7" }) as {
+    const generated = z.toJSONSchema(z.object(TOOL_SCHEMAS.get_export_link.inputSchema), { io: "input" }) as {
       properties: Record<string, unknown>;
       required: string[];
     };

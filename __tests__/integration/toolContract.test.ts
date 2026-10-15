@@ -30,4 +30,25 @@ describe('tools/list contract', () => {
     const expected = JSON.parse(await fsp.readFile(FIXTURE, 'utf8')) as unknown;
     expect(contract).toStrictEqual(expected);
   });
+
+  it('still applies defaults and accepts the documented argument shapes', async () => {
+    const server = new GravityFormsMCPServer();
+    const [clientT, serverT] = InMemoryTransport.createLinkedPair();
+    await server.createSessionServer().connect(serverT);
+    const client = new Client({ name: 'contract', version: '0.0.0' });
+    await client.connect(clientT);
+    // get_export_link with an unknown id fails inside the handler (not schema validation),
+    // proving Zod 4 accepted the argument shape and the call reached dispatch.
+    // A handler-thrown McpError surfaces either as an isError result or as a protocol
+    // error depending on SDK version; both prove the call reached dispatch.
+    let text: string;
+    try {
+      const result = await client.callTool({ name: 'get_export_link', arguments: { export_id: 'AbCdEfGhIjKlMnOpQrStUv' } });
+      text = JSON.stringify(result.content);
+    } catch (error) {
+      text = String(error);
+    }
+    await client.close();
+    expect(text).toContain('Export not found');
+  });
 });

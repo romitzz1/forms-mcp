@@ -451,20 +451,15 @@ export class GravityFormsMCPServer {
   private registerTools(target: McpServer): void {
     for (const [name, def] of Object.entries(TOOL_SCHEMAS)) {
       // McpServer.registerTool is generic over the per-tool Zod input shape.
-      // TOOL_SCHEMAS holds heterogeneous shapes looped over dynamically here, which
-      // the SDK's generic inference cannot resolve for a non-literal `z.ZodRawShape`
-      // (verified: without this cast, `tsc` itself fails with TS2589 "Type
-      // instantiation is excessively deep and possibly infinite" — not just a lint
-      // warning). This is the one unavoidable `any` in this file; dispatchTool below
-      // does the real argument validation via each tool's own typed Args interface.
+      // TOOL_SCHEMAS holds heterogeneous shapes looped over dynamically here. Under
+      // Zod 3 / SDK 1.29 this tripped TS2589 ("Type instantiation is excessively deep
+      // and possibly infinite") unless inputSchema was cast to `any` at this boundary;
+      // dispatchTool below does the real argument validation via each tool's own typed
+      // Args interface. SDK 1.32's registerTool generic (ZodRawShapeCompat, covering both
+      // Zod 3 and Zod 4 raw shapes) resolves that instantiation without needing the cast.
       target.registerTool(
         name,
-        // The MCP SDK's registerTool generic resolves inputSchema through z3.infer over the
-        // tool's ZodRawShape; passing our dynamically-typed TOOL_SCHEMAS value trips TS2589
-        // (type instantiation excessively deep). Casting to `any` at this single boundary is
-        // the only workaround; the runtime value is a valid Zod raw shape.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment
-        { description: def.description, inputSchema: def.inputSchema as any },
+        { description: def.description, inputSchema: def.inputSchema },
         async (args: unknown): Promise<CallToolResult> => this.dispatchTool(name, args) as Promise<CallToolResult>
       );
     }

@@ -32,10 +32,10 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "better-sqlite3": "^12.11.1",
     "express": "^5.2.1",
-    "zod": "^3.25.0"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@eslint/js": "^9.35.0",
@@ -52,8 +52,7 @@
     "lint-staged": "^16.1.6",
     "ts-jest": "^29.0.0",
     "typescript": "^5.0.0",
-    "typescript-eslint": "^8.43.0",
-    "zod-to-json-schema": "^3.25.2"
+    "typescript-eslint": "^8.43.0"
   },
   "bin": {
     "gravity-forms-mcp": "./dist/cli.js"
