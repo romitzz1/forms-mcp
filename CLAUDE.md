@@ -173,10 +173,10 @@ For stdio (Claude Desktop, etc.), point the client at `dist/cli.js` with `node` 
 
 ### Production
 
-- `@modelcontextprotocol/sdk` - Core MCP protocol implementation (`McpServer`, Streamable HTTP transport)
+- `@modelcontextprotocol/sdk` (^1.32) - Core MCP protocol implementation (`McpServer`, Streamable HTTP transport); 1.x line, v2 migration is planned
 - `better-sqlite3` (^12) - SQLite database for caching and performance optimization
 - `express` (^5) - HTTP transport server (`utils/httpTransport.ts`)
-- `zod` - Input schema definitions for all registered tools (`utils/toolSchemas.ts`)
+- `zod` (^4) - Input schema definitions for all registered tools (`utils/toolSchemas.ts`)
 - Node.js 24+ required for runtime
 
 ### Development & Testing

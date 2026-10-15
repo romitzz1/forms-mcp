@@ -14,7 +14,6 @@
 /* eslint-disable jest/prefer-strict-equal */
 
 import { z } from 'zod';
-import { zodToJsonSchema } from 'zod-to-json-schema';
 import { GravityFormsMocks } from '../mocks/gravityFormsMocks';
 import { TOOL_SCHEMAS } from '../../utils/toolSchemas';
 
@@ -66,14 +65,14 @@ describe('Update Form Tool', () => {
     });
 
     it('should have correct required parameters in input schema', () => {
-      const generated: any = zodToJsonSchema(z.object(TOOL_SCHEMAS.update_form.inputSchema), { target: 'jsonSchema7' });
+      const generated: any = z.toJSONSchema(z.object(TOOL_SCHEMAS.update_form.inputSchema), { io: 'input' });
       // form_id is the only schema-level required property; title/fields are validated at runtime
       expect(generated.required).toEqual(expect.arrayContaining(['form_id']));
       expect(generated.required).toHaveLength(1);
     });
 
     it('should have proper input schema structure', () => {
-      const generated: any = zodToJsonSchema(z.object(TOOL_SCHEMAS.update_form.inputSchema), { target: 'jsonSchema7' });
+      const generated: any = z.toJSONSchema(z.object(TOOL_SCHEMAS.update_form.inputSchema), { io: 'input' });
       const { properties } = generated;
       expect(properties.form_id).toMatchObject({
         type: 'string',
@@ -90,7 +89,7 @@ describe('Update Form Tool', () => {
     });
 
     it('should have optional parameters defined', () => {
-      const generated: any = zodToJsonSchema(z.object(TOOL_SCHEMAS.update_form.inputSchema), { target: 'jsonSchema7' });
+      const generated: any = z.toJSONSchema(z.object(TOOL_SCHEMAS.update_form.inputSchema), { io: 'input' });
       const { properties } = generated;
       expect(properties.description).toBeDefined();
       expect(properties.description.type).toBe('string');
