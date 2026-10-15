@@ -22,6 +22,9 @@ describe('tools/list contract', () => {
 
     const contract = normalizeToolList(tools);
     if (process.env.UPDATE_TOOL_CONTRACT === '1') {
+      if (process.env.CI) {
+        throw new Error('UPDATE_TOOL_CONTRACT must not be set in CI');
+      }
       await fsp.writeFile(FIXTURE, JSON.stringify(contract, null, 2) + '\n');
     }
     const expected = JSON.parse(await fsp.readFile(FIXTURE, 'utf8')) as unknown;

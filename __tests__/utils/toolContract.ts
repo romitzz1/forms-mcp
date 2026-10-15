@@ -8,6 +8,17 @@ export interface INormalizedSchema {
   required?: string[];
   properties?: Record<string, INormalizedSchema>;
   items?: INormalizedSchema;
+  default?: unknown;
+  anyOf?: INormalizedSchema[];
+  oneOf?: INormalizedSchema[];
+  allOf?: INormalizedSchema[];
+  additionalProperties?: INormalizedSchema;
+  minimum?: number;
+  maximum?: number;
+  maxLength?: number;
+  minLength?: number;
+  maxItems?: number;
+  minItems?: number;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -30,6 +41,17 @@ export function normalizeInputSchema(schema: unknown): INormalizedSchema {
     }
   }
   if (isRecord(schema.items)) out.items = normalizeInputSchema(schema.items);
+  if (schema.default !== undefined) out.default = schema.default;
+  if (Array.isArray(schema.anyOf)) out.anyOf = (schema.anyOf as unknown[]).map((s) => normalizeInputSchema(s));
+  if (Array.isArray(schema.oneOf)) out.oneOf = (schema.oneOf as unknown[]).map((s) => normalizeInputSchema(s));
+  if (Array.isArray(schema.allOf)) out.allOf = (schema.allOf as unknown[]).map((s) => normalizeInputSchema(s));
+  if (isRecord(schema.additionalProperties)) out.additionalProperties = normalizeInputSchema(schema.additionalProperties);
+  if (typeof schema.minimum === 'number') out.minimum = schema.minimum;
+  if (typeof schema.maximum === 'number') out.maximum = schema.maximum;
+  if (typeof schema.maxLength === 'number') out.maxLength = schema.maxLength;
+  if (typeof schema.minLength === 'number') out.minLength = schema.minLength;
+  if (typeof schema.maxItems === 'number') out.maxItems = schema.maxItems;
+  if (typeof schema.minItems === 'number') out.minItems = schema.minItems;
   return out;
 }
 
