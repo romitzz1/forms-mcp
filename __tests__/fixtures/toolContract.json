@@ -1,0 +1,888 @@
+{
+  "aggregate_entries": {
+    "description": "Tally field-value distributions across a form's entries — one call to summarize a survey. Returns value→count for each requested field.",
+    "input": {
+      "type": "object",
+      "required": [
+        "field_ids",
+        "form_id"
+      ],
+      "properties": {
+        "field_ids": {
+          "type": "array",
+          "description": "Field IDs to tally (use get_field_mappings to discover them). Checkbox/multi-select fields tally each selected option across their sub-inputs (e.g. \"12\" covers \"12.1\", \"12.2\").",
+          "items": {
+            "type": "string"
+          }
+        },
+        "form_id": {
+          "type": "string",
+          "description": "Form ID whose entries to aggregate"
+        },
+        "max_entries": {
+          "type": "number",
+          "description": "Maximum number of entries to scan (default 1000). Aggregation pages through entries up to this cap; a note flags when the cap is hit."
+        },
+        "search": {
+          "type": "object",
+          "description": "Optional filter, same shape as get_entries: { \"status\": \"active\", \"field_filters\": [{ \"key\": \"1\", \"value\": \"X\", \"operator\": \"is\" }] }."
+        },
+        "top": {
+          "type": "number",
+          "description": "Return only the N most frequent values per field. Omit to return all distinct values."
+        }
+      }
+    }
+  },
+  "clone_form_with_modifications": {
+    "description": "Clone an existing form with intelligent modifications including title changes and field label updates. Preserves form structure, conditional logic, and calculations while safely applying modifications. Automatically updates field references in formulas and conditional logic.",
+    "input": {
+      "type": "object",
+      "required": [
+        "source_form_id"
+      ],
+      "properties": {
+        "modifications": {
+          "type": "object",
+          "description": "Modifications to apply to the cloned form (optional)",
+          "properties": {
+            "field_renames": {
+              "type": "array",
+              "description": "Array of field label changes",
+              "items": {
+                "type": "object",
+                "required": [
+                  "new_label",
+                  "original_label"
+                ],
+                "properties": {
+                  "new_label": {
+                    "type": "string",
+                    "description": "New label for the field"
+                  },
+                  "original_label": {
+                    "type": "string",
+                    "description": "Current field label to change"
+                  }
+                }
+              }
+            },
+            "title": {
+              "type": "string",
+              "description": "New title for the cloned form"
+            }
+          }
+        },
+        "source_form_id": {
+          "type": "string",
+          "description": "ID of the form to clone (required)"
+        }
+      }
+    }
+  },
+  "create_entry": {
+    "description": "Create a new entry directly (bypasses form validation)",
+    "input": {
+      "type": "object",
+      "required": [
+        "field_values",
+        "form_id"
+      ],
+      "properties": {
+        "entry_meta": {
+          "type": "object",
+          "description": "Additional entry metadata"
+        },
+        "field_values": {
+          "type": "object",
+          "description": "Field values as key-value pairs"
+        },
+        "form_id": {
+          "type": "string",
+          "description": "Form ID to create entry for"
+        }
+      }
+    }
+  },
+  "create_form": {
+    "description": "Create a new form",
+    "input": {
+      "type": "object",
+      "required": [
+        "title"
+      ],
+      "properties": {
+        "description": {
+          "type": "string",
+          "description": "Form description"
+        },
+        "fields": {
+          "type": "array",
+          "description": "Array of form fields",
+          "items": {}
+        },
+        "settings": {
+          "type": "object",
+          "description": "Form settings"
+        },
+        "title": {
+          "type": "string",
+          "description": "Form title"
+        }
+      }
+    }
+  },
+  "create_form_from_template": {
+    "description": "Create a new form from an existing template with optional field customizations. Supports safe field label renames while preserving field types, validation rules, and conditional logic. Dangerous field type changes (e.g., date->phone) are prevented for data integrity.",
+    "input": {
+      "type": "object",
+      "required": [
+        "new_form_title",
+        "template_id"
+      ],
+      "properties": {
+        "field_renames": {
+          "type": "array",
+          "description": "Optional array of field label renames to apply",
+          "items": {
+            "type": "object",
+            "required": [
+              "new_label",
+              "original_label"
+            ],
+            "properties": {
+              "new_label": {
+                "type": "string",
+                "description": "New label to assign to the field"
+              },
+              "original_label": {
+                "type": "string",
+                "description": "Current field label in the template"
+              }
+            }
+          }
+        },
+        "new_form_title": {
+          "type": "string",
+          "description": "Title for the new form (required)"
+        },
+        "template_id": {
+          "type": "string",
+          "description": "ID of the template form to use as the base (required)"
+        }
+      }
+    }
+  },
+  "delete_entry": {
+    "description": "Delete an entry (moves to trash by default)",
+    "input": {
+      "type": "object",
+      "required": [
+        "entry_id"
+      ],
+      "properties": {
+        "entry_id": {
+          "type": "string",
+          "description": "Entry ID to delete"
+        },
+        "force": {
+          "type": "boolean",
+          "description": "Permanently delete instead of moving to trash"
+        }
+      }
+    }
+  },
+  "export_entries_formatted": {
+    "description": "Export entries from a form as CSV or JSON. The file is saved to the server's export store and returned as a summary with a short preview, a gf-export:// resource link, and (HTTP mode) a signed download link or (stdio mode) a local file path. Files expire after the retention period (default 7 days).",
+    "input": {
+      "type": "object",
+      "required": [
+        "form_id",
+        "format"
+      ],
+      "properties": {
+        "date_format": {
+          "type": "string",
+          "description": "Date format for exported dates"
+        },
+        "field_ids": {
+          "type": "array",
+          "description": "Array of Gravity Forms field IDs to include in export (optional). Use string format: [\"1\", \"2\", \"4.3\"]. If provided, only these fields plus metadata will be exported. Use get_field_mappings to discover field IDs.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "filename": {
+          "type": "string",
+          "description": "Custom filename for export"
+        },
+        "form_id": {
+          "type": "string",
+          "description": "Form ID to export entries from"
+        },
+        "format": {
+          "type": "string",
+          "description": "Export format",
+          "enum": [
+            "csv",
+            "json"
+          ]
+        },
+        "include_headers": {
+          "type": "boolean",
+          "description": "Include headers in CSV export"
+        },
+        "output_path": {
+          "type": "string",
+          "description": "Removed — rejected if set. Exports are returned as a download link and a gf-export:// resource."
+        },
+        "paging": {
+          "type": "object",
+          "description": "Pagination settings",
+          "properties": {
+            "current_page": {
+              "type": "number",
+              "description": "Page number to retrieve"
+            },
+            "page_size": {
+              "type": "number",
+              "description": "Number of entries per page (max 1000)"
+            }
+          }
+        },
+        "search": {
+          "type": "object",
+          "description": "Search criteria for filtering entries. Supports multiple date filtering formats for LLM convenience.",
+          "properties": {
+            "date_range": {
+              "type": "object",
+              "description": "Date range filter (preferred format)",
+              "properties": {
+                "end": {
+                  "type": "string",
+                  "description": "End date (YYYY-MM-DD)"
+                },
+                "start": {
+                  "type": "string",
+                  "description": "Start date (YYYY-MM-DD)"
+                }
+              }
+            },
+            "end_date": {
+              "type": "string",
+              "description": "End date for filtering (LLM-friendly format, YYYY-MM-DD)"
+            },
+            "field_filters": {
+              "type": "array",
+              "description": "Filter entries by field values",
+              "items": {}
+            },
+            "start_date": {
+              "type": "string",
+              "description": "Start date for filtering (LLM-friendly format, YYYY-MM-DD)"
+            },
+            "status": {
+              "type": "string",
+              "description": "Filter by entry status (active, spam, trash)"
+            }
+          }
+        }
+      }
+    }
+  },
+  "export_form_json": {
+    "description": "Export a complete form definition as JSON for migration or import_form_json. Notification recipients are replaced with {admin_email} and payment-gateway secrets are removed. The JSON is saved to the export store (never inlined) and returned as a summary, a gf-export:// resource link, and a download link or local path. Download promptly — files expire after the retention period.",
+    "input": {
+      "type": "object",
+      "required": [
+        "form_id"
+      ],
+      "properties": {
+        "filename": {
+          "type": "string",
+          "description": "Optional output filename. Defaults to form-{form_id}-{title-slug}.json."
+        },
+        "form_id": {
+          "type": "string",
+          "description": "ID of the form to export (required)"
+        },
+        "output_path": {
+          "type": "string",
+          "description": "Removed — rejected if set. Exports are returned as a download link and a gf-export:// resource."
+        }
+      }
+    }
+  },
+  "get_cache_status": {
+    "description": "Get comprehensive FormCache status and statistics for monitoring and debugging. Shows cache health, configuration, form counts, and last sync information.",
+    "input": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  "get_entries": {
+    "description": "Get entries from forms with filtering and pagination",
+    "input": {
+      "type": "object",
+      "properties": {
+        "entry_id": {
+          "type": "string",
+          "description": "Specific entry ID to retrieve"
+        },
+        "exclude_empty": {
+          "type": "boolean",
+          "description": "Drop abandoned submissions — entries whose every field value is empty — from the results. Filtering happens after fetch, so pagination totals still reflect the server's unfiltered count."
+        },
+        "field_detection": {
+          "type": "boolean",
+          "description": "Enable automatic field type detection for better search targeting (default: false)"
+        },
+        "field_ids": {
+          "type": "array",
+          "description": "Return only these field IDs (plus core entry metadata) instead of every field — greatly reduces response size for wide forms. Requested IDs also include their composite sub-inputs (e.g. \"1\" keeps \"1.3\"/\"1.6\"). Omit or pass an empty array to return all fields. Use get_field_mappings to discover IDs.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "form_id": {
+          "type": "string",
+          "description": "Form ID to get entries from"
+        },
+        "paging": {
+          "type": "object",
+          "properties": {
+            "current_page": {
+              "type": "number"
+            },
+            "offset": {
+              "type": "number"
+            },
+            "page_size": {
+              "type": "number"
+            }
+          }
+        },
+        "response_mode": {
+          "type": "string",
+          "description": "Response format mode: 'full' for complete entries, 'summary' to keep every populated field but truncate individually oversized values (truncated keys are listed under each entry's _summary), 'auto' for intelligent size management (default: auto)",
+          "enum": [
+            "auto",
+            "full",
+            "summary"
+          ]
+        },
+        "search": {
+          "type": "object",
+          "description": "Search criteria for filtering entries. Example: { \"field_filters\": [{ \"key\": \"1\", \"value\": \"Smith\", \"operator\": \"contains\" }], \"status\": \"active\" }. Operators: is, isnot, contains, >, <, >=, <="
+        },
+        "search_mode": {
+          "type": "string",
+          "description": "Search strategy: 'standard' for traditional field-specific search, 'universal' for intelligent multi-field search with auto-detection (default: standard)",
+          "enum": [
+            "standard",
+            "universal"
+          ]
+        },
+        "sorting": {
+          "type": "object",
+          "properties": {
+            "direction": {
+              "type": "string",
+              "enum": [
+                "ASC",
+                "DESC",
+                "RAND"
+              ]
+            },
+            "is_numeric": {
+              "type": "boolean"
+            },
+            "key": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  },
+  "get_export_link": {
+    "description": "Get a fresh download link (HTTP mode) or the local file path (stdio mode) for an existing export, by export ID. Use this when an export's download link has expired; the export itself is kept for the retention period.",
+    "input": {
+      "type": "object",
+      "required": [
+        "export_id"
+      ],
+      "properties": {
+        "export_id": {
+          "type": "string",
+          "description": "Export ID shown in an export result (the part after gf-export://)"
+        }
+      }
+    }
+  },
+  "get_field_mappings": {
+    "description": "Analyze a form's field structure and detect field types (name, email, phone, address). Call this before search_entries_universal to discover which field IDs to target for accurate search results.",
+    "input": {
+      "type": "object",
+      "required": [
+        "form_id"
+      ],
+      "properties": {
+        "form_id": {
+          "type": "string",
+          "description": "Form ID to analyze field structure for"
+        },
+        "include_details": {
+          "type": "boolean",
+          "description": "Include detailed field analysis information"
+        },
+        "refresh_cache": {
+          "type": "boolean",
+          "description": "Force refresh of cached field mappings"
+        }
+      }
+    }
+  },
+  "get_forms": {
+    "description": "Get all forms or specific form details",
+    "input": {
+      "type": "object",
+      "properties": {
+        "active_only": {
+          "type": "boolean",
+          "description": "When used with include_all=true, return only active (non-inactive) forms."
+        },
+        "exclude_trash": {
+          "type": "boolean",
+          "description": "When used with include_all=true, exclude forms marked as trash from results."
+        },
+        "form_id": {
+          "type": "string",
+          "description": "Optional form ID to get specific form details"
+        },
+        "include_all": {
+          "type": "boolean",
+          "description": "Include all forms (active and inactive) from local cache. If true, performs complete form discovery including hidden/inactive forms."
+        },
+        "include_fields": {
+          "type": "boolean",
+          "description": "Include full form field details"
+        },
+        "sort_by": {
+          "type": "string",
+          "description": "When used with include_all=true, sort forms by this field. 'id' and 'date_created' both order by recency (highest/newest first when sort_order=desc).",
+          "enum": [
+            "date_created",
+            "entry_count",
+            "id",
+            "title"
+          ]
+        },
+        "sort_order": {
+          "type": "string",
+          "description": "Sort direction for sort_by. Defaults to 'desc' (newest/highest first).",
+          "enum": [
+            "asc",
+            "desc"
+          ]
+        },
+        "summary_mode": {
+          "type": "boolean",
+          "description": "Return only essential form info for large forms to prevent context overflow. Auto-enabled for forms >20k tokens."
+        }
+      }
+    }
+  },
+  "get_server_info": {
+    "description": "Return this MCP server's name and version. Useful for support and bug reports.",
+    "input": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  "import_form_json": {
+    "description": "Import a form definition from JSON with automatic conflict resolution. Provide exactly one of form_json (the JSON string) or export_id (an export from export_form_json). Handles form ID conflicts, validates JSON structure, supports force import to overwrite existing forms. Maps field IDs and updates references (conditional logic, calculations) to maintain form integrity. Supports complete discovery to check conflicts against both active and inactive forms.",
+    "input": {
+      "type": "object",
+      "properties": {
+        "export_id": {
+          "type": "string",
+          "description": "ID of a JSON export from export_form_json to import (provide this or form_json)"
+        },
+        "force_import": {
+          "type": "boolean",
+          "description": "Force import and overwrite existing form with same title (optional, default: false)"
+        },
+        "form_json": {
+          "type": "string",
+          "description": "JSON string containing the form definition to import (provide this or export_id)"
+        },
+        "use_complete_discovery": {
+          "type": "boolean",
+          "description": "Use complete form discovery including inactive forms for conflict detection (optional, default: false)"
+        }
+      }
+    }
+  },
+  "list_form_templates": {
+    "description": "List all available form templates (forms with '-template' suffix). Returns template metadata including name, description, field count, and creation date. Supports optional filtering by search term and sorting by name or creation date.",
+    "input": {
+      "type": "object",
+      "properties": {
+        "include_all": {
+          "type": "boolean",
+          "description": "Include inactive/trashed templates by using local cache. When true, performs complete template discovery including inactive forms. When false (default), uses API-only discovery."
+        },
+        "search_term": {
+          "type": "string",
+          "description": "Optional search term to filter templates by name or description"
+        },
+        "sort_by": {
+          "type": "string",
+          "description": "Sort templates by name or creation date",
+          "enum": [
+            "date",
+            "name"
+          ]
+        },
+        "sort_order": {
+          "type": "string",
+          "description": "Sort order: ascending or descending",
+          "enum": [
+            "asc",
+            "desc"
+          ]
+        }
+      }
+    }
+  },
+  "process_entries_bulk": {
+    "description": "⚠️  WARNING: DESTRUCTIVE OPERATION ⚠️\n\nPerform bulk operations on multiple entries (delete, update status, update fields). This operation can permanently modify or delete large numbers of entries. ALWAYS confirm operations with 'confirm: true' parameter. Supports up to 100 entries per operation for safety.\n\nOperations:\n- delete: Permanently delete entries (CANNOT be undone)\n- update_status: Change entry status (active, spam, trash)\n- update_fields: Update specific field values\n\nSafety features: confirmation required, operation limits, rollback data for updates, audit trails.",
+    "input": {
+      "type": "object",
+      "required": [
+        "confirm",
+        "entry_ids",
+        "operation_type"
+      ],
+      "properties": {
+        "confirm": {
+          "type": "boolean",
+          "description": "REQUIRED: Must be true to execute destructive operations"
+        },
+        "data": {
+          "type": "object",
+          "description": "Data for update operations (required for update_status and update_fields)",
+          "properties": {
+            "status": {
+              "type": "string",
+              "description": "New status for update_status operations",
+              "enum": [
+                "active",
+                "spam",
+                "trash"
+              ]
+            }
+          }
+        },
+        "entry_ids": {
+          "type": "array",
+          "description": "Array of entry IDs to process (max 100)",
+          "items": {
+            "type": "string"
+          }
+        },
+        "operation_type": {
+          "type": "string",
+          "description": "Type of bulk operation to perform",
+          "enum": [
+            "delete",
+            "update_fields",
+            "update_status"
+          ]
+        }
+      }
+    }
+  },
+  "save_form_as_template": {
+    "description": "Save an existing form as a reusable template. Clones the form structure while removing form-specific data like entries and notifications. The template can then be used to create new forms with similar structure.",
+    "input": {
+      "type": "object",
+      "required": [
+        "form_id"
+      ],
+      "properties": {
+        "form_id": {
+          "type": "string",
+          "description": "ID of the form to convert to a template (required)"
+        },
+        "template_name": {
+          "type": "string",
+          "description": "Name for the template (optional - defaults to form title + '-template')"
+        }
+      }
+    }
+  },
+  "search_entries_by_name": {
+    "description": "Search form entries by name across all name fields automatically",
+    "input": {
+      "type": "object",
+      "required": [
+        "form_id",
+        "search_text"
+      ],
+      "properties": {
+        "form_id": {
+          "type": "string",
+          "description": "Form ID to search entries in"
+        },
+        "max_results": {
+          "type": "number",
+          "description": "Maximum number of results to return"
+        },
+        "output_mode": {
+          "type": "string",
+          "description": "Output format mode",
+          "enum": [
+            "auto",
+            "detailed",
+            "minimal",
+            "summary"
+          ]
+        },
+        "search_text": {
+          "type": "string",
+          "description": "Name text to search for"
+        },
+        "strategy": {
+          "type": "string",
+          "description": "Search strategy to use",
+          "enum": [
+            "auto",
+            "contains",
+            "exact",
+            "fuzzy"
+          ]
+        }
+      }
+    }
+  },
+  "search_entries_universal": {
+    "description": "Advanced multi-field search across name, email, phone, and custom fields with AND/OR logic. Use this for cross-field searches (e.g., name AND email), specific field ID targeting, or when search_entries_by_name is too limited. Use get_field_mappings first to discover field IDs for targeted searches.",
+    "input": {
+      "type": "object",
+      "required": [
+        "form_id",
+        "search_queries"
+      ],
+      "properties": {
+        "filters": {
+          "type": "object",
+          "description": "Additional filtering options",
+          "properties": {
+            "date_range": {
+              "type": "object",
+              "properties": {
+                "end": {
+                  "type": "string"
+                },
+                "start": {
+                  "type": "string"
+                }
+              }
+            },
+            "payment_status": {
+              "type": "string",
+              "enum": [
+                "Cancelled",
+                "Paid",
+                "Processing",
+                "Unpaid"
+              ]
+            }
+          }
+        },
+        "form_id": {
+          "type": "string",
+          "description": "Form ID to search entries in"
+        },
+        "logic": {
+          "type": "string",
+          "description": "Logic operator between queries",
+          "enum": [
+            "AND",
+            "OR"
+          ]
+        },
+        "output_options": {
+          "type": "object",
+          "description": "Output formatting controls",
+          "properties": {
+            "include_field_mappings": {
+              "type": "boolean",
+              "description": "Include field mapping information"
+            },
+            "max_results": {
+              "type": "number",
+              "description": "Maximum results to return"
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "auto",
+                "detailed",
+                "minimal",
+                "summary"
+              ]
+            }
+          }
+        },
+        "search_queries": {
+          "type": "array",
+          "description": "Array of search queries with targeting options",
+          "items": {
+            "type": "object",
+            "required": [
+              "text"
+            ],
+            "properties": {
+              "field_ids": {
+                "type": "array",
+                "description": "Specific field IDs to target (overrides field_types)",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "field_types": {
+                "type": "array",
+                "description": "Field types to target (name, email, phone, team)",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "text": {
+                "type": "string",
+                "description": "Search text for this query"
+              }
+            }
+          }
+        },
+        "strategy": {
+          "type": "string",
+          "description": "Search strategy to apply to all queries",
+          "enum": [
+            "auto",
+            "contains",
+            "exact",
+            "fuzzy"
+          ]
+        }
+      }
+    }
+  },
+  "submit_form": {
+    "description": "Submit a form with field values",
+    "input": {
+      "type": "object",
+      "required": [
+        "field_values",
+        "form_id"
+      ],
+      "properties": {
+        "field_values": {
+          "type": "object",
+          "description": "Field values as key-value pairs (e.g., 'input_1': 'value')"
+        },
+        "form_id": {
+          "type": "string",
+          "description": "Form ID to submit to"
+        },
+        "source_page": {
+          "type": "number",
+          "description": "Source page number"
+        },
+        "target_page": {
+          "type": "number",
+          "description": "Target page number"
+        }
+      }
+    }
+  },
+  "update_entry": {
+    "description": "Update an existing entry",
+    "input": {
+      "type": "object",
+      "required": [
+        "entry_id",
+        "field_values"
+      ],
+      "properties": {
+        "entry_id": {
+          "type": "string",
+          "description": "Entry ID to update"
+        },
+        "field_values": {
+          "type": "object",
+          "description": "Field values to update"
+        }
+      }
+    }
+  },
+  "update_form": {
+    "description": "Replace an existing form with a full form definition. Both title and fields are required — the form is fully replaced, so any fields omitted from the payload will be removed.",
+    "input": {
+      "type": "object",
+      "required": [
+        "form_id"
+      ],
+      "properties": {
+        "confirmations": {
+          "type": "object",
+          "description": "Form confirmations"
+        },
+        "debug": {
+          "type": "boolean",
+          "description": "Enable debug logging for troubleshooting"
+        },
+        "description": {
+          "type": "string",
+          "description": "Updated form description"
+        },
+        "fields": {
+          "type": "array",
+          "description": "Updated array of field objects",
+          "items": {}
+        },
+        "form_id": {
+          "type": "string",
+          "description": "ID of the form to update"
+        },
+        "notifications": {
+          "type": "object",
+          "description": "Form notifications"
+        },
+        "response_format": {
+          "type": "string",
+          "description": "Response format (detailed, compact, or minimal)",
+          "enum": [
+            "compact",
+            "detailed",
+            "minimal"
+          ]
+        },
+        "settings": {
+          "type": "object",
+          "description": "Updated form settings"
+        },
+        "title": {
+          "type": "string",
+          "description": "Updated form title"
+        },
+        "validate_fields": {
+          "type": "boolean",
+          "description": "Validate field types before updating"
+        }
+      }
+    }
+  }
+}
