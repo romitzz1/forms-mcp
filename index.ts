@@ -450,13 +450,10 @@ export class GravityFormsMCPServer {
    */
   private registerTools(target: McpServer): void {
     for (const [name, def] of Object.entries(TOOL_SCHEMAS)) {
-      // McpServer.registerTool is generic over the per-tool Zod input shape.
-      // TOOL_SCHEMAS holds heterogeneous shapes looped over dynamically here. Under
-      // Zod 3 / SDK 1.29 this tripped TS2589 ("Type instantiation is excessively deep
-      // and possibly infinite") unless inputSchema was cast to `any` at this boundary;
-      // dispatchTool below does the real argument validation via each tool's own typed
-      // Args interface. SDK 1.32's registerTool generic (ZodRawShapeCompat, covering both
-      // Zod 3 and Zod 4 raw shapes) resolves that instantiation without needing the cast.
+      // McpServer.registerTool types inputSchema via ZodRawShapeCompat (Record<string,
+      // AnySchema>), a structural type that resolves cleanly for TOOL_SCHEMAS' heterogeneous
+      // shapes registered in this loop; dispatchTool below does the real argument validation
+      // via each tool's own typed Args interface.
       target.registerTool(
         name,
         { description: def.description, inputSchema: def.inputSchema },
