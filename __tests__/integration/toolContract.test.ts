@@ -5,7 +5,9 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { promises as fsp } from 'node:fs';
 import * as path from 'node:path';
+import { z } from 'zod';
 import { GravityFormsMCPServer } from '../../index';
+import { TOOL_SCHEMAS } from '../../utils/toolSchemas';
 import { normalizeToolList } from '../utils/toolContract';
 
 const FIXTURE = path.join(__dirname, '..', 'fixtures', 'toolContract.json');
@@ -31,7 +33,7 @@ describe('tools/list contract', () => {
     expect(contract).toStrictEqual(expected);
   });
 
-  it('still applies defaults and accepts the documented argument shapes', async () => {
+  it('accepts the documented argument shapes and reaches dispatch', async () => {
     const server = new GravityFormsMCPServer();
     const [clientT, serverT] = InMemoryTransport.createLinkedPair();
     await server.createSessionServer().connect(serverT);
@@ -50,5 +52,16 @@ describe('tools/list contract', () => {
     }
     await client.close();
     expect(text).toContain('Export not found');
+  });
+
+  it('applies schema defaults to empty input', () => {
+    expect(z.object(TOOL_SCHEMAS.get_forms.inputSchema).parse({})).toStrictEqual({
+      include_fields: false,
+      include_all: false,
+      exclude_trash: false,
+      summary_mode: false,
+      sort_order: 'desc',
+      active_only: false,
+    });
   });
 });
